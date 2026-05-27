@@ -1,0 +1,27 @@
+{
+  "contractName": "VerifiedAttestation",
+  "constructorInputs": [],
+  "abi": [
+    { "name": "consume", "inputs": [] }
+  ],
+  "bytecode": "OP_INPUTINDEX OP_UTXOTOKENCOMMITMENT OP_1 OP_SPLIT OP_DROP 70 OP_EQUAL",
+  "source": "pragma cashscript >= 0.13.0;\n\n// VerifiedAttestation — short-lived NFT consumed by Oracle.update.\n//\n// Trust model: this contract has TRIVIAL constraints. The trust comes from\n// CATEGORY pinning at the Oracle level:\n//   - Only TLSNotaryGateway covenant can mint NFTs in `attestationCategory`.\n//   - Oracle constructor pins `attestationCategory` and only accepts VA inputs\n//     whose category matches.\n//   - Therefore, a VA's commitment is implicitly trusted (TLS-notary verified\n//     by gateway at mint time).\n//\n// VA commitment layout (51 B):\n//   [0]       version           1 B   0x70 tag\n//   [1..3)    sourceId          2 B   u16 LE — declared source (e.g. 1=kraken)\n//   [3..23)   pubkeyHash160    20 B   HASH160(publisher pubkey) — accountability\n//   [23..27)  expiryLocktime    4 B   u32 LE — VA must be consumed before this\n//   [27..35)  reserved          8 B   future fields\n//   [35..43)  price             8 B   u64 LE — notary-witnessed price (USD × 1e8)\n//   [43..47)  timestamp         4 B   u32 LE — notary wall-clock timestamp\n//   [47..51)  cycle_seq         4 B   u32 LE — Oracle cycle this attests to\n\ncontract VerifiedAttestation() {\n    // CONSUME — anyone-can-spend, no constraints beyond version check.\n    //\n    // The VA NFT is single-use: once consumed (by Oracle.update or by an\n    // expiry-sweep), it's burned. Oracle alone validates consumption semantics.\n    //\n    // Why is this safe with zero constraints?\n    //   - Oracle.update REQUIRES tx.inputs[i].tokenCategory == attestationCategory\n    //   - Only TLSNotaryGateway can mint that category (covenant guarantee)\n    //   - Gateway has already verified notary sig + merkle proof + JSON extract\n    //     + server-name binding before minting\n    //   - Oracle reads the commitment directly — trusts the data was verified upstream\n    //\n    // op-cost: minimal (just version-byte check). Per-input budget unused.\n    function consume() {\n        require(tx.inputs[this.activeInputIndex].nftCommitment.slice(0, 1) == 0x70);\n    }\n}\n",
+  "debug": {
+    "bytecode": "c0cf517f75017087",
+    "sourceMap": "38:26:38:47;:16::62:1;:72::73:0;:16::74:1;;:78::82:0;:8::84:1",
+    "logs": [],
+    "requires": [
+      { "ip": 7, "line": 38 }
+    ]
+  },
+  "compiler": {
+    "name": "cashc",
+    "version": "0.13.0-next.8",
+    "options": {
+      "enforceFunctionParameterTypes": true,
+      "enforceLocktimeGuard": true
+    }
+  },
+  "updatedAt": "2026-05-27T04:53:05.945Z",
+  "fingerprint": "f37d3365650b716b44b58044aa3a0d2e7a1baae9161506ebcc31d4b5a4c2db44"
+}

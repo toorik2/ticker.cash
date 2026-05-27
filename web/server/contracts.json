@@ -1,0 +1,15 @@
+{
+  "version": "v11.0.0",
+  "deployedAt": "2026-05-26T17:54:00.000Z",
+  "oracle": {
+    "address": "bchtest:r0kfwje9xwve7ktzrvcuu87xt26xv9yuqtn2xknqh2xkzyvtyfhwumw2879ua",
+    "category": "3f16aeb19f89aa242f58d92e79b97a2fc17e0b565c328bde6f7a18e46bb86a75"
+  },
+  "gateway": {
+    "address": "bchtest:rwdf283qtmqcedp33g3q4d53kcpf8rlpcwrvpzxnv5vh2ryjy4536rf0xx3ld",
+    "category": "610f75b76116ab1c97cc9e101cd4e72446b36022bcfa0e8bb36b7df5308cac81"
+  },
+  "ticker": {
+    "address": "bchtest:r0r403dhnnahycepwklerew4js0q6t2eme69ex3vvgkuk7jps8hdcrntknsph"
+  }
+}

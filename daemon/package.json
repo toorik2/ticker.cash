@@ -1,0 +1,25 @@
+{
+  "name": "@ticker/daemon",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Notary + publisher + deploy daemons for the BCH/USD ticker on chipnet.",
+  "scripts": {
+    "compile": "cashc ../contracts/Oracle.cash -o ../contracts/artifacts/Oracle.json && cashc ../contracts/Ticker.cash -o ../contracts/artifacts/Ticker.json && cashc ../contracts/VerifiedAttestation.cash -o ../contracts/artifacts/VerifiedAttestation.json && cashc ../contracts/TLSNotaryGateway.cash -o ../contracts/artifacts/TLSNotaryGateway.json",
+    "deploy": "tsx scripts/deploy.ts",
+    "notary": "tsx scripts/notary.ts",
+    "publisher": "tsx scripts/publisher.ts",
+    "ticker-node": "tsx scripts/ticker-node.ts"
+  },
+  "dependencies": {
+    "@bitauth/libauth": "3.1.0-next.8",
+    "cashscript": "0.13.0-next.8",
+    "@electrum-cash/network": "^4.0.0",
+    "@electrum-cash/tcp-socket": "^1.0.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.20",
+    "cashc": "0.13.0-next.8",
+    "typescript": "^5.5",
+    "@types/node": "^22"
+  }
+}

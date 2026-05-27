@@ -1,0 +1,29 @@
+# Node / npm
+node_modules/
+*.log
+.npm/
+package-lock.json
+
+# Local-only secrets — never commit
+.ticker/
+.env
+.env.local
+secrets/
+*.wif
+*.pem
+*.key
+seed.hex
+seed.hex.*
+
+# Build artefacts
+web/dist/
+*.tsbuildinfo
+.cache/
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db

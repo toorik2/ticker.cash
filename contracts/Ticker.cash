@@ -1,0 +1,39 @@
+pragma cashscript >= 0.13.0;
+
+// Ticker — self-replicating chain head for atomic price consumption.
+//
+// Each Oracle.update cycle mints K (= 4) Ticker NFTs with MUTABLE capability
+// (0x01). A consumer's tx spends a Ticker at input[idx] and is required to
+// re-emit an IDENTICAL Ticker at output[idx] (same lockingBytecode, same
+// tokenCategory including the mutable capability suffix, same nftCommitment,
+// dust value preserved). This creates a chain of consumers — each is a chain
+// descendant of the Oracle.update tx that produced the original Ticker, and
+// every consumer in the chain inherits co-finality via parent-child outpoint
+// linkage (BCH consensus enforces parent in canonical chain ⇒ child in
+// canonical chain).
+//
+// Capacity per cycle ≈ K × D where K is the number of pre-minted heads (4)
+// and D is the achievable chain depth (RTT-bounded, typically thousands).
+//
+// The Ticker covenant has no auth gate beyond the version byte and the
+// structural re-emit constraint — anyone can spend and continue the chain.
+
+contract Ticker() {
+    function consume() {
+        int idx = this.activeInputIndex;
+
+        // Input shape sanity
+        require(tx.inputs[idx].nftCommitment.slice(0, 1) == 0x80);
+        require(tx.inputs[idx].nftCommitment.length == 17);
+
+        // Self-replicate at the same output index. Full equality on:
+        //  - lockingBytecode (35 B P2SH-32 of this Ticker covenant)
+        //  - tokenCategory (33 B = 32-byte category + 0x01 mutable suffix)
+        //  - nftCommitment (17 B — preserves price/lastTs/seq verbatim)
+        //  - dust floor preserved (≥ 1000 sats)
+        require(tx.outputs[idx].lockingBytecode == tx.inputs[idx].lockingBytecode);
+        require(tx.outputs[idx].tokenCategory == tx.inputs[idx].tokenCategory);
+        require(tx.outputs[idx].nftCommitment == tx.inputs[idx].nftCommitment);
+        require(tx.outputs[idx].value >= 1000);
+    }
+}
