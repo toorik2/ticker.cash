@@ -1,33 +1,41 @@
 pragma cashscript >= 0.13.0;
 
-// Oracle — singleton covenant that aggregates VerifiedAttestations into a
-// per-cycle median price commitment, and emits a fresh batch of Ticker NFTs
-// for downstream consumers.
+// Oracle v12 — RFC-013: PublisherSlot-based attestation aggregator.
 //
-// ── Consumer model ────────────────────────────────────────────────────────
-// Each cycle mints K=4 MUTABLE Ticker NFTs (capability 0x01). Each Ticker
-// is the head of a self-replicating consumer chain: a consumer spends the
-// head, the Ticker covenant requires identical re-emit at the same output
-// index, and the next consumer spends that re-emit. K parallel chains ×
-// arbitrary depth ≈ K × (cycle_time / relay_RTT) consumers per cycle.
+// ── Diff from v11 ──────────────────────────────────────────────────────
+// v11 walked VA inputs and BURNED each one (consumed without re-emit). VAs
+// not selected for the cycle's quorum became permanent orphans (~8.6k/day
+// at the shared VA address).
 //
-// ── Commitment layouts ────────────────────────────────────────────────────
-// Oracle (19 B, version 0x60):
+// v12 walks PublisherSlot inputs and RE-EMITS each one unchanged at the
+// matching output index. Slots are persistent per-publisher mutable NFTs.
+// The set of attestation-category UTXOs is fixed at 13 forever.
+//
+// ── Other changes ──────────────────────────────────────────────────────
+//   - VA category check (32-byte equality) → slot category check + mutable
+//     capability byte (0x01) check
+//   - VA commitment layout (51 B at v11) → slot layout (39 B at v12);
+//     read positions shift accordingly
+//   - Ticker mint outputs move from [1, 2] → [numAttestations+1, +2] so
+//     they sit after the slot re-emits at [1..numAttestations+1)
+//   - K=2 Ticker count unchanged from v11
+//   - Median / ratchet / time-stride logic identical to v11
+//
+// ── Commitment layouts ─────────────────────────────────────────────────
+// Oracle (19 B, version 0x60) — UNCHANGED from v11:
 //   [0]       0x60                          1 B
 //   [1..5)    seq                          4 B   u32 LE  +1 per cycle
 //   [5..9)    lastTs                       4 B   u32 LE  notary-attested time
 //   [9..17)   medianPrice                  8 B   u64 LE  sat-scaled USD/BCH
 //   [17..19)  activeCount                  2 B   u16 LE  threshold ratchet
 //
-// Ticker (17 B, version 0x80) — minted at outputs[1..5):
-//   [0]       0x80                          1 B
-//   [1..5)    seq                          4 B   matches Oracle
-//   [5..9)    lastTs                       4 B   matches Oracle
-//   [9..17)   medianPrice                  8 B   matches Oracle
+// Slot (39 B, version 0x72) — see PublisherSlot.cash for full layout.
+//
+// Ticker (17 B, version 0x80) — UNCHANGED from v11.
 
 contract Oracle(
     bytes35 tickerLockingBytecode,
-    bytes32 attestationCategoryReversed
+    bytes32 slotCategoryReversed
 ) {
     function update(
         bytes pricesBlob,
@@ -43,81 +51,88 @@ contract Oracle(
         int idx = this.activeInputIndex;
         int numAttestations = pricesBlob.length / 8;
         require(numAttestations >= 7);
-        require(numAttestations <= 100);
+        require(numAttestations <= 13);
 
-        // Self-replication (Oracle state NFT)
+        // ── Self-replication (Oracle state NFT) ──────────────────────
         require(tx.outputs[0].lockingBytecode == tx.inputs[idx].lockingBytecode);
         require(tx.outputs[0].tokenCategory == tx.inputs[idx].tokenCategory);
         require(tx.outputs[0].value == 2000);
 
-        // Read previous Oracle state
+        // ── Read previous Oracle state ───────────────────────────────
         bytes oldCommit = tx.inputs[idx].nftCommitment;
         require(oldCommit.length == 19);
         require(oldCommit.slice(0, 1) == 0x60);
         int prevTs = int(oldCommit.slice(5, 9));
         int newTs  = int(claimedNewTs);
 
-        // ── Time stride (notary-attested, monotonic) ─────────────────────
-        // No upper bound on stride: upperVotes already pins newTs to
-        // median(vaTs) + 120, which honest notaries cap at ≈ wall_clock.
-        // Removing the explicit stride ceiling lets the chain self-heal
-        // from any idle duration in a single catch-up cycle.
+        // ── Time stride (notary-attested, monotonic) ─────────────────
+        // No upper bound on stride: upperVotes pins newTs to median(slotTs)
+        // + 120, honest notaries cap at ≈ wall_clock. Removing the upper
+        // ceiling lets the chain self-heal from any idle duration in a
+        // single catch-up cycle.
         require(newTs > prevTs);
         require(newTs - prevTs >= 30);
 
         int newSeq    = int(oldCommit.slice(1, 5)) + 1;
         int oldActive = int(oldCommit.slice(17, 19));
 
-        // Threshold gate — quorum ratchets up at 50% of the active count, floored at 7.
-        //
-        // With N_steady = 13 publishers, the prior 70% ratchet locked the
-        // threshold at ⌈0.7 × 13⌉ = 10. A simultaneous 4-publisher failure
-        // would force the cycle below 10 attestations → require() reverts
-        // → oldActive is never updated → ratchet stays stuck at 10 forever
-        // (the brick). Lowering to 50% caps the steady-state threshold at
-        // ⌈0.5 × 13⌉ = 7, which equals T_floor anyway — so we always have
-        // 6-publisher failure tolerance.
-        //
-        // Sybil resistance is preserved by the distinct-pubkeyHash160 check
-        // in the VA loop (load-bearing anti-Sybil), not by the ratchet.
+        // ── Threshold gate (50% ratchet, T_floor = 7) ────────────────
+        // Sybil resistance is preserved by the distinct-publisherPkh check
+        // in the slot loop (load-bearing anti-Sybil), not by the ratchet.
         int thr = (oldActive * 5 + 9) / 10;
         if (thr < 7) {
             thr = 7;
         }
         require(numAttestations >= thr);
 
-        // ── Walk VA inputs ───────────────────────────────────────────────
+        // ── Walk PublisherSlot inputs ────────────────────────────────
+        // Two-loop structure (slot-walk + median-position) is intentional.
+        // Empirical: at N=13 the merged-loop variant runs 74.9% per-input
+        // op-cost vs 67.6% for two separate loops — the merge forces more
+        // locals onto the stack, deepening OP_PICK/OP_ROLL per iteration,
+        // AND inflates redeem-script bytecode (which counts against the
+        // input's op-cost budget). Keep them separate.
         int jitter = 120;
         int lowerVotes = 0;
         int upperVotes = 0;
         bytes prevPkh = 0x;
         for (int i = 0; i < numAttestations; i = i + 1) {
-            int vaIdx = i + 1;
-            require(tx.inputs[vaIdx].tokenCategory.slice(0, 32) == attestationCategoryReversed);
-            bytes vaCommit = tx.inputs[vaIdx].nftCommitment;
-            require(vaCommit.length == 51);
-            require(vaCommit.slice(0, 1) == 0x70);
-            bytes pkh = vaCommit.slice(3, 23);
+            int slotIdx = i + 1;
+
+            // Category: 32-byte slot category + mutable capability byte
+            require(tx.inputs[slotIdx].tokenCategory.slice(0, 32) == slotCategoryReversed);
+            require(tx.inputs[slotIdx].tokenCategory.slice(32, 33) == 0x01);
+
+            bytes slotCommit = tx.inputs[slotIdx].nftCommitment;
+            require(slotCommit.length == 39);
+            require(slotCommit.slice(0, 1) == 0x72);
+
+            // Distinct + monotonically-sorted pkh (anti-Sybil)
+            bytes pkh = slotCommit.slice(3, 23);
             if (i > 0) {
                 require(int(pkh + 0x00) > int(prevPkh + 0x00));
             }
             prevPkh = pkh;
 
-            int vaTimestamp = int(vaCommit.slice(43, 47));
-            if (vaTimestamp + jitter >= newTs) {
+            // Timestamp votes (median-of-medians, ±jitter window)
+            int slotTimestamp = int(slotCommit.slice(31, 35));
+            if (slotTimestamp + jitter >= newTs) {
                 lowerVotes = lowerVotes + 1;
             }
-            if (vaTimestamp <= newTs + jitter) {
+            if (slotTimestamp <= newTs + jitter) {
                 upperVotes = upperVotes + 1;
             }
 
-            require(int(vaCommit.slice(47, 51)) == newSeq);
-            require(vaCommit.slice(35, 43) == pricesBlob.slice(i * 8, i * 8 + 8));
+            // Cycle freshness: slot must attest to THIS cycle
+            require(int(slotCommit.slice(35, 39)) == newSeq);
+
+            // Price matches caller-supplied blob
+            require(slotCommit.slice(23, 31) == pricesBlob.slice(i * 8, i * 8 + 8));
         }
         require(lowerVotes * 2 > numAttestations);
         require(upperVotes * 2 > numAttestations);
 
-        // ── Median position ──────────────────────────────────────────────
+        // ── Median position check ────────────────────────────────────
         int medianVal   = int(claimedMedian);
         int actualLower = 0;
         int actualUpper = 0;
@@ -139,7 +154,7 @@ contract Oracle(
         require(actualLower <= half);
         require(actualLower + (numAttestations - actualLower - actualUpper) > half);
 
-        // ── activeCount ratchet ──────────────────────────────────────────
+        // ── activeCount ratchet ──────────────────────────────────────
         int decayed = oldActive * 9 / 10;
         int newActive = numAttestations;
         if (decayed > newActive) {
@@ -149,51 +164,44 @@ contract Oracle(
             newActive = 7;
         }
 
-        // ── New Oracle commitment (output[0]) ────────────────────────────
+        // ── New Oracle commitment (output[0]) ────────────────────────
         bytes seqBytes         = toPaddedBytes(newSeq, 4);
         bytes activeCountBytes = toPaddedBytes(newActive, 2);
-        bytes newOracleCommit = 0x60 + seqBytes + claimedNewTs + claimedMedian + activeCountBytes;
+        bytes newOracleCommit  = 0x60 + seqBytes + claimedNewTs + claimedMedian + activeCountBytes;
         require(newOracleCommit.length == 19);
         require(tx.outputs[0].nftCommitment == newOracleCommit);
 
-        // ── K=2 Mutable Ticker mints (outputs[1..3)) ─────────────────────
-        // 17-byte commitment mirrors the new Oracle state (omits activeCount).
-        // MUTABLE capability (0x01) — required so consumers can re-emit
-        // identical Tickers downstream via Ticker.consume(). Immutable would
-        // forbid re-emit; minting would let anyone forge.
-        //
-        // Per CashTokens consensus, a minting parent (Oracle) can mint
-        // children of any capability. We deliberately downgrade to mutable
-        // so the chain is non-forking and non-forging.
+        // ── K=2 Mutable Ticker mints ────────────────────────────────
+        // Output indices: [numAttestations+1] and [numAttestations+2], so
+        // they sit AFTER the slot re-emits at [1..numAttestations+1).
         bytes newTickerCommit = 0x80 + seqBytes + claimedNewTs + claimedMedian;
         require(newTickerCommit.length == 17);
 
         // Ticker token category = bare 32-byte Oracle category + 0x01
-        // (mutable capability suffix). 33 bytes total.
         bytes tickerCategory = tx.inputs[idx].tokenCategory.slice(0, 32) + 0x01;
         require(tickerCategory.length == 33);
 
-        // Mint 2 identical Ticker heads — enough head-room to spread peak
-        // consumer demand across independent outpoints without paying the
-        // dust+bytecode cost of K=4.
-        require(tx.outputs[1].lockingBytecode == tickerLockingBytecode);
-        require(tx.outputs[1].tokenCategory == tickerCategory);
-        require(tx.outputs[1].nftCommitment == newTickerCommit);
+        int tickerIdx0 = numAttestations + 1;
+        int tickerIdx1 = numAttestations + 2;
 
-        require(tx.outputs[2].lockingBytecode == tickerLockingBytecode);
-        require(tx.outputs[2].tokenCategory == tickerCategory);
-        require(tx.outputs[2].nftCommitment == newTickerCommit);
+        require(tx.outputs[tickerIdx0].lockingBytecode == tickerLockingBytecode);
+        require(tx.outputs[tickerIdx0].tokenCategory == tickerCategory);
+        require(tx.outputs[tickerIdx0].nftCommitment == newTickerCommit);
 
-        // ── Output-count constraint ──────────────────────────────────────
-        // Layout: [0] Oracle re-emit, [1..3) 2 Ticker heads, [3] optional
-        // funder change. Total ∈ {3, 4}. Blocks shadow mints at output[≥3]
-        // (covenant-shadow attack: a mutable Ticker output with the same
-        // category but different lockingBytecode would not actually self-
-        // replicate via the Ticker covenant).
-        require(tx.outputs.length >= 3);
-        require(tx.outputs.length <= 4);
-        if (tx.outputs.length == 4) {
-            require(tx.outputs[3].tokenCategory == 0x);
+        require(tx.outputs[tickerIdx1].lockingBytecode == tickerLockingBytecode);
+        require(tx.outputs[tickerIdx1].tokenCategory == tickerCategory);
+        require(tx.outputs[tickerIdx1].nftCommitment == newTickerCommit);
+
+        // ── Output-count constraint ──────────────────────────────────
+        // Layout: [0] Oracle re-emit, [1..numAttestations+1) slot re-emits,
+        // [numAttestations+1, +2] 2 Ticker heads, [+3] optional funder change.
+        // Total ∈ {numAttestations+3, numAttestations+4}.
+        int minOutputs = numAttestations + 3;
+        int maxOutputs = numAttestations + 4;
+        require(tx.outputs.length >= minOutputs);
+        require(tx.outputs.length <= maxOutputs);
+        if (tx.outputs.length == maxOutputs) {
+            require(tx.outputs[numAttestations + 3].tokenCategory == 0x);
         }
     }
 }

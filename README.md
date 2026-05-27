@@ -12,7 +12,20 @@ Live at [usd.ticker.cash](https://usd.ticker.cash). Reference docs at [usd.ticke
 contracts/         CashScript covenants + compiled artifacts.
 daemon/            Notary, publisher, and deploy scripts (Node + tsx).
 web/               Standalone HTML + Express JSON API (Vite-free).
+references/        Local copy of CashScript language reference (gitignored).
+DEPLOY-V12.md      Runbook for the v12 deploy (chipnet ceremony + cutover).
 ```
+
+## v12 architecture
+
+- 13 mutable `PublisherSlot` NFTs, one per `(publisher, sourceId)` pair, minted ONCE at genesis. After that, the slot category is closed forever by CashTokens consensus — no further mints possible.
+- Each publisher's daemon refreshes their slot via `PublisherSlot.attest()` per cycle (notary sig + publisher sig + cycleSeq monotonicity check). The slot UTXO outpoint changes; its `(sourceId, publisherPkh)` identity does not.
+- `Oracle.update()` consumes ≥ 7 slot inputs and re-emits each one unchanged at the matching output index. Mints 2 mutable `Ticker` NFTs per cycle for consumers.
+- No more `VerifiedAttestation` NFTs (and therefore no orphan accumulation). No more `TLSNotaryGateway` covenant — its notary-sig verification moved into `PublisherSlot.attest()`.
+
+The v12 design closes the VA-orphan accumulation problem (v11 created ~8.6k orphan VAs/day) and tightens two `consume()` invariants caught by two rounds of red-team competition: full 33-byte category equality (Oracle minting-cap pin) and Oracle covenant `lockingBytecode` pin (rejects operator-genesis duplicate 0x02 NFTs).
+
+See `contracts/PublisherSlot.cash` + `contracts/Oracle.cash` for the load-bearing covenant logic. See `DEPLOY-V12.md` for the deploy runbook.
 
 ## Quick start
 

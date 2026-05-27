@@ -27,3 +27,7 @@ web/dist/
 *.swo
 .DS_Store
 Thumbs.db
+
+# Local-only working aid — fetched from github.com/toorik2/BCH_Knowledge_Base
+references/cashscript-language-reference.md
+CLAUDE.md

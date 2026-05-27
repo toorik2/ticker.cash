@@ -1,15 +1,26 @@
 #!/usr/bin/env tsx
 /**
- * Chipnet deploy ceremony.
+ * Chipnet deploy ceremony (v12 architecture).
  *
- * Three covenants get minted in a fixed order:
- *   1. Ticker (no constructor args; address derived from compiled bytecode).
- *   2. TLSNotaryGateway (7 notary pubkeys + 13-source CN-hash blob + VA
- *      locking bytecode + expiry offset). A minting NFT is issued at the
- *      gateway address from a master-funded UTXO; this funding txid becomes
- *      the attestation category for all subsequent VerifiedAttestations.
- *   3. Oracle (Ticker locking bytecode + LE-reversed attestation category).
- *      Genesis state NFT is minted with a bootstrap median price.
+ * Two genesis transactions are constructed and broadcast:
+ *
+ *   1. Slot genesis tx: spends a fresh non-token vout=0 outpoint owned by
+ *      `master`. The first input's txid becomes the slot category. The tx
+ *      creates 13 mutable (0x01) PublisherSlot NFTs at the PublisherSlot
+ *      P2SH-32 address, one per (publisher, sourceId) pair. After this tx
+ *      confirms, the slot category is closed forever (CashTokens consensus).
+ *
+ *   2. Oracle genesis tx: spends a separate fresh outpoint. Mints exactly
+ *      ONE minting (0x02) Oracle state NFT at the Oracle P2SH-32 address,
+ *      with a 19-byte commit carrying (seq=0, lastTs=now-60s, median=$BCH).
+ *
+ * Dependency order (categories are circular):
+ *   - Oracle constructor takes `slotCategoryReversed` (= LE of slot txid).
+ *   - PublisherSlot constructor takes `oracleCategoryReversed` AND
+ *     `oracleLockingBytecode` (P2SH-32 of Oracle covenant).
+ *   So we: pick both genesis outpoints → derive both categories → construct
+ *   Oracle Contract (yields oracleLockingBytecode) → construct PublisherSlot
+ *   Contract → broadcast both genesis txs.
  *
  * State file: .ticker/deploy-state.json
  *
@@ -21,6 +32,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import {
   binToHex,
+  hash160,
 } from '@bitauth/libauth';
 import {
   Contract,
@@ -43,28 +55,29 @@ const buildLocalProvider = (): ElectrumNetworkProvider => {
   });
   return new ElectrumNetworkProvider(Network.CHIPNET, { electrum: client });
 };
+
 import {
   OracleArtifact,
-  VerifiedAttestationArtifact,
+  PublisherSlotArtifact,
   TickerArtifact,
-  TLSNotaryGatewayArtifact,
 } from '../src/load-artifacts.js';
-import { deriveWallets, loadSeed, NOTARY_COUNT } from '../src/keys.js';
+import { deriveWallets, NOTARY_COUNT, PUBLISHER_COUNT } from '../src/keys.js';
+import { loadSeed } from '../src/seed.js';
 import {
   SOURCES,
   SOURCE_COUNT,
   sourceCNHashHex,
   packedSourceCNHashes,
   ORACLE_DUST,
-  GATEWAY_DUST,
-  VA_EXPIRY_OFFSET,
   reverseHex,
+  u16LE,
 } from '../src/helpers.js';
 import { encodeOracleCommit } from '../src/oracle-update.js';
 
 const STATE_PATH = '.ticker/deploy-state.json';
 const FUND_RESERVE_SATS = 5_000n;
-const GENESIS_INPUT_MIN_SATS = 8_000n;
+const GENESIS_INPUT_MIN_SATS = 20_000n;
+const SLOT_DUST = 1_000n;
 const explorerTxUrl = (txid: string): string => `https://chipnet.imaginary.cash/tx/${txid}`;
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -104,16 +117,17 @@ const fetchBootstrapMedianSats = async (): Promise<bigint> => {
 interface DeployState {
   tickerAddress?: string;
   tickerLockingBytecodeHex?: string;
-  gatewayCategory?: string;
-  gatewayMintTxid?: string;
-  gatewayAddress?: string;
-  vaAddress?: string;
-  vaLockingBytecodeHex?: string;
+  slotCategory?: string;
+  slotMintTxid?: string;
+  slotAddress?: string;
+  slotLockingBytecodeHex?: string;
   oracleCategory?: string;
   oracleMintTxid?: string;
   oracleAddress?: string;
+  oracleLockingBytecodeHex?: string;
   initLastTs?: number;
   bootstrapMedianSats?: string;
+  slotsMinted?: Array<{ sourceId: number; pkhHex: string; publisherLabel: string }>;
 }
 
 const loadState = (): DeployState =>
@@ -124,9 +138,18 @@ const saveState = (s: DeployState): void => {
   writeFileSync(STATE_PATH, JSON.stringify(s, null, 2));
 };
 
+const slotGenesisCommit = (sourceId: number, pkh20: Uint8Array): Uint8Array => {
+  if (pkh20.length !== 20) throw new Error(`pkh ${pkh20.length} != 20`);
+  const c = new Uint8Array(39);
+  c[0] = 0x72;
+  c.set(u16LE(sourceId), 1);
+  c.set(pkh20, 3);
+  return c;
+};
+
 const main = async (): Promise<void> => {
   const broadcast = process.argv.includes('--broadcast');
-  console.log(`deploy ceremony — ${broadcast ? 'BROADCAST' : 'plan only (--broadcast to execute)'}`);
+  console.log(`ticker.cash v12 deploy — ${broadcast ? 'BROADCAST' : 'plan only (--broadcast to execute)'}`);
 
   const seed = loadSeed();
   const wallets = deriveWallets(seed);
@@ -134,57 +157,45 @@ const main = async (): Promise<void> => {
   const provider = buildLocalProvider();
   console.log(`  electrum: ${ELECTRUM_HOST}:${ELECTRUM_PORT}${ELECTRUM_TLS ? ' (tls)' : ''}`);
 
-  console.log(`\n[1/5] Balances:`);
+  if (wallets.notaries.length !== NOTARY_COUNT) throw new Error(`expected ${NOTARY_COUNT} notaries`);
+  if (wallets.publishers.length !== PUBLISHER_COUNT) throw new Error(`expected ${PUBLISHER_COUNT} publishers`);
+  if (PUBLISHER_COUNT !== 13) throw new Error(`v12 requires PUBLISHER_COUNT=13`);
+  if (NOTARY_COUNT !== 7) throw new Error(`v12 requires NOTARY_COUNT=7`);
+  if (SOURCES.length !== SOURCE_COUNT) throw new Error(`expected ${SOURCE_COUNT} sources`);
+
+  console.log(`\n[1/4] Balances:`);
   const masterUtxos = await provider.getUtxos(wallets.master.address);
   const masterBalance = masterUtxos.filter((u) => !u.token).reduce((s, u) => s + u.satoshis, 0n);
   console.log(`  master ${wallets.master.address}: ${masterBalance} sats (${masterUtxos.length} utxos)`);
   if (masterBalance < GENESIS_INPUT_MIN_SATS * 2n) {
-    console.log(`  ⚠ master needs ≥ ${GENESIS_INPUT_MIN_SATS * 2n} sats (gateway + oracle).`);
+    console.log(`  ⚠ master needs ≥ ${GENESIS_INPUT_MIN_SATS * 2n} sats (slot + oracle genesis).`);
   }
 
-  // ─── Stage 2: Ticker covenant ────────────────────────────────────────
-  console.log(`\n[2/5] Ticker covenant (no constructor args):`);
+  console.log(`\n[2/4] Ticker covenant (unchanged from v11, no constructor args):`);
   const tickerContract = new Contract(TickerArtifact, [], { provider });
-  const tickerLockingBytecode = tickerContract.lockingBytecode;
   state.tickerAddress = tickerContract.tokenAddress;
-  state.tickerLockingBytecodeHex = tickerLockingBytecode;
+  state.tickerLockingBytecodeHex = tickerContract.lockingBytecode;
   console.log(`  Ticker address: ${state.tickerAddress}`);
 
-  // ─── Stage 3: TLSNotaryGateway ──────────────────────────────────────
-  console.log(`\n[3/5] TLSNotaryGateway (7 notary pubkeys, 13 source CNs):`);
-  if (SOURCES.length !== SOURCE_COUNT) throw new Error(`expected ${SOURCE_COUNT} sources`);
-  if (wallets.notaries.length !== NOTARY_COUNT) throw new Error(`expected ${NOTARY_COUNT} notaries`);
-  if (NOTARY_COUNT !== 7) throw new Error(`requires NOTARY_COUNT=7, got ${NOTARY_COUNT}`);
-  const vaContract = new Contract(VerifiedAttestationArtifact, [], { provider });
-  state.vaAddress = vaContract.tokenAddress;
-  state.vaLockingBytecodeHex = vaContract.lockingBytecode;
-  console.log(`  VerifiedAttestation address: ${state.vaAddress}`);
-  const gatewayConstructorArgs = [
-    binToHex(wallets.notaries[0]!.publicKey),
-    binToHex(wallets.notaries[1]!.publicKey),
-    binToHex(wallets.notaries[2]!.publicKey),
-    binToHex(wallets.notaries[3]!.publicKey),
-    binToHex(wallets.notaries[4]!.publicKey),
-    binToHex(wallets.notaries[5]!.publicKey),
-    binToHex(wallets.notaries[6]!.publicKey),
-    packedSourceCNHashes(),
-    vaContract.lockingBytecode,
-    BigInt(VA_EXPIRY_OFFSET),
-  ];
-  const gateway = new Contract(TLSNotaryGatewayArtifact, gatewayConstructorArgs, { provider });
-  state.gatewayAddress = gateway.tokenAddress;
-  console.log(`  TLSNotaryGateway address: ${state.gatewayAddress}`);
+  // ─── Stage 3: Slot genesis (mints 13 mutable NFTs) ─────────────────
+  console.log(`\n[3/4] PublisherSlot genesis (13 NFTs):`);
   SOURCES.forEach((s) => console.log(`    source ${String(s.id).padStart(2, ' ')} (${s.name.padEnd(20, ' ')}): ${sourceCNHashHex(s)}  ${s.canonicalCN}`));
 
-  if (!state.gatewayMintTxid) {
+  let slotGenesisOutpoint: { txid: string; vout: number; satoshis: bigint } | undefined;
+  let slotCategoryReversed: string | undefined;
+
+  if (!state.slotMintTxid) {
     if (!broadcast) {
-      console.log(`  → plan: mint gateway minter NFT (need ≥ ${GENESIS_INPUT_MIN_SATS} sats at vout=0)`);
+      console.log(`  → plan: mint 13 slot NFTs in one tx (vout=0 outpoint ≥ ${GENESIS_INPUT_MIN_SATS} sats)`);
     } else {
       const masterSig = new SignatureTemplate(wallets.master.privateKey);
       const nonToken = masterUtxos.filter((u) => !u.token);
       let genesis = nonToken.find((u) => u.vout === 0 && u.satoshis >= GENESIS_INPUT_MIN_SATS);
       if (!genesis) {
         const total = nonToken.reduce((s, u) => s + u.satoshis, 0n);
+        if (total < GENESIS_INPUT_MIN_SATS + FUND_RESERVE_SATS) {
+          throw new Error(`master ${total} sats < ${GENESIS_INPUT_MIN_SATS + FUND_RESERVE_SATS}`);
+        }
         const pb = new TransactionBuilder({ provider });
         for (const u of nonToken) pb.addInput(u, masterSig.unlockP2PKH());
         pb.addOutput({ to: wallets.master.address, amount: total - FUND_RESERVE_SATS });
@@ -195,76 +206,59 @@ const main = async (): Promise<void> => {
         genesis = refreshed.find((u) => !u.token && u.vout === 0 && u.txid === pt.txid);
         if (!genesis) throw new Error(`prep tx not visible`);
       }
-      const category = genesis.txid;
-      const blockHeight = await provider.getBlockHeight();
-      const heightLE = new Uint8Array(4);
-      new DataView(heightLE.buffer).setUint32(0, blockHeight, true);
-      const init = new Uint8Array(16);
-      init[0] = 0x71;
-      init.set(heightLE, 1);
-      const tb = new TransactionBuilder({ provider });
-      tb.addInput(genesis, masterSig.unlockP2PKH());
-      tb.addOutput({
-        to: gateway.tokenAddress,
-        amount: GATEWAY_DUST,
-        token: { amount: 0n, category, nft: { capability: 'minting', commitment: binToHex(init) } },
-      });
-      const change = genesis.satoshis - GATEWAY_DUST - FUND_RESERVE_SATS;
-      if (change >= 546n) tb.addOutput({ to: wallets.master.address, amount: change });
-      const tx = await tb.send();
-      state.gatewayMintTxid = tx.txid;
-      state.gatewayCategory = category;
-      saveState(state);
-      console.log(`     ✓ gateway mint: ${tx.txid}  ${explorerTxUrl(tx.txid)}`);
-      await sleep(2_000);
+      slotGenesisOutpoint = { txid: genesis.txid, vout: genesis.vout, satoshis: genesis.satoshis };
+      slotCategoryReversed = reverseHex(genesis.txid);
+      console.log(`  slot genesis outpoint: ${genesis.txid}:${genesis.vout} (${genesis.satoshis} sats)`);
     }
   } else {
-    console.log(`  ✓ already minted: ${state.gatewayMintTxid}  category=${state.gatewayCategory}`);
+    slotCategoryReversed = reverseHex(state.slotCategory!);
+    console.log(`  ✓ already minted: ${state.slotMintTxid}  slotCategory=${state.slotCategory}`);
   }
 
-  if (!state.gatewayCategory) {
-    console.log(`\n[4/5] Oracle — SKIPPED (gateway not minted)`);
+  // ─── Stage 4: Oracle Contract construction + genesis ─────────────────
+  console.log(`\n[4/4] Oracle covenant (v12, 50% ratchet, walks slot inputs):`);
+  if (!slotCategoryReversed && !state.slotCategory) {
+    console.log(`  → SKIP (slot genesis not run yet)`);
     saveState(state);
     return;
   }
-
-  // ─── Stage 4: Oracle covenant address ───────────────────────────────
-  console.log(`\n[4/5] Oracle covenant (50% threshold ratchet):`);
-  const attestationCategoryLEHex = reverseHex(state.gatewayCategory);
-  const oracleConstructorArgs = [tickerLockingBytecode, attestationCategoryLEHex];
-  const oracle = new Contract(OracleArtifact, oracleConstructorArgs, { provider });
+  const slotCatLE = slotCategoryReversed ?? reverseHex(state.slotCategory!);
+  const oracle = new Contract(OracleArtifact, [state.tickerLockingBytecodeHex!, slotCatLE], { provider });
   state.oracleAddress = oracle.tokenAddress;
+  state.oracleLockingBytecodeHex = oracle.lockingBytecode;
   console.log(`  Oracle address: ${state.oracleAddress}`);
 
-  // Pure wall-clock initLastTs. The notary stamps Date.now(); the Oracle
-  // enforces newTs > prevTs + [30, 7200]. Chain time (MTP, tx.locktime)
-  // is not in the trust path anywhere.
-  const initLastTs = Math.floor(Date.now() / 1000) - 60;
-  state.initLastTs = initLastTs;
-  console.log(`  init Oracle lastTs: ${initLastTs}  (= wall_clock - 60s)`);
+  // Now construct slot Contract (needs oracleLockingBytecode)
+  const slotConstructorArgs = [
+    binToHex(wallets.notaries[0]!.publicKey),
+    binToHex(wallets.notaries[1]!.publicKey),
+    binToHex(wallets.notaries[2]!.publicKey),
+    binToHex(wallets.notaries[3]!.publicKey),
+    binToHex(wallets.notaries[4]!.publicKey),
+    binToHex(wallets.notaries[5]!.publicKey),
+    binToHex(wallets.notaries[6]!.publicKey),
+    packedSourceCNHashes(),
+    slotCatLE,                                  // placeholder, set below
+    oracle.lockingBytecode,
+  ];
 
-  // ─── Stage 5: Oracle genesis (19 B commit) ──────────────────────────
-  console.log(`\n[5/5] Oracle state NFT (genesis):`);
+  // Broadcast Oracle genesis (requires fresh outpoint)
+  let oracleCategoryReversed: string | undefined;
   if (!state.oracleMintTxid) {
     const bootstrapMedianSats = await fetchBootstrapMedianSats();
     state.bootstrapMedianSats = bootstrapMedianSats.toString();
-    console.log(`  → bootstrap median: ${bootstrapMedianSats} sats (${Number(bootstrapMedianSats) / 1e8} BCH-USD)`);
-    const commitment = encodeOracleCommit({
-      seq: 0,
-      lastTs: initLastTs,
-      medianUsd: bootstrapMedianSats,
-      activeCount: 0,
-    });
+    const initLastTs = Math.floor(Date.now() / 1000) - 60;
+    state.initLastTs = initLastTs;
+    console.log(`  bootstrap median: ${bootstrapMedianSats} sats (= ${Number(bootstrapMedianSats) / 1e8} BCH-USD)`);
+
+    const commitment = encodeOracleCommit({ seq: 0, lastTs: initLastTs, medianUsd: bootstrapMedianSats, activeCount: 0 });
+
     if (!broadcast) {
       console.log(`  → plan: mint Oracle state NFT (19 B commit)`);
       console.log(`  → commit hex: ${binToHex(commitment)}`);
     } else {
       const refreshedMaster = await provider.getUtxos(wallets.master.address);
       const nonToken = refreshedMaster.filter((u) => !u.token);
-      const masterBal = nonToken.reduce((s, u) => s + u.satoshis, 0n);
-      if (masterBal < GENESIS_INPUT_MIN_SATS) {
-        throw new Error(`master has ${masterBal} sats; need ≥ ${GENESIS_INPUT_MIN_SATS}`);
-      }
       const masterSig = new SignatureTemplate(wallets.master.privateKey);
       let genesis = nonToken.find((u) => u.vout === 0 && u.satoshis >= GENESIS_INPUT_MIN_SATS);
       if (!genesis) {
@@ -280,6 +274,8 @@ const main = async (): Promise<void> => {
         if (!genesis) throw new Error(`prep tx not visible`);
       }
       const category = genesis.txid;
+      oracleCategoryReversed = reverseHex(category);
+
       const tb = new TransactionBuilder({ provider });
       tb.addInput(genesis, masterSig.unlockP2PKH());
       tb.addOutput({
@@ -294,14 +290,63 @@ const main = async (): Promise<void> => {
       state.oracleCategory = category;
       saveState(state);
       console.log(`     ✓ oracle mint: ${tx.txid}  ${explorerTxUrl(tx.txid)}`);
-      console.log(`     oracle category: ${category}`);
+      await sleep(2_000);
     }
   } else {
-    console.log(`  ✓ already minted: ${state.oracleMintTxid}  category=${state.oracleCategory}`);
+    oracleCategoryReversed = reverseHex(state.oracleCategory!);
+    console.log(`  ✓ already minted: ${state.oracleMintTxid}`);
+  }
+
+  if (!oracleCategoryReversed) {
+    saveState(state);
+    return;
+  }
+  slotConstructorArgs[8] = oracleCategoryReversed;
+  const slot = new Contract(PublisherSlotArtifact, slotConstructorArgs, { provider });
+  state.slotAddress = slot.tokenAddress;
+  state.slotLockingBytecodeHex = slot.lockingBytecode;
+  console.log(`  PublisherSlot address: ${state.slotAddress}`);
+
+  if (!state.slotMintTxid && broadcast) {
+    if (!slotGenesisOutpoint) throw new Error('slotGenesisOutpoint missing');
+    const masterSig = new SignatureTemplate(wallets.master.privateKey);
+    const category = slotGenesisOutpoint.txid;
+    const tb = new TransactionBuilder({ provider });
+    tb.addInput(slotGenesisOutpoint, masterSig.unlockP2PKH());
+
+    const slotsMinted: DeployState['slotsMinted'] = [];
+    for (let i = 0; i < 13; i++) {
+      const pub = wallets.publishers[i]!;
+      const sourceId = SOURCES[i]!.id;
+      const pkh = hash160(pub.publicKey);
+      const commit = slotGenesisCommit(sourceId, pkh);
+      tb.addOutput({
+        to: slot.tokenAddress,
+        amount: SLOT_DUST,
+        token: { amount: 0n, category, nft: { capability: 'mutable', commitment: binToHex(commit) } },
+      });
+      slotsMinted.push({ sourceId, pkhHex: binToHex(pkh), publisherLabel: pub.label });
+    }
+    const totalDust = SLOT_DUST * 13n;
+    const change = slotGenesisOutpoint.satoshis - totalDust - FUND_RESERVE_SATS;
+    if (change >= 546n) tb.addOutput({ to: wallets.master.address, amount: change });
+
+    const tx = await tb.send();
+    state.slotMintTxid = tx.txid;
+    state.slotCategory = category;
+    state.slotsMinted = slotsMinted;
+    saveState(state);
+    console.log(`     ✓ slot genesis: ${tx.txid}  ${explorerTxUrl(tx.txid)}`);
+  } else if (state.slotMintTxid) {
+    console.log(`  ✓ already minted: ${state.slotMintTxid}`);
   }
 
   saveState(state);
   console.log(`\nDeploy state saved to ${STATE_PATH}`);
+  console.log(`\nSummary:`);
+  console.log(`  Ticker         : ${state.tickerAddress}`);
+  console.log(`  Oracle         : ${state.oracleAddress}    category=${state.oracleCategory}`);
+  console.log(`  PublisherSlot  : ${state.slotAddress}      category=${state.slotCategory}`);
 };
 
 main().catch((err) => {
