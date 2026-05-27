@@ -58,9 +58,12 @@ contract Oracle(
         int newTs  = int(claimedNewTs);
 
         // ── Time stride (notary-attested, monotonic) ─────────────────────
+        // No upper bound on stride: upperVotes already pins newTs to
+        // median(vaTs) + 120, which honest notaries cap at ≈ wall_clock.
+        // Removing the explicit stride ceiling lets the chain self-heal
+        // from any idle duration in a single catch-up cycle.
         require(newTs > prevTs);
         require(newTs - prevTs >= 30);
-        require(newTs - prevTs <= 7200);
 
         int newSeq    = int(oldCommit.slice(1, 5)) + 1;
         int oldActive = int(oldCommit.slice(17, 19));

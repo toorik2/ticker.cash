@@ -595,11 +595,6 @@ const main = async (): Promise<void> => {
         if (once) break;
         continue;
       }
-      if (claimedNewTs - prevTs > 7200) {
-        console.log(`    warning: stride ${claimedNewTs - prevTs}s > 7200s max — covenant will reject`);
-        if (once) break;
-        continue;
-      }
       console.log(`    claimedNewTs=${claimedNewTs} (prev=${prevTs}, +${claimedNewTs - prevTs}s)`);
 
       try {
