@@ -59,6 +59,12 @@ export const loadSeed = (path: string = DEFAULT_SEED_PATH): Uint8Array => {
   }
   const hex = readFileSync(path, 'utf8').trim();
   if (hex.length !== 64) throw new Error(`seed at ${path} is not 32 bytes (got ${hex.length / 2})`);
+  if (!/^[0-9a-fA-F]{64}$/.test(hex)) {
+    // hexToBin silently coerces non-hex characters to 0x00 — a 64-char passphrase
+    // would otherwise become the all-zeros seed (and the federation addresses
+    // are publicly precomputable from that). Reject any non-hex content here.
+    throw new Error(`seed at ${path} contains non-hex characters; expected 64 hex chars`);
+  }
   return hexToBin(hex);
 };
 

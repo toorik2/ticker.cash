@@ -116,26 +116,32 @@ app.get('/api/v1/price', async (_req, res) => {
         network: snap.network,
         deployedAt: snap.deployedAt,
         fetchedAt: snap.fetchedAt,
+        ageSec: null,
         stub: true,
         errors: snap.errors,
       });
       return;
     }
+    // A cached snapshot whose `oracleLive` is non-null but ageing past
+    // STALENESS_THRESHOLD_SEC must NOT be served as `stub: false`. The docs
+    // tell consumers to trust prices when `stub` is false, so we promote
+    // stale-but-readable Oracle UTXOs to stub:true to honour that contract.
+    const nowSec = Math.floor(Date.now() / 1000);
+    const ageSec = nowSec - o.lastLocktime;
+    const stale = ageSec >= STALENESS_THRESHOLD_SEC;
     res.setHeader('cache-control', 'no-store');
     res.json({
       medianUsd: o.medianUsd,
       scale: 'usd-e8',
       scaledValue: o.medianPriceScaled.toString(),
-      lastLocktime: o.lastLocktime,  // v9: notary-attested time (kept field name for API stability)
+      lastLocktime: o.lastLocktime,
       seq: o.seq,
       activeCount: o.activeCount,
-      // v9: history removed from on-chain commit (was redundant — covenant
-      // never read it). Use an off-chain indexer to walk past Oracle.update
-      // txs if a rolling history is needed.
       deployedAt: snap.deployedAt,
       fetchedAt: snap.fetchedAt,
       network: snap.network,
-      stub: false,
+      ageSec,
+      stub: stale,
     });
   } catch (e) {
     res.status(500).json({ error: errorMessage(e) });

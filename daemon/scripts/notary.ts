@@ -27,7 +27,7 @@
  * iteration. Future: integrate with tlsn.org notary as a "co-signer."
  */
 import { createServer } from 'node:http';
-import { secp256k1, sha256, binToHex, type Sha256, type Secp256k1 } from '@bitauth/libauth';
+import { secp256k1, sha256, binToHex, hexToBin, type Sha256, type Secp256k1 } from '@bitauth/libauth';
 import { ElectrumNetworkProvider, Network } from 'cashscript';
 import { ElectrumClient } from '@electrum-cash/network';
 import { ElectrumTcpSocket } from '@electrum-cash/tcp-socket';
@@ -121,7 +121,12 @@ const FETCHERS: Record<number, SourceFetcher> = {
         extract: (b) => num(b.match(/"close":([0-9.]+)/)?.[1]) },
 };
 
-interface SignBody { sourceId: number; cycleSeq: number; fresh?: boolean }
+interface SignBody {
+  sourceId: number;
+  cycleSeq: number;
+  pubkeyHash: string;   // hex (40 chars = 20 B); publisher's HASH160(publisherPubkey)
+  fresh?: boolean;
+}
 
 interface SignedResult {
   sourceId: number;
@@ -136,9 +141,11 @@ interface SignedResult {
 const fetchAndSign = async (
   sourceId: number,
   cycleSeq: number,
+  pubkeyHash20: Uint8Array,
   notaryPriv: Uint8Array,
   notaryPub: Uint8Array,
 ): Promise<SignedResult> => {
+  if (pubkeyHash20.length !== 20) throw new Error('pubkeyHash20 must be 20 B');
   const source = SOURCES.find((s) => s.id === sourceId);
   if (!source) throw new Error(`unknown sourceId ${sourceId}`);
   const fetcher = FETCHERS[sourceId];
@@ -166,7 +173,7 @@ const fetchAndSign = async (
   if (price <= 0n) throw new Error(`parsed price ${price} <= 0`);
   const timestamp = Math.floor(Date.now() / 1000);
 
-  const digest = notarySigDigest(source.canonicalCN, sourceId, price, timestamp, cycleSeq);
+  const digest = notarySigDigest(source.canonicalCN, sourceId, price, timestamp, cycleSeq, pubkeyHash20);
   const sigResult = (secp256k1 as Secp256k1).signMessageHashSchnorr(notaryPriv, digest);
   if (typeof sigResult === 'string') throw new Error(`sign: ${sigResult}`);
 
@@ -204,7 +211,11 @@ const main = (): void => {
         const chunks: Buffer[] = [];
         for await (const c of req) chunks.push(c as Buffer);
         const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as SignBody;
-        const result = await fetchAndSign(body.sourceId, body.cycleSeq, notary.privateKey, notary.publicKey);
+        if (typeof body.pubkeyHash !== 'string' || !/^[0-9a-fA-F]{40}$/.test(body.pubkeyHash)) {
+          throw new Error('pubkeyHash must be a 40-char hex string (HASH160 of publisher pubkey)');
+        }
+        const pubkeyHash20 = hexToBin(body.pubkeyHash);
+        const result = await fetchAndSign(body.sourceId, body.cycleSeq, pubkeyHash20, notary.privateKey, notary.publicKey);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(result));
       } catch (err) {

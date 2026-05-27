@@ -207,11 +207,12 @@ const requestNotarySign = async (
   notaryUrl: string,
   sourceId: number,
   cycleSeq: number,
+  pubkeyHashHex: string,
 ): Promise<NotarySignResponse> => {
   const res = await fetch(`${notaryUrl}/sign`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sourceId, cycleSeq }),
+    body: JSON.stringify({ sourceId, cycleSeq, pubkeyHash: pubkeyHashHex }),
   });
   if (!res.ok) {
     const err = await res.text();
@@ -333,13 +334,17 @@ const main = async (): Promise<void> => {
 
       // ── Notary request + VA mint (skip if already minted this cycle) ──
       if (!alreadyMintedForThisCycle) {
-      // Request notary signature
+      // Request notary signature. We send our own pubkeyHash so the notary
+      // can bind the signature to this specific publisher identity (covenant
+      // requires this binding to prevent one notary sig from being reused
+      // across N self-generated keypairs).
+      const pubkeyHash20 = hash160(publisher.publicKey);
       const notaryUrl = notaryUrls[cycleCounter % notaryUrls.length]!;
       const notaryIdx = cycleCounter % NOTARY_COUNT;  // matches the gateway's OR-list order
       console.log(`  asking notary ${notaryUrl} (idx ${notaryIdx}) for sourceId=${source.id}…`);
       let attestation: NotarySignResponse;
       try {
-        attestation = await requestNotarySign(notaryUrl, source.id, cycleSeq);
+        attestation = await requestNotarySign(notaryUrl, source.id, cycleSeq, binToHex(pubkeyHash20));
       } catch (err) {
         console.log(`  notary failed: ${scrubSecrets(err instanceof Error ? err.message : String(err))}; skipping cycle`);
         await sleep(POLL_INTERVAL_MS);
@@ -350,7 +355,6 @@ const main = async (): Promise<void> => {
 
       // Build publisher's own sig over (sourceId, price, ts, pubkeyHash, cycleSeq, cnHash)
       const cnHash20 = hash160(new TextEncoder().encode(attestation.serverName));
-      const pubkeyHash20 = hash160(publisher.publicKey);
       const digest = publisherSigDigest(source.id, price, attestation.timestamp, pubkeyHash20, cycleSeq, cnHash20);
       const publisherSchnorr = (secp256k1 as Secp256k1).signMessageHashSchnorr(publisher.privateKey, digest);
       if (typeof publisherSchnorr === 'string') throw new Error(`sign: ${publisherSchnorr}`);

@@ -101,22 +101,28 @@ export const reverseHex = (hex: string): string => binToHex(hexToBin(hex).revers
 
 // ─── Signature payloads ───────────────────────────────────────────────────
 
-// Notary signs: sha256(serverName || sourceId(2) || price(8) || timestamp(4) || cycleSeq(4))
-// cycleSeq binds each notary attestation to exactly one Oracle cycle (no replay
-// across cycles within the freshness window).
+// Notary signs: sha256(serverName || sourceId(2) || price(8) || timestamp(4) || cycleSeq(4) || pubkeyHash160(20))
+// cycleSeq binds the attestation to one Oracle cycle (no cross-cycle replay).
+// pubkeyHash160 binds the attestation to one publisher identity (no
+// cross-publisher reuse; without this binding a single notary sig could be
+// replayed across an attacker's N self-generated keypairs and forge quorum
+// unilaterally).
 export const notarySigDigest = (
   serverName: string,
   sourceId: number,
   price: bigint,
   timestamp: number,
   cycleSeq: number,
+  pubkeyHash20: Uint8Array,
 ): Uint8Array => {
+  if (pubkeyHash20.length !== 20) throw new Error('pubkeyHash20 must be 20 B');
   const msg = concatBytes(
     new TextEncoder().encode(serverName),
     u16LE(sourceId),
     u64LE(price),
     u32LE(timestamp),
     u32LE(cycleSeq),
+    pubkeyHash20,
   );
   return sha256Hash(msg);
 };

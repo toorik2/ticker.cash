@@ -105,14 +105,16 @@ contract TLSNotaryGateway(
         // checkDataSig(sig, msg, pk) verifies sig over sha256(msg) per spec —
         // we pass the raw concatenation; sha256 is applied inside the opcode.
         //
-        // Notary message includes cycleSeq: binds
-        // each notary attestation to one specific Oracle cycle so replays
-        // can't cross cycles.
+        // Notary message binds:
+        //   - cycleSeq → no cross-cycle replay
+        //   - pubkeyHash160 → no cross-publisher reuse. Without this,
+        //     a single notary signature could be reused by an attacker
+        //     across N self-generated keypairs, collapsing the
+        //     "≥7 distinct publishers" anti-Sybil guarantee.
         //
         // OR-list bytecode scales linearly with M; runtime cost is one
         // checkDataSig regardless of M (only the matching branch executes).
-        // M = 7 → 4-of-7 bribery cost ~$1M, comparable to Wormhole 13-of-19.
-        bytes notaryMessage = serverName + sourceId + price + timestamp + cycleSeq;
+        bytes notaryMessage = serverName + sourceId + price + timestamp + cycleSeq + pubkeyHash160;
         bool notaryOK = false;
         if (notaryIdx == 0) {
             notaryOK = checkDataSig(notarySig, notaryMessage, notaryPubkey0);

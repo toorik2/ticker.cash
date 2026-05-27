@@ -1,12 +1,12 @@
 {
-  "deployedAt": "2026-05-27T05:15:00.000Z",
+  "deployedAt": "2026-05-27T06:24:00.000Z",
   "oracle": {
-    "address": "bchtest:rdvajmny9m0yyczc7q8cgu9vumwv5qvmc0lp2syuz0r36fa0w6lcwwulm39wx",
-    "category": "72d55fdbc17757d1b86220d8ba248f505e53ea49d31a83b4d0f82b0a0372c8ef"
+    "address": "bchtest:r034y932nwm3jstyx3nxupp7u9mvml5hgrh3wpl9a03g3x3fvm0ugrcqkjk0t",
+    "category": "64adc5d013000f6119e9659fbc5be76c62d82a8ebc3b2e74ada818bba65b0ff9"
   },
   "gateway": {
-    "address": "bchtest:rwdf283qtmqcedp33g3q4d53kcpf8rlpcwrvpzxnv5vh2ryjy4536rf0xx3ld",
-    "category": "610f75b76116ab1c97cc9e101cd4e72446b36022bcfa0e8bb36b7df5308cac81"
+    "address": "bchtest:r0l0et34cez293u9kxrnajwa29zt47ew0c2xqz8a6nv3qm5ekf32xc6ax22qg",
+    "category": "9d5f70151b914d0a964a8ac96127945a26023e28f17d1a43c87122326379263c"
   },
   "ticker": {
     "address": "bchtest:r0r403dhnnahycepwklerew4js0q6t2eme69ex3vvgkuk7jps8hdcrntknsph"
