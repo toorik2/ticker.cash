@@ -195,7 +195,7 @@
         <div class="longread" style="margin-bottom:2.5rem">
           <h4>How to consume the price NFT</h4>
           <p>Spend a Ticker NFT (mutable, anyone-can-spend) as a tx input. The Ticker covenant requires identical re-emit at the same output index. Your tx becomes a chain-descendant of the Oracle.update — BCH consensus refuses to confirm it in any chain that excludes the Oracle update. Atomic co-finality.</p>
-          <p>Read <code>price</code> and <code>lastTs</code> from the input's 17-byte commit. Full guide at <a href="/docs#consume">/docs#consume</a>.</p>
+          <p>Read <code>price</code> and <code>lastTs</code> from the input's 17-byte commit. Reference example: <code>contracts/v11/examples/PriceGatedRelease.cash</code>.</p>
         </div>
         <div class="longread">
           <h4>Run a notary or publisher</h4>
@@ -225,7 +225,7 @@
         </div>
         <div class="modal-section longread" data-section="consume" hidden>
           <h4>How to consume the price NFT</h4>
-          <p>Each cycle mints <b>4 Ticker NFTs</b> at the address shown in §3. They are mutable (capability 0x01), anyone-can-spend, and self-replicate via the Ticker covenant. A consumer's tx that spends a Ticker becomes a <b>chain-descendant of the Oracle.update</b> that produced it — BCH consensus refuses to confirm the consumer's tx in any chain that excludes the Oracle.update. That is co-finality, atomic by construction.</p>
+          <p>Each cycle mints <b>2 Ticker NFTs</b> at the address shown in §3. They are mutable (capability 0x01), anyone-can-spend, and self-replicate via the Ticker covenant. A consumer's tx that spends a Ticker becomes a <b>chain-descendant of the Oracle.update</b> that produced it — BCH consensus refuses to confirm the consumer's tx in any chain that excludes the Oracle.update. That is co-finality, atomic by construction.</p>
           <p>Minimal tx shape:</p>
           <ul>
             <li><code>input[0]</code> — your consumer contract</li>
@@ -235,7 +235,7 @@
             <li><code>output[2]</code> — optional change</li>
           </ul>
           <p>Read <code>price</code> and <code>lastTs</code> from <code>tx.inputs[1].nftCommitment</code>. The 17-byte layout is <code>0x80 | seq(4) | lastTs(4) | medianPrice(8)</code>. Use <code>medianPrice / 10⁸</code> for USD. Pin the Oracle category as a constructor arg (LE-reversed) so an attacker can't feed you a Ticker from a different oracle.</p>
-          <p>The minimum pattern is: pin the Oracle category as a constructor arg, require a Ticker NFT input from that category at <code>input[1]</code>, decode the 17-byte commit, gate your business logic on price and freshness. Avoid <code>tx.locktime</code> for freshness — gate on the Ticker's own <code>lastTs</code> field directly.</p>
+          <p>A working reference covenant (PriceGatedRelease — locks BCH, releases on price ≥ strike) lives at <code>contracts/v11/examples/</code> in the source tree, ~286 bytes compiled. Drop your own freshness gate on <code>lastTs</code> (avoid <code>tx.locktime</code>; that introduces a chain-MTP lag the design was built to escape).</p>
         </div>
         <div class="modal-section longread" data-section="operate" hidden>
           <h4>Run a notary or publisher</h4>
@@ -256,10 +256,10 @@
       <div>
         <h3>§ 3 &nbsp; Contracts</h3>
         <div class="kv">
-          <div class="row"><span class="k">Oracle</span><span class="v"><a href="https://chipnet.imaginary.cash/address/bchtest:r0kfwje9xwve7ktzrvcuu87xt26xv9yuqtn2xknqh2xkzyvtyfhwumw2879ua" target="_blank" rel="noopener"><code>r0kfwje9…umw2879ua ↗</code></a></span></div>
+          <div class="row"><span class="k">Oracle</span><span class="v"><a href="https://chipnet.imaginary.cash/address/bchtest:rdvajmny9m0yyczc7q8cgu9vumwv5qvmc0lp2syuz0r36fa0w6lcwwulm39wx" target="_blank" rel="noopener"><code>rdvajmny…wwulm39wx ↗</code></a></span></div>
           <div class="row"><span class="k">Ticker</span><span class="v"><a href="https://chipnet.imaginary.cash/address/bchtest:r0r403dhnnahycepwklerew4js0q6t2eme69ex3vvgkuk7jps8hdcrntknsph" target="_blank" rel="noopener"><code>r0r403dh…rntknsph ↗</code></a></span></div>
           <div class="row"><span class="k">Gateway</span><span class="v"><a href="https://chipnet.imaginary.cash/address/bchtest:rwdf283qtmqcedp33g3q4d53kcpf8rlpcwrvpzxnv5vh2ryjy4536rf0xx3ld" target="_blank" rel="noopener"><code>rwdf283q…rf0xx3ld ↗</code></a></span></div>
-          <div class="row"><span class="k">Category</span><span class="v"><button class="copy" data-clip="3f16aeb19f89aa242f58d92e79b97a2fc17e0b565c328bde6f7a18e46bb86a75" title="Click to copy full category id"><code>3f16aeb1…6bb86a75</code> <span class="copy-ic">⧉</span></button></span></div>
+          <div class="row"><span class="k">Category</span><span class="v"><button class="copy" data-clip="72d55fdbc17757d1b86220d8ba248f505e53ea49d31a83b4d0f82b0a0372c8ef" title="Click to copy full category id"><code>72d55fdb…0372c8ef</code> <span class="copy-ic">⧉</span></button></span></div>
         </div>
         <p class="note">Spend a Ticker NFT to read the price atomically on-chain — your tx becomes a chain-descendant of the Oracle.update that minted it, co-final by BCH consensus.</p>
       </div>

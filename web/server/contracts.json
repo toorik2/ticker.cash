@@ -1,9 +1,9 @@
 {
   "version": "v11.0.0",
-  "deployedAt": "2026-05-26T17:54:00.000Z",
+  "deployedAt": "2026-05-27T05:15:00.000Z",
   "oracle": {
-    "address": "bchtest:r0kfwje9xwve7ktzrvcuu87xt26xv9yuqtn2xknqh2xkzyvtyfhwumw2879ua",
-    "category": "3f16aeb19f89aa242f58d92e79b97a2fc17e0b565c328bde6f7a18e46bb86a75"
+    "address": "bchtest:rdvajmny9m0yyczc7q8cgu9vumwv5qvmc0lp2syuz0r36fa0w6lcwwulm39wx",
+    "category": "72d55fdbc17757d1b86220d8ba248f505e53ea49d31a83b4d0f82b0a0372c8ef"
   },
   "gateway": {
     "address": "bchtest:rwdf283qtmqcedp33g3q4d53kcpf8rlpcwrvpzxnv5vh2ryjy4536rf0xx3ld",

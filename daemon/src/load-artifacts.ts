@@ -19,4 +19,4 @@ export const ORACLE_COMMIT_LEN = 19;
 // Ticker commit (17 B): 0x80 | seq(4) | lastTs(4) | medianPrice(8)
 export const TICKER_COMMIT_LEN = 17;
 // Per Oracle.cash: 4 Mutable Ticker NFTs minted at outputs[1..5).
-export const TICKER_HEAD_COUNT = 4;
+export const TICKER_HEAD_COUNT = 2;

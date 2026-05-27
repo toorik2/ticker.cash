@@ -110,7 +110,7 @@
             <tr><td><b>Publisher</b></td><td>Daemon that requests notary signatures, mints VerifiedAttestation NFTs via the Gateway, then races to broadcast <code>Oracle.update</code> consuming peer VAs. No special role; anyone with chipnet funds can run one.</td><td>13 (one per source; permissionless)</td></tr>
             <tr><td><b>TLSNotaryGateway</b></td><td>Covenant that verifies a notary sig + binds the price to the pinned CN/SAN hash, then mints a VerifiedAttestation NFT. The mint is the only path through which fresh VAs enter the chain.</td><td>1 covenant (M=7 OR-list, 13 source CN hashes)</td></tr>
             <tr><td><b>VerifiedAttestation (VA)</b></td><td>51-byte NFT carrying a single notary-witnessed price observation. Short-lived: consumed by the next <code>Oracle.update</code> or burned.</td><td>~12-13 per cycle, in mempool</td></tr>
-            <tr><td><b>Oracle</b></td><td>Self-perpetuating covenant. Reads ≥7 distinct VAs as inputs, position-checks the median, emits a new 19-byte state commitment + 4 Mutable Ticker NFTs.</td><td>1 covenant (singleton UTXO)</td></tr>
+            <tr><td><b>Oracle</b></td><td>Self-perpetuating covenant. Reads ≥7 distinct VAs as inputs, position-checks the median, emits a new 19-byte state commitment + 2 Mutable Ticker NFTs.</td><td>1 covenant (singleton UTXO)</td></tr>
             <tr><td><b>Ticker</b></td><td>Mutable NFT containing the latest commitment (17 bytes: version, seq, lastTs, price). Anyone-can-spend; self-replicates via the Ticker covenant. Consumers spend a Ticker to read the price atomically.</td><td>4 minted per cycle, persist until consumed</td></tr>
           </tbody>
         </table>
@@ -141,7 +141,7 @@
           <li>Median is position-checked across the sorted VA prices, not computed off-chain and trusted</li>
           <li>Distinct <code>pubkeyHash160</code> across all VA inputs is the load-bearing anti-Sybil check</li>
           <li>Gateway-minted VAs only — no synthetic VA inputs slip through</li>
-          <li>The 4 Mutable Ticker NFTs minted per cycle carry the same commitment shape; consumer covenants can pin the Oracle category to refuse impostor Tickers</li>
+          <li>The 2 Mutable Ticker NFTs minted per cycle carry the same commitment shape; consumer covenants can pin the Oracle category to refuse impostor Tickers</li>
         </ul>
         <p><b>No admin keys. No upgrade path.</b> The Oracle UTXO chain is self-perpetuating. The only way to update behaviour is to deploy a new covenant at a new address — which observers will see as a fresh address with no history.</p>
 
@@ -166,7 +166,7 @@
         <p>Two paths: <b>on-chain atomic</b> (recommended for dApps; spend a Ticker NFT as a tx input, read its commit) or <b>JSON API</b> (recommended for off-chain UIs; just GET <code>/api/v1/price</code>).</p>
 
         <h3>On-chain: spend a Ticker</h3>
-        <p>Each cycle mints 4 Ticker NFTs at a fixed address (see <a href="#contracts">§ 07 Live contracts</a>). They are mutable (capability 0x01), anyone-can-spend, and self-replicate via the Ticker covenant. A consumer's tx that spends a Ticker becomes a <b>chain-descendant of the Oracle.update</b> that produced it — BCH consensus refuses to confirm the consumer's tx in any chain that excludes the Oracle.update. That is co-finality, atomic by construction.</p>
+        <p>Each cycle mints 2 Ticker NFTs at a fixed address (see <a href="#contracts">§ 07 Live contracts</a>). They are mutable (capability 0x01), anyone-can-spend, and self-replicate via the Ticker covenant. A consumer's tx that spends a Ticker becomes a <b>chain-descendant of the Oracle.update</b> that produced it — BCH consensus refuses to confirm the consumer's tx in any chain that excludes the Oracle.update. That is co-finality, atomic by construction.</p>
         <p>Minimal tx shape:</p>
         <ul>
           <li><code>input[0]</code> — your consumer contract</li>
@@ -178,7 +178,7 @@
         <p>Read <code>price</code> and <code>lastTs</code> from <code>tx.inputs[1].nftCommitment</code>. The 17-byte layout is:</p>
         <pre><code>0x80 | seq(4) | lastTs(4) | medianPrice(8)</code></pre>
         <p>All multi-byte fields are little-endian. <code>medianPrice / 10^8</code> = USD. Pin the Oracle category as a constructor arg (LE-reversed; see <a href="#contracts">§ 07</a>) so an attacker cannot feed your contract a Ticker from a different oracle.</p>
-        <p>The minimum pattern is: pin the Oracle category as a constructor arg, require a Ticker NFT input from that category at <code>input[1]</code>, decode the 17-byte commit, gate your business logic on price and freshness. Avoid <code>tx.locktime</code> for freshness — it introduces a chain-MTP lag the design was built to escape; gate on the Ticker's own <code>lastTs</code> field directly.</p>
+        <p>A working reference covenant — <code>PriceGatedRelease</code> (locks BCH, releases on price ≥ strike) — lives at <code>contracts/v11/examples/</code> in the source tree, ~286 bytes compiled. Drop your own freshness gate on <code>lastTs</code>; avoid <code>tx.locktime</code>, that introduces a chain-MTP lag the v11 design was built to escape.</p>
 
         <h3>Off-chain: JSON API</h3>
         <pre><code>$ curl -s https://usd.ticker.cash/api/v1/price
@@ -237,7 +237,7 @@
             <tr><td>Oracle commit length</td><td>19 B</td><td><code>0x60 | seq(4) | lastTs(4) | medianUsd(8) | activeCount(2)</code></td></tr>
             <tr><td>Ticker commit length</td><td>17 B</td><td><code>0x80 | seq(4) | lastTs(4) | medianPrice(8)</code></td></tr>
             <tr><td>VA commit length</td><td>51 B</td><td><code>0x70 | sourceId(2) | pkh(20) | expiry(4) | reserved(8) | price(8) | ts(4) | cycleSeq(4)</code></td></tr>
-            <tr><td>Tickers minted per cycle (K)</td><td>4</td><td>One Mutable Ticker NFT at outputs[1..5). Capacity per cycle ≈ K × (cycle_time / RTT).</td></tr>
+            <tr><td>Tickers minted per cycle (K)</td><td>2</td><td>One Mutable Ticker NFT at outputs[1..3). Capacity per cycle ≈ K × (cycle_time / RTT).</td></tr>
             <tr><td>Price scale</td><td>USD × 10<sup>8</sup></td><td><code>medianPrice / 1e8</code> = USD. Same scale as sats-per-BCH for symmetry.</td></tr>
             <tr><td>Network</td><td>chipnet</td><td>Bitcoin Cash testnet. Mainnet deploy follows after stability period.</td></tr>
           </tbody>
@@ -249,11 +249,11 @@
         <p>Current chipnet deployment. Live addresses and the most recent commitment are on the <a href="/">home page</a> sidebar.</p>
         <ul>
           <li><b>TLSNotaryGateway</b> — verifies notary sigs + mints VerifiedAttestations. Constructor pins 7 notary pubkeys + 13 source CN hashes.</li>
-          <li><b>Oracle</b> — singleton covenant; consumes ≥ 7 VAs per cycle, emits new state commitment + 4 Ticker NFTs.</li>
+          <li><b>Oracle</b> — singleton covenant; consumes ≥ 7 VAs per cycle, emits new state commitment + 2 Ticker NFTs.</li>
           <li><b>VerifiedAttestation</b> — anyone-can-spend NFT carrying a single notary observation. Single-use; consumed by the next Oracle.update.</li>
           <li><b>Ticker</b> — mutable, self-replicating NFT carrying the latest 17-byte commitment. Consumers spend a Ticker to read the price atomically.</li>
         </ul>
-        <p>Source for all four covenants is at <code>contracts/</code> in the repo. Compiled artifacts are at <code>contracts/artifacts/</code>.</p>
+        <p>Source for all four covenants is at <code>contracts/v11/</code> in the repo. Compiled artifacts are at <code>contracts/v11/artifacts/</code>.</p>
       </section>
 
       <section class="chapter" id="api">
