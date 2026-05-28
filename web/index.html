@@ -5,7 +5,7 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="theme-color" content="#f3efe4" />
-<meta name="description" content="A decentralized BCH/USD ticker on chipnet. 7-notary federation signs prices from 13 operator-diverse sources (7 USD + 2 USDC + 2 USDT); covenant emits the median per cycle (~1 min). No admin keys." />
+<meta name="description" content="A decentralized BCH/USD ticker on chipnet. 7-notary federation signs prices from 13 operator-diverse sources (9 USD + 2 USDC + 2 USDT); covenant emits the median per cycle (~1 min). No admin keys." />
 <meta property="og:title" content="Ticker · BCH/USD on chain" />
 <meta property="og:description" content="A decentralized BCH/USD ticker. 7-notary federation, 13 operator-diverse sources, per-cycle median on chain. No admin keys." />
 <meta property="og:type" content="website" />
@@ -167,11 +167,11 @@
       <div class="specs">
         <div class="spec">
           <div class="h">Notaries</div><div class="v">7</div>
-          <span class="info" data-tip="7 independent notary signing keys. Every slot refresh is signed by exactly one of the seven (OR-list dispatched by notaryIdx, verified inside PublisherSlot.attest). Wormhole-tier federation size — bribing a majority (≥4 of 7) is the new collusion threshold. The federation is the trust root for prices and timestamps.">i</span>
+          <span class="info" data-tip="7 independent notary signing keys. Every slot refresh is signed by exactly one of the seven (OR-list dispatched by notaryIdx, verified inside PublisherSlot.attest). A 7-key M-of-N federation with operator-diverse keys; bribing 4 of them is the new collusion threshold. The federation is the trust root for prices and timestamps.">i</span>
         </div>
         <div class="spec">
           <div class="h">Sources</div><div class="v">13</div>
-          <span class="info" data-tip="13 operator-diverse CEX endpoints pinned in the PublisherSlot covenant by CN/SAN hash: 7 USD-quoted (Kraken, Coinbase, Gemini, Binance.US, Bitstamp, Crypto.com, Bitfinex, EXMO, Independent Reserve — 4 US, 5 non-US), 2 USDC (OKX, KuCoin), 2 USDT (Bybit, HTX). No two from the same operator family; no quote-currency dominates. Position-checked median absorbs ≤6 outliers without bias.">i</span>
+          <span class="info" data-tip="13 operator-diverse CEX endpoints pinned in the PublisherSlot covenant by CN/SAN hash: 9 USD-quoted (Kraken, Coinbase, Gemini, Binance.US, Bitstamp, Crypto.com, Bitfinex, EXMO, Independent Reserve — 4 US, 5 non-US), 2 USDC (OKX, KuCoin), 2 USDT (Bybit, HTX). No two from the same operator family; no quote-currency dominates. Position-checked median absorbs ≤6 outliers without bias.">i</span>
         </div>
         <div class="spec">
           <div class="h">Cadence</div><div class="v">~1<small>m</small></div>
@@ -195,7 +195,7 @@
         <div class="longread" style="margin-bottom:2.5rem">
           <h4>How to consume the price NFT</h4>
           <p>Spend a Ticker NFT (mutable, anyone-can-spend) as a tx input. The Ticker covenant requires identical re-emit at the same output index. Your tx becomes a chain-descendant of the Oracle.update — BCH consensus refuses to confirm it in any chain that excludes the Oracle update. Atomic co-finality.</p>
-          <p>Read <code>price</code> and <code>lastTs</code> from the input's 17-byte commit. Reference example: <code>contracts/v11/examples/PriceGatedRelease.cash</code>.</p>
+          <p>Read <code>price</code> and <code>lastTs</code> from the input's 17-byte commit.</p>
         </div>
         <div class="longread">
           <h4>Run a notary or publisher</h4>
@@ -218,10 +218,10 @@
           <h4>Where is the trust?</h4>
           <p>The trust root is a <b>7-key notary federation</b>. Each notary independently fetches a CEX price over TLS and signs <code>(serverName, sourceId, price, timestamp, cycleSeq)</code> with their Schnorr key. The Oracle covenant trusts these signatures and nothing else off-chain.</p>
           <p><b>Publishers are interchangeable relays.</b> They request a notary signature, pay tx fees, broadcast. They have no special role and cannot fake notary sigs. Anyone with chipnet funds can run one.</p>
-          <p><b>Sources are operator-diverse.</b> 13 endpoints: 7 USD-quoted spot markets (Kraken, Coinbase, Gemini, Binance.US, Bitstamp, Crypto.com, Bitfinex, EXMO, Independent Reserve — 4 US, 5 non-US), 2 USDC (OKX, KuCoin), 2 USDT (Bybit, HTX). No two share an operator family; no quote-currency dominates. A position-checked median absorbs ≤6 outliers without bias — both stablecoin clusters could depeg the same direction simultaneously and the median still lands in the 7-USD cluster.</p>
-          <p><b>The covenant is the only on-chain rule.</b> It enforces: ≥7 distinct publishers attest per cycle (the quorum ratchets up with active committee at ~50%), notary-attested time is strictly forward, the median is position-checked, the threshold-ratchet bleeds 10%/cycle so a single spike doesn't lock the system. One persistent slot NFT per <code>(publisher, sourceId)</code> pair — minted once at genesis, closed forever by CashTokens consensus — is the load-bearing anti-Sybil check (the slot category is the publisher-set; no further mints possible).</p>
+          <p><b>Sources are operator-diverse.</b> 13 endpoints: 9 USD-quoted spot markets (Kraken, Coinbase, Gemini, Binance.US, Bitstamp, Crypto.com, Bitfinex, EXMO, Independent Reserve — 4 US, 5 non-US), 2 USDC (OKX, KuCoin), 2 USDT (Bybit, HTX). No two share an operator family; no quote-currency dominates. A position-checked median absorbs ≤6 outliers without bias — both stablecoin clusters could depeg the same direction simultaneously and the median still lands in the 9-USD cluster.</p>
+          <p><b>The covenant is the only on-chain rule.</b> It enforces: ≥7 distinct publishers attest per cycle (the quorum ratchets up with active committee at ~50%), notary-attested time is strictly forward, the median is position-checked, the threshold-ratchet bleeds 10%/cycle so a single spike doesn't lock the system. Anti-Sybil rests on two complementary, load-bearing checks: (a) the slot category is closed forever at genesis by CashTokens consensus, so the publisher set is fixed and cannot be inflated by minting new slots; (b) within each <code>Oracle.update</code> tx, the covenant enforces distinct, monotonically-sorted <code>publisherPkh</code> across slot inputs, so a publisher cannot inflate quorum by submitting their own slot twice.</p>
           <p><b>No admin keys.</b> No upgrade path. The Oracle UTXO chain is self-perpetuating; the only way to update behavior is to deploy a new covenant at a new address.</p>
-          <p>What the federation <i>can</i> do if a majority (≥ 4 of 7) of notaries collude: sign attestations for arbitrary prices. With 7 keys held by independent operators, the collusion cost is comparable to Wormhole-class bridges (~$1M+ bribery floor). What the federation <i>cannot</i> do: skip the quorum check, replay a stale attestation past the slot's cycleSeq, hide a cycle from observers, run faster than ~1 cycle/minute (notary throughput cap).</p>
+          <p>What the federation <i>can</i> do if a majority (≥ 4 of 7) of notaries collude: sign attestations for arbitrary prices. With 7 keys held by independent operators, bribing 4 of them is the new collusion threshold. What the federation <i>cannot</i> do: (i) skip the quorum check, (ii) replay a stale notary signature — <code>PublisherSlot.attest()</code> requires <code>newCycleSeq &gt; slot.cycleSeq</code> (strict-greater, not ≥), so once a slot has advanced past a cycle, that cycle's signature is dead, (iii) hide a cycle from observers, (iv) run faster than the 30 s minimum stride enforced by <code>Oracle.cash</code> (<code>require(newTs - prevTs &gt;= 30)</code>); typical cadence is ~60 s when funded.</p>
         </div>
         <div class="modal-section longread" data-section="consume" hidden>
           <h4>How to consume the price NFT</h4>
@@ -234,8 +234,8 @@
             <li><code>output[1]</code> — identical Ticker re-emit (Ticker covenant enforces this, mutable cap, same commit)</li>
             <li><code>output[2]</code> — optional change</li>
           </ul>
-          <p>Read <code>price</code> and <code>lastTs</code> from <code>tx.inputs[1].nftCommitment</code>. The 17-byte layout is <code>0x80 | seq(4) | lastTs(4) | medianPrice(8)</code>. Use <code>medianPrice / 10⁸</code> for USD. Pin the Oracle category as a constructor arg (LE-reversed) so an attacker can't feed you a Ticker from a different oracle.</p>
-          <p>A working reference covenant (PriceGatedRelease — locks BCH, releases on price ≥ strike) lives at <code>contracts/examples/</code> in the source tree, ~286 bytes compiled. Drop your own freshness gate on <code>lastTs</code> (avoid <code>tx.locktime</code>; that introduces a chain-MTP lag the design was built to escape).</p>
+          <p>Read <code>price</code> and <code>lastTs</code> from <code>tx.inputs[1].nftCommitment</code> — the Ticker's 17-byte <code>0x80</code> commit, distinct from the Oracle UTXO's 19-byte <code>0x60</code> state commit. The 17-byte layout is <code>0x80 | seq(4) | lastTs(4) | medianPrice(8)</code>. Use <code>medianPrice / 10⁸</code> for USD. Pin the Oracle category as a constructor arg (LE-reversed) so an attacker can't feed you a Ticker from a different oracle.</p>
+          <p>A working reference covenant (PriceGatedRelease — locks BCH, releases on price ≥ strike) lives at <code>contracts/examples/PriceGatedRelease.cash</code> in the source tree. ~64-byte script body; ~145 bytes including the four constructor args (pubkey + strike + oracle category + minLastTs). Drop your own freshness gate on <code>lastTs</code> (avoid <code>tx.locktime</code>; that introduces a chain-MTP lag the design was built to escape).</p>
         </div>
         <div class="modal-section longread" data-section="operate" hidden>
           <h4>Run a notary or publisher</h4>
@@ -250,12 +250,13 @@
     <aside class="side">
       <div>
         <h3>§ 2 &nbsp; About</h3>
-        <p>A <b>decentralized BCH/USD ticker</b>. A <b>7-notary federation</b> signs prices from <b>13 operator-diverse sources</b> (7 USD-quoted, 2 USDC, 2 USDT); any publisher relays them to a covenant that emits the median on Bitcoin Cash.</p>
+        <p>A <b>decentralized BCH/USD ticker</b>. A <b>7-notary federation</b> signs prices from <b>13 operator-diverse sources</b> (9 USD-quoted, 2 USDC, 2 USDT); any publisher relays them to a covenant that emits the median on Bitcoin Cash.</p>
         <p>New cycle every <b>~1 minute</b> when funded. Settlement at chipnet block rate. No admin keys. The covenant is the only rule beyond the notary federation.</p>
       </div>
       <div>
         <h3>§ 3 &nbsp; Contracts</h3>
         <div class="kv">
+          <div class="row"><span class="k">Version</span><span class="v"><code>v12.1 · chipnet</code></span></div>
           <div class="row"><span class="k">Oracle</span><span class="v"><a href="https://chipnet.imaginary.cash/address/bchtest:rwgvjpjdcmlw342a4q0q02mtp0w4tenm46xnsdmrdrveww2h4ru060alut77s" target="_blank" rel="noopener"><code>rwgvjpjd…0alut77s ↗</code></a></span></div>
           <div class="row"><span class="k">Slot</span><span class="v"><a href="https://chipnet.imaginary.cash/address/bchtest:r0kguz7zfa5nfje32xr3fg2utsc5y3g5hwdume2h3csd4rfrrg2dkvcqr9pn9" target="_blank" rel="noopener"><code>r0kguz7z…kvcqr9pn9 ↗</code></a></span></div>
           <div class="row"><span class="k">Ticker</span><span class="v"><a href="https://chipnet.imaginary.cash/address/bchtest:r0r403dhnnahycepwklerew4js0q6t2eme69ex3vvgkuk7jps8hdcrntknsph" target="_blank" rel="noopener"><code>r0r403dh…rntknsph ↗</code></a></span></div>
@@ -267,6 +268,7 @@
         <h3>§ 4 &nbsp; API</h3>
         <div class="kv">
           <div class="row"><span class="k">JSON</span><span class="v"><a href="/api/v1/price"><code>GET /api/v1/price</code></a></span></div>
+          <div class="row"><span class="k">Health</span><span class="v"><a href="/api/v1/health"><code>GET /api/v1/health</code></a></span></div>
           <div class="row"><span class="k">Auth</span><span class="v">none</span></div>
           <div class="row"><span class="k">CORS</span><span class="v">open</span></div>
           <div class="row"><span class="k">Cycle (seq)</span><span class="v">#<span id="seq">—</span></span></div>

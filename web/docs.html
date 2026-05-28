@@ -88,7 +88,7 @@
     <main class="main">
       <div class="doc-meta">
         <div><b>Docs</b> &middot; BCH/USD ticker</div>
-        <div>chipnet</div>
+        <div>v12.1 &middot; chipnet</div>
       </div>
       <h1 class="doc-title">Decentralized BCH/USD ticker.</h1>
       <p class="doc-lead">A 7-notary federation co-witnesses prices from 13 operator-diverse exchanges; any publisher relays them into a covenant on Bitcoin Cash that commits the per-cycle median on chain. No admin keys; the covenant is the only on-chain rule.</p>
@@ -96,7 +96,7 @@
       <section class="chapter" id="overview">
         <h2><span class="num">§01</span><span>Overview</span></h2>
         <p>Ticker is a price feed that lives entirely on Bitcoin Cash chipnet. Every cycle (~60 s when funded) it emits a new on-chain commitment containing the median BCH/USD price witnessed during that cycle, signed by at least 7 distinct publishers. Consumers read the price either by spending a Ticker NFT in a tx (atomic on-chain) or by polling the JSON API.</p>
-        <p>There is no operator and no upgrade path. The Oracle covenant address is permanent for the life of the deploy; behavioural changes require minting a new covenant at a new address. The notary federation is the only off-chain trust assumption, and the design constrains what it can do.</p>
+        <p>There is no operator and no upgrade path <em>after genesis</em> (genesis itself is operator-orchestrated, one-shot). The Oracle covenant address is permanent for the life of the deploy; behavioural changes require minting a new covenant at a new address. The notary federation is the only off-chain trust assumption, and the design constrains what it can do.</p>
         <p>The on-chain code, in full, is three CashScript covenants: <code>Oracle</code>, <code>PublisherSlot</code>, and <code>Ticker</code>. There are no proxies, no admin paths, no off-chain governance signers.</p>
       </section>
 
@@ -108,7 +108,7 @@
           <tbody>
             <tr><td><b>Notary</b></td><td>Stateless HTTP daemon holding one Schnorr key from the federation OR-list. Fetches the price from its assigned CEX over TLS and signs <code>(serverName, sourceId, price, ts, cycleSeq)</code>.</td><td>7 (federated, independent operators)</td></tr>
             <tr><td><b>Publisher</b></td><td>Daemon that requests notary signatures, refreshes its persistent PublisherSlot NFT via <code>slot.attest()</code>, then races to broadcast <code>Oracle.update</code> consuming peer slot inputs. No special role; anyone with chipnet funds can run one.</td><td>13 (one per source; permissionless)</td></tr>
-            <tr><td><b>PublisherSlot</b></td><td>Persistent mutable NFT, one per <code>(publisher, sourceId)</code> pair. Minted ONCE at genesis; the slot category is then closed forever by CashTokens consensus, so no further slots can ever be minted. Each cycle the publisher calls <code>slot.attest()</code>, which verifies the notary sig + CN/SAN hash and rewrites the slot commitment in place (same UTXO identity, new outpoint, new commitment).</td><td>13 (one per source; genesis-minted, category-closed)</td></tr>
+            <tr><td><b>PublisherSlot</b></td><td>Persistent mutable NFT, one per <code>(publisher, sourceId)</code> pair. Minted ONCE at genesis; the slot category is then closed forever by CashTokens consensus, so no further slots can ever be minted. Each cycle the publisher calls <code>slot.attest()</code>, which verifies the notary sig + CN/SAN hash and rewrites the slot commitment (preserves <code>(category, sourceId, publisherPkh)</code> identity; new outpoint at every cycle; new <code>(price, timestamp, cycleSeq)</code>).</td><td>13 (one per source; genesis-minted, category-closed)</td></tr>
             <tr><td><b>Oracle</b></td><td>Self-perpetuating covenant. Reads ≥7 distinct PublisherSlot inputs, position-checks the median, re-emits each slot unchanged at the matching output index, emits a new 19-byte state commitment + 2 Mutable Ticker NFTs.</td><td>1 covenant (singleton UTXO)</td></tr>
             <tr><td><b>Ticker</b></td><td>Mutable NFT containing the latest commitment (17 bytes: version, seq, lastTs, price). Anyone-can-spend; self-replicates via the Ticker covenant. Consumers spend a Ticker to read the price atomically.</td><td>2 minted per cycle, persist until consumed</td></tr>
           </tbody>
@@ -132,13 +132,13 @@
         <h2><span class="num">§03</span><span>Trust model</span></h2>
         <p>The trust root is the <b>7-key notary federation</b>. Each notary independently fetches the price from its pinned CEX over TLS and signs <code>(serverName, sourceId, price, ts, cycleSeq)</code> with its Schnorr key. The Oracle covenant trusts these signatures and nothing else off-chain.</p>
         <p><b>Publishers are interchangeable relays.</b> They cannot fake notary sigs. They cannot alter the price. They cannot skip the quorum check. The only adversarial power a publisher has is to broadcast a different median if they assemble a different subset of slot inputs, but the covenant enforces position-checked median across N ≥ 7 distinct publishers, so a single publisher cannot bias the result.</p>
-        <p><b>Sources are operator-diverse.</b> 13 endpoints: 7 USD-quoted spot markets (Kraken, Coinbase, Gemini, Binance.US, Bitstamp, Crypto.com, Bitfinex, EXMO, Independent Reserve — 4 US, 5 non-US), 2 USDC (OKX, KuCoin), 2 USDT (Bybit, HTX). No two share an operator family; no quote-currency dominates. A position-checked median absorbs ≤6 outliers without bias — both stablecoin clusters could depeg the same direction simultaneously and the median still lands in the 7-USD cluster.</p>
+        <p><b>Sources are operator-diverse.</b> 13 endpoints: 9 USD-quoted spot markets (Kraken, Coinbase, Gemini, Binance.US, Bitstamp, Crypto.com, Bitfinex, EXMO, Independent Reserve — 4 US, 5 non-US), 2 USDC (OKX, KuCoin), 2 USDT (Bybit, HTX). No two share an operator family; no quote-currency dominates. A position-checked median absorbs ≤6 outliers without bias — both stablecoin clusters could depeg the same direction simultaneously and the median still lands in the 9-USD cluster.</p>
         <p><b>The covenant is the only on-chain rule.</b> It enforces:</p>
         <ul>
           <li>≥ 7 distinct publishers attest per cycle (the quorum ratchets up with active committee at ~50%, decays 10%/cycle if participation drops)</li>
-          <li>Notary-attested time is strictly forward; replay protection comes from monotonic cycleSeq enforced inside <code>PublisherSlot.attest()</code> — a stale attestation cannot be replayed because the slot's cycleSeq has already advanced past it. The minimum-stride floor (≥ 30 s) is enforced off-chain by the publisher daemon, not by the covenant.</li>
+          <li>Notary-attested time is strictly forward; replay protection comes from monotonic cycleSeq enforced inside <code>PublisherSlot.attest()</code> — a stale attestation cannot be replayed because the slot's cycleSeq has already advanced past it. The minimum-stride floor (≥ 30 s) is enforced by BOTH the covenant (<code>Oracle.cash</code>: <code>require(newTs - prevTs &gt;= 30)</code>) AND the publisher daemon (<code>scripts/publisher.ts</code> SLOT_WAIT_MS=25s + stride-floor wait).</li>
           <li>Median is position-checked across the sorted slot prices, not computed off-chain and trusted</li>
-          <li>Each <code>(publisher, sourceId)</code> pair has exactly ONE slot NFT (genesis-minted, category-closed). The slot category itself IS the publisher set. No further slots can be minted — this is the load-bearing anti-Sybil property, enforced by CashTokens consensus, not by the covenant.</li>
+          <li>Anti-Sybil rests on two complementary, load-bearing checks: (a) the slot category is closed forever at genesis by CashTokens consensus, so the publisher set is fixed and cannot be inflated by minting new slots; (b) within each <code>Oracle.update</code> tx, the covenant enforces distinct, monotonically-sorted <code>publisherPkh</code> across slot inputs, so a publisher cannot inflate quorum by submitting their own slot twice.</li>
           <li>Slot inputs are pinned to the v12 slot category — no synthetic slot inputs can be substituted.</li>
           <li>The 2 Mutable Ticker NFTs minted per cycle carry the same commitment shape; consumer covenants can pin the Oracle category to refuse impostor Tickers</li>
         </ul>
@@ -152,12 +152,12 @@
         <p>What a colluding majority <i>cannot</i> do:</p>
         <ul>
           <li>Rewind the cycleSeq counter — strictly monotonic in the covenant</li>
-          <li>Replay a stale attestation — each slot's cycleSeq is enforced to advance inside <code>PublisherSlot.attest()</code></li>
+          <li>Replay a stale notary signature — <code>PublisherSlot.attest()</code> requires <code>newCycleSeq &gt; slot.cycleSeq</code> (strict-greater, not ≥), so once a slot has advanced past a cycle, that cycle's signature is dead</li>
           <li>Skip the ≥ 7 distinct-publisher quorum check — enforced in script</li>
           <li>Hide a cycle from observers — every state transition is an on-chain tx</li>
-          <li>Run the chain faster than ~1 cycle/minute — notary throughput cap + publisher stride floor (enforced off-chain by the daemon)</li>
+          <li>Run the chain faster than the 30 s minimum stride enforced by <code>Oracle.cash</code> (<code>require(newTs - prevTs &gt;= 30)</code>); typical cadence is ~60 s when funded</li>
         </ul>
-        <p>With 7 keys held by independent operators, the bribery floor for 4-of-7 collusion is comparable to Wormhole-class bridges (~$1M+). Adding an 8th notary requires deploying a fresh PublisherSlot covenant + migrating the slot fleet (a full hard cutover at genesis); the new address coexists alongside the old.</p>
+        <p>A 7-key M-of-N federation with operator-diverse keys — bribing 4 keys held by independent operators is the new collusion threshold. Adding an 8th notary requires deploying a fresh PublisherSlot covenant + migrating the slot fleet (a full hard cutover at genesis); the new address coexists alongside the old.</p>
       </section>
 
       <section class="chapter" id="consume">
@@ -174,10 +174,10 @@
           <li><code>output[1]</code> — identical Ticker re-emit (Ticker covenant enforces this, mutable cap, same commit)</li>
           <li><code>output[2]</code> — optional change</li>
         </ul>
-        <p>Read <code>price</code> and <code>lastTs</code> from <code>tx.inputs[1].nftCommitment</code>. The 17-byte layout is:</p>
+        <p>Read <code>price</code> and <code>lastTs</code> from <code>tx.inputs[1].nftCommitment</code> — the Ticker's 17-byte <code>0x80</code> commit, distinct from the Oracle UTXO's 19-byte <code>0x60</code> state commit. The 17-byte layout is:</p>
         <pre><code>0x80 | seq(4) | lastTs(4) | medianPrice(8)</code></pre>
         <p>All multi-byte fields are little-endian. <code>medianPrice / 10^8</code> = USD. Pin the Oracle category as a constructor arg (LE-reversed; see <a href="#contracts">§ 07</a>) so an attacker cannot feed your contract a Ticker from a different oracle.</p>
-        <p>A working reference covenant — <code>PriceGatedRelease</code> (locks BCH, releases on price ≥ strike) — lives at <code>contracts/examples/</code> in the source tree, ~286 bytes compiled. Drop your own freshness gate on <code>lastTs</code>; avoid <code>tx.locktime</code>, that introduces a chain-MTP lag the design was built to escape.</p>
+        <p>A working reference covenant — <code>PriceGatedRelease</code> (locks BCH, releases on price ≥ strike) — lives at <code>contracts/examples/PriceGatedRelease.cash</code> in the source tree. ~64-byte script body; ~145 bytes including the four constructor args (pubkey + strike + oracle category + minLastTs). Drop your own freshness gate on <code>lastTs</code>; avoid <code>tx.locktime</code>, that introduces a chain-MTP lag the design was built to escape.</p>
 
         <h3>Off-chain: JSON API</h3>
         <pre><code>$ curl -s https://usd.ticker.cash/api/v1/price
@@ -190,9 +190,12 @@
   "seq": 11,
   "activeCount": 7,
   "network": "chipnet",
+  "deployedAt": 1779210000,
+  "fetchedAt": 1779818790,
+  "ageSec": 66,
   "stub": false
 }</code></pre>
-        <p>CORS is open; auth is none. <code>stub: true</code> means the API can't currently read the Oracle UTXO (e.g., Fulcrum unreachable) and the median is the last known cached value — don't trust prices when stub is true.</p>
+        <p>CORS is open; auth is none. <code>stub: true</code> indicates the price should not be trusted as live. Two branches: (a) the backend couldn't read the Oracle UTXO from chain — <code>medianUsd</code> will be <code>null</code> and the HTTP status is 503; (b) the latest cycle is ≥ 5 minutes old — <code>medianUsd</code> is real but stale, <code>ageSec ≥ 300</code>, HTTP 200. Always check <code>stub</code> AND consult <code>/api/v1/health</code> for component-level diagnosis.</p>
       </section>
 
       <section class="chapter" id="operate">
@@ -219,7 +222,7 @@
         <p>Federation operators typically bundle both daemons for their slot (no HTTP roundtrip for own attestations); community operators run publisher-only.</p>
         <pre><code>$ ticker-node --notary --publisher --slot 0</code></pre>
 
-        <div class="callout"><b>Source code.</b> Lives on <a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github.com/toorik2/ticker.cash</a>. The sanitised public mirror is in progress; until it lands, the chipnet deployment is the source of truth.</div>
+        <div class="callout"><b>Source code.</b> Lives on <a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github.com/toorik2/ticker.cash</a>.</div>
       </section>
 
       <section class="chapter" id="parameters">
@@ -229,10 +232,10 @@
           <thead><tr><th>Parameter</th><th>Value</th><th>Notes</th></tr></thead>
           <tbody>
             <tr><td>Federation size (M)</td><td>7</td><td>OR-list of independent Schnorr keys. ⌈M/2⌉ = 4 keys required for majority bribery.</td></tr>
-            <tr><td>Source count (N)</td><td>13</td><td>7 USD-quoted + 2 USDC + 2 USDT, operator-diverse. CN/SAN hash pinned in PublisherSlot.</td></tr>
+            <tr><td>Source count (N)</td><td>13</td><td>9 USD-quoted + 2 USDC + 2 USDT, operator-diverse. CN/SAN hash pinned in PublisherSlot.</td></tr>
             <tr><td>Quorum floor (T<sub>floor</sub>)</td><td>7</td><td>Minimum distinct publishers per cycle. Below this the Oracle covenant rejects.</td></tr>
             <tr><td>Quorum ratchet</td><td>~50% of recent active</td><td>Threshold = max(T<sub>floor</sub>, ⌈0.5 × oldActive⌉). Active count decays 10%/cycle when participation drops.</td></tr>
-            <tr><td>Cycle stride (min)</td><td>30 s</td><td>Enforced off-chain by the publisher daemon, not by the covenant. Replay protection comes from monotonic cycleSeq inside <code>PublisherSlot.attest()</code>. Typical cycle ~60 s when funded.</td></tr>
+            <tr><td>Cycle stride (min)</td><td>30 s</td><td>Enforced by BOTH the covenant (<code>Oracle.cash</code>: <code>require(newTs - prevTs &gt;= 30)</code>) AND the publisher daemon (<code>scripts/publisher.ts</code> SLOT_WAIT_MS=25s + stride-floor wait). Replay protection comes from monotonic cycleSeq inside <code>PublisherSlot.attest()</code>. Typical cycle ~60 s when funded.</td></tr>
             <tr><td>Oracle commit length</td><td>19 B</td><td><code>0x60 | seq(4) | lastTs(4) | medianUsd(8) | activeCount(2)</code></td></tr>
             <tr><td>Ticker commit length</td><td>17 B</td><td><code>0x80 | seq(4) | lastTs(4) | medianPrice(8)</code></td></tr>
             <tr><td>Slot commit length</td><td>39 B</td><td><code>0x72 | sourceId(2) | publisherPkh(20) | price(8) | timestamp(4) | cycleSeq(4)</code></td></tr>
@@ -258,16 +261,40 @@
         <h2><span class="num">§08</span><span>JSON API</span></h2>
         <p><b>GET</b> <code>/api/v1/price</code> — no auth, CORS open, returns the latest known Oracle state.</p>
         <pre><code>{
-  "medianUsd": 344.94,         // float USD (medianPrice / 1e8)
+  "medianUsd": 344.94,         // float USD (medianPrice / 1e8); null if stub branch (a)
   "scale": "usd-e8",           // u64 LE scale; multiply by 1e-8 for USD
   "scaledValue": "34494000000",// raw u64 from on-chain commit
   "lastLocktime": 1779818724,  // notary-attested ts of last cycle (unix seconds)
   "seq": 11,                   // monotonic cycle counter from Oracle commit
   "activeCount": 7,            // distinct publishers in last cycle (also the ratchet input)
   "network": "chipnet",        // chipnet | mainnet
-  "stub": false                // true = backend couldn't read chain, value is cached; don't trust
+  "deployedAt": 1779210000,    // unix seconds; genesis-tx mined-at for this deploy
+  "fetchedAt": 1779818790,     // unix seconds; backend's wall-clock when this response was built
+  "ageSec": 66,                // fetchedAt - lastLocktime; ≥ 300 implies stub: true (branch b)
+  "stub": false                // see explanation below
 }</code></pre>
-        <p>Useful for status pages, alerting, and dashboards. For dApp consumption, prefer the on-chain Ticker path described in <a href="#consume">§ 04</a>.</p>
+        <p><code>stub: true</code> has two branches: (a) the backend couldn't read the Oracle UTXO — <code>medianUsd</code> is <code>null</code>, HTTP 503; (b) the latest cycle is ≥ 5 minutes old — <code>medianUsd</code> is real but stale, <code>ageSec ≥ 300</code>, HTTP 200. Useful for status pages, alerting, and dashboards. For dApp consumption, prefer the on-chain Ticker path described in <a href="#consume">§ 04</a>.</p>
+
+        <h3>GET <code>/api/v1/health</code></h3>
+        <p>Returns:</p>
+        <pre><code>{
+  "healthy": true,
+  "stalenessThresholdSec": 300,
+  "node":     { "ok": true, "blockHeight": 224801 },
+  "fulcrum":  { "ok": true, "tipHeight":    224801 },
+  "lastCycle": {
+    "seq": 11,
+    "locktime": 1779818724,
+    "ageSec": 66,
+    "activeCount": 7
+  },
+  "network": "chipnet",
+  "deployedAt": 1779210000,
+  "fetchedAt": 1779818790,
+  "stub": false,
+  "errors": []
+}</code></pre>
+        <p><code>healthy</code> is true iff node + fulcrum are reachable AND <code>lastCycle.ageSec &lt; stalenessThresholdSec</code>. Use this endpoint for status-page integrations — it surfaces component-level state that <code>/api/v1/price</code> collapses into a single <code>stub</code> bit.</p>
       </section>
 
       <div class="foot">

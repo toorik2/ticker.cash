@@ -55,7 +55,7 @@ chmod 600 .ticker/seed.hex
 export TICKER_ELECTRUM_HOST=127.0.0.1
 export TICKER_ELECTRUM_PORT=50001
 
-# Deploy your own instance (mints a fresh Gateway + Oracle)
+# Deploy your own instance (mints a fresh Oracle + 13 PublisherSlot NFTs + Ticker category)
 npm run deploy             # plan
 npm run deploy -- --broadcast
 
@@ -79,7 +79,7 @@ All federation keys derive from a single 32-byte seed kept at `.ticker/seed.hex`
 Derivation is `privateKey = sha256(seed || utf8(label))`. Labels:
 
 - `master` — hot wallet (deploy + gas)
-- `notary-0..6` — 7 federation Schnorr keys (the Gateway's OR-list)
+- `notary-0..6` — 7 federation Schnorr keys (the OR-list inside `PublisherSlot.attest()`)
 - `publisher-0..12` — 13 publisher wallets (one per source)
 
 Anyone with the seed can produce any wallet. Treat it like the master secret it is: `chmod 600`, back it up off-host, never paste it into a log or share.
