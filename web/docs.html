@@ -77,6 +77,7 @@
         <li><a href="#overview">Overview</a></li>
         <li><a href="#architecture">Architecture</a></li>
         <li><a href="#trust">Trust model</a></li>
+        <li><a href="#signatures">Signatures</a></li>
         <li><a href="#consume">Reading the price</a></li>
         <li><a href="#operate">Operating a node</a></li>
         <li><a href="#parameters">Parameters</a></li>
@@ -160,12 +161,153 @@
         <p>A 7-key M-of-N federation with operator-diverse keys — bribing 4 keys held by independent operators is the new collusion threshold. Adding an 8th notary requires deploying a fresh PublisherSlot covenant + migrating the slot fleet (a full hard cutover at genesis); the new address coexists alongside the old.</p>
       </section>
 
+      <section class="chapter" id="signatures">
+        <h2><span class="num">§04</span><span>Signatures</span></h2>
+        <p>Six signatures appear on the path from <i>"an exchange quoted a price"</i> to <i>"your dApp's tx settles."</i> Three are produced and verified per slot refresh — the heart of the trust model. The other three are standard BCH input sigs. No single operator holds a master key; every signature ties to a specific publisher, source, and cycle, so misuse is structurally detectable.</p>
+
+        <h3>Step 1 &middot; Slot refresh (×13 publishers in parallel, ~60 s cadence)</h3>
+        <p>Each publisher fetches a price from its assigned exchange over TLS and asks one of the 7 notaries to co-witness it. Two off-chain Schnorr sigs feed one BCH tx that rewrites the publisher's persistent slot NFT.</p>
+<pre><code>   Exchange         Notary           Publisher       PublisherSlot
+   (1 of 13)        (1 of 7)         (1 of 13)       covenant
+   ─────────        ────────         ─────────       ─────────────
+        │                │                │                │
+        │ ◄── TLS ────── │                │                │
+        ├── price ─────► │                │                │
+        │                │                │                │
+        │                │  Schnorr sig 1 │                │
+        │                ├──────────────► │                │
+        │                │  signs:        │                │
+        │                │   serverName   │                │
+        │                │   ‖ sourceId   │                │
+        │                │   ‖ price      │                │
+        │                │   ‖ ts         │                │
+        │                │   ‖ cycleSeq   │                │
+        │                │   ‖ publisherPkh   ◄── binds to this publisher
+        │                │                │                │
+        │                │                │ Schnorr sig 2  │
+        │                │                │ signs:         │
+        │                │                │   sourceId     │
+        │                │                │   ‖ price      │
+        │                │                │   ‖ ts         │
+        │                │                │   ‖ publisherPkh
+        │                │                │   ‖ cycleSeq   │
+        │                │                │   ‖ hash160(serverName)
+        │                │                │                │
+        │                │                │  Tx sig 3 (P2PKH) on slot.attest tx
+        │                │                ├──────────────► │
+        │                │                │                │
+        │                │                │     verifies sigs 1 + 2,
+        │                │                │     cycleSeq strictly advances,
+        │                │                │     hash160(SN) matches pinned sourceId,
+        │                │                │     rewrites slot commit in place
+</code></pre>
+
+        <h3>Step 2 &middot; Oracle.update (any publisher races, once ≥ 7 slots are refreshed)</h3>
+        <p>The race winner builds a tx consuming the Oracle UTXO + the ≥ 7 freshest slot UTXOs, re-emits each slot unchanged at its matching output index, computes the median, and mints two Ticker NFTs. No off-chain sig — the covenant is the only judge of validity; the race winner's wallet just pays the tx fee.</p>
+<pre><code>   ≥ 7 slots      Race-winner publisher          Oracle covenant
+   ─────────      ─────────────────────          ───────────────
+       │                  │                              │
+       │                  │  Tx sig 4 (P2PKH) on         │
+       │                  │  Oracle.update tx            │
+       │                  │  (no off-chain sig needed)   │
+       │                  ├────────────────────────────► │
+       │                  │                              │
+       │                  │                  position-checks median,
+       │                  │                  verifies ≥ 7 distinct + sorted pkhs,
+       │                  │                  enforces newTs - prevTs ≥ 30,
+       │                  │                  re-emits slots unchanged,
+       │                  │                  mints 2 mutable Ticker NFTs
+</code></pre>
+
+        <h3>Step 3 &middot; Consumer (any time the Tickers exist on chain)</h3>
+        <p>A consumer dApp builds its own tx with a Ticker NFT at <code>input[1]</code> and the consumer's own covenant at <code>input[0]</code>. The Ticker covenant enforces identical re-emit at <code>output[1]</code>; the consumer covenant enforces whatever price gate it wants (e.g., release iff <code>medianPrice &gt;= strike</code>). The act of spending the Ticker makes the consumer tx a chain-descendant of the Oracle.update that minted it — co-finality is structural, not advisory.</p>
+<pre><code>   Consumer dApp                    Ticker covenant + consumer's own gate
+   ─────────────                    ──────────────────────────────────────
+        │                                       │
+        │  Tx sig 5 (P2PKH) on consumer tx       │
+        │  in[0] = consumer covenant            │
+        │  in[1] = Ticker NFT                   │
+        │  out[0] = business output             │
+        │  out[1] = Ticker re-emit              │
+        ├─────────────────────────────────────► │
+        │                                       │
+        │                       Ticker.cash:  re-emit at out[1] identical
+        │                       Consumer:     price gate, freshness gate
+</code></pre>
+
+        <h3>Signature inventory</h3>
+        <table>
+          <thead><tr><th>#</th><th>Signer</th><th>Algorithm</th><th>Signs</th><th>Verified by</th><th>Forgery effect</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>0</td>
+              <td>Exchange's TLS cert</td>
+              <td>TLS (server cert)</td>
+              <td>The TLS session bytes (implicit)</td>
+              <td>The notary's TLS client checks CN/SAN against the pinned host name before reading the price</td>
+              <td>Notary refuses to sign anything; cycle proceeds without this source</td>
+            </tr>
+            <tr>
+              <td>1</td>
+              <td>Notary (1 of 7)</td>
+              <td>Schnorr</td>
+              <td><code>serverName ‖ sourceId ‖ price ‖ ts ‖ cycleSeq ‖ publisherPkh</code></td>
+              <td><code>PublisherSlot.attest()</code> via <code>checkDataSig</code> against the 7-key OR-list</td>
+              <td>Slot-refresh tx rejected by covenant</td>
+            </tr>
+            <tr>
+              <td>2</td>
+              <td>Publisher (1 of 13)</td>
+              <td>Schnorr</td>
+              <td><code>sourceId ‖ price ‖ ts ‖ publisherPkh ‖ cycleSeq ‖ hash160(serverName)</code></td>
+              <td><code>PublisherSlot.attest()</code> via <code>checkDataSig</code> against the slot's pinned publisher pubkey</td>
+              <td>Slot-refresh tx rejected by covenant</td>
+            </tr>
+            <tr>
+              <td>3</td>
+              <td>Publisher's wallet</td>
+              <td>ECDSA/Schnorr (P2PKH)</td>
+              <td>The <code>slot.attest</code> tx itself</td>
+              <td>BCH consensus (standard P2PKH input sig)</td>
+              <td>Tx invalid; not relayed</td>
+            </tr>
+            <tr>
+              <td>4</td>
+              <td>Race-winner's wallet</td>
+              <td>ECDSA/Schnorr (P2PKH)</td>
+              <td>The <code>Oracle.update</code> tx itself</td>
+              <td>BCH consensus</td>
+              <td>Tx invalid; not relayed. Anyone else can still try to broadcast a valid Oracle.update.</td>
+            </tr>
+            <tr>
+              <td>5</td>
+              <td>Consumer's wallet</td>
+              <td>ECDSA/Schnorr (P2PKH)</td>
+              <td>The consumer's own tx</td>
+              <td>BCH consensus + the consumer covenant's own gate (e.g., price ≥ strike, lastTs ≥ minLastTs)</td>
+              <td>Tx invalid OR consumer covenant refuses release</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>Why each binding matters</h3>
+        <ul>
+          <li><b><code>publisherPkh</code> inside the notary sig.</b> A notary cannot sign one bundle and have ten publishers replay it. Each notary sig is for <i>one</i> publisher in <i>one</i> cycle. A publisher who tried to use someone else's notary sig would fail the slot's identity check (the slot's pinned <code>publisherPkh</code> would not match the notary's signed message).</li>
+          <li><b><code>hash160(serverName)</code> inside the publisher sig.</b> A publisher cannot ask the Coinbase-side notary for a sig and quietly relabel the price as Kraken's. The covenant cross-checks that <code>hash160(serverName)</code> matches the 20-byte CN/SAN hash pinned at the slot's <code>sourceId</code> slot.</li>
+          <li><b><code>cycleSeq</code> inside both sigs.</b> A sig produced for cycle N cannot be replayed at N+1: the covenant requires <code>newCycleSeq &gt; oldCycleSeq</code> (strict-greater), and the cycleSeq appears inside the signed bytes, so altering it would break the sig.</li>
+          <li><b>No off-chain sig on Oracle.update.</b> Anyone can broadcast the update tx. The covenant is the only judge of validity. The race-winner's wallet sig (sig 4) just pays the tx fee — they don't gain any special authority by being first.</li>
+          <li><b>Consumer covenant's own gate.</b> The Ticker covenant only enforces structural re-emit; it does not enforce a price-meaning constraint. Each consumer pins its own logic — strike price, freshness window, recipient pubkey — into the covenant that holds its locked BCH (see <a href="#consume">§ 05</a> for the reference example).</li>
+        </ul>
+
+        <div class="callout"><b>What no signature in this system grants.</b> No signer can change the rules of the covenant, can roll back a confirmed cycle, can override the median computation, or can mint new slots after genesis. Every signature is a witness inside a fixed game; the rules of the game are in <code>contracts/Oracle.cash</code> + <code>contracts/PublisherSlot.cash</code>, deployed once, immutable forever.</div>
+      </section>
+
       <section class="chapter" id="consume">
-        <h2><span class="num">§04</span><span>Reading the price</span></h2>
+        <h2><span class="num">§05</span><span>Reading the price</span></h2>
         <p>Two paths: <b>on-chain atomic</b> (recommended for dApps; spend a Ticker NFT as a tx input, read its commit) or <b>JSON API</b> (recommended for off-chain UIs; just GET <code>/api/v1/price</code>).</p>
 
         <h3>On-chain: spend a Ticker</h3>
-        <p>Each cycle mints 2 Ticker NFTs at a fixed address (see <a href="#contracts">§ 07 Live contracts</a>). They are mutable (capability 0x01), anyone-can-spend, and self-replicate via the Ticker covenant. A consumer's tx that spends a Ticker becomes a <b>chain-descendant of the Oracle.update</b> that produced it — BCH consensus refuses to confirm the consumer's tx in any chain that excludes the Oracle.update. That is co-finality, atomic by construction.</p>
+        <p>Each cycle mints 2 Ticker NFTs at a fixed address (see <a href="#contracts">§ 08 Live contracts</a>). They are mutable (capability 0x01), anyone-can-spend, and self-replicate via the Ticker covenant. A consumer's tx that spends a Ticker becomes a <b>chain-descendant of the Oracle.update</b> that produced it — BCH consensus refuses to confirm the consumer's tx in any chain that excludes the Oracle.update. That is co-finality, atomic by construction.</p>
         <p>Minimal tx shape:</p>
         <ul>
           <li><code>input[0]</code> — your consumer contract</li>
@@ -176,7 +318,7 @@
         </ul>
         <p>Read <code>price</code> and <code>lastTs</code> from <code>tx.inputs[1].nftCommitment</code> — the Ticker's 17-byte <code>0x80</code> commit, distinct from the Oracle UTXO's 19-byte <code>0x60</code> state commit. The 17-byte layout is:</p>
         <pre><code>0x80 | seq(4) | lastTs(4) | medianPrice(8)</code></pre>
-        <p>All multi-byte fields are little-endian. <code>medianPrice / 10^8</code> = USD. Pin the Oracle category as a constructor arg (LE-reversed; see <a href="#contracts">§ 07</a>) so an attacker cannot feed your contract a Ticker from a different oracle.</p>
+        <p>All multi-byte fields are little-endian. <code>medianPrice / 10^8</code> = USD. Pin the Oracle category as a constructor arg (LE-reversed; see <a href="#contracts">§ 08</a>) so an attacker cannot feed your contract a Ticker from a different oracle.</p>
         <p>A working reference covenant — <code>PriceGatedRelease</code> (locks BCH, releases on price ≥ strike) — lives at <code>contracts/examples/PriceGatedRelease.cash</code> in the source tree. ~64-byte script body; ~145 bytes including the four constructor args (pubkey + strike + oracle category + minLastTs). Drop your own freshness gate on <code>lastTs</code>; avoid <code>tx.locktime</code>, that introduces a chain-MTP lag the design was built to escape.</p>
 
         <h3>Off-chain: JSON API</h3>
@@ -199,7 +341,7 @@
       </section>
 
       <section class="chapter" id="operate">
-        <h2><span class="num">§05</span><span>Operating a node</span></h2>
+        <h2><span class="num">§06</span><span>Operating a node</span></h2>
         <p>There are two kinds of node, both stateless and small. The unified binary <code>scripts/ticker-node.ts</code> wraps either or both.</p>
 
         <h3>Notary</h3>
@@ -226,7 +368,7 @@
       </section>
 
       <section class="chapter" id="parameters">
-        <h2><span class="num">§06</span><span>Parameters</span></h2>
+        <h2><span class="num">§07</span><span>Parameters</span></h2>
         <p>Covenant constants. Values are baked into the bytecode at deploy time; changing any of them requires a new deploy at a new address.</p>
         <table>
           <thead><tr><th>Parameter</th><th>Value</th><th>Notes</th></tr></thead>
@@ -247,7 +389,7 @@
       </section>
 
       <section class="chapter" id="contracts">
-        <h2><span class="num">§07</span><span>Live contracts</span></h2>
+        <h2><span class="num">§08</span><span>Live contracts</span></h2>
         <p>Current chipnet deployment. Live addresses and the most recent commitment are on the <a href="/">home page</a> sidebar.</p>
         <ul>
           <li><b>Oracle</b> — singleton covenant; consumes ≥ 7 PublisherSlot inputs per cycle, re-emits each one unchanged at the matching output index, emits new state commitment + 2 Ticker NFTs.</li>
@@ -258,7 +400,7 @@
       </section>
 
       <section class="chapter" id="api">
-        <h2><span class="num">§08</span><span>JSON API</span></h2>
+        <h2><span class="num">§09</span><span>JSON API</span></h2>
         <p><b>GET</b> <code>/api/v1/price</code> — no auth, CORS open, returns the latest known Oracle state.</p>
         <pre><code>{
   "medianUsd": 344.94,         // float USD (medianPrice / 1e8); null if stub branch (a)
@@ -273,7 +415,7 @@
   "ageSec": 66,                // fetchedAt - lastLocktime; ≥ 300 implies stub: true (branch b)
   "stub": false                // see explanation below
 }</code></pre>
-        <p><code>stub: true</code> has two branches: (a) the backend couldn't read the Oracle UTXO — <code>medianUsd</code> is <code>null</code>, HTTP 503; (b) the latest cycle is ≥ 5 minutes old — <code>medianUsd</code> is real but stale, <code>ageSec ≥ 300</code>, HTTP 200. Useful for status pages, alerting, and dashboards. For dApp consumption, prefer the on-chain Ticker path described in <a href="#consume">§ 04</a>.</p>
+        <p><code>stub: true</code> has two branches: (a) the backend couldn't read the Oracle UTXO — <code>medianUsd</code> is <code>null</code>, HTTP 503; (b) the latest cycle is ≥ 5 minutes old — <code>medianUsd</code> is real but stale, <code>ageSec ≥ 300</code>, HTTP 200. Useful for status pages, alerting, and dashboards. For dApp consumption, prefer the on-chain Ticker path described in <a href="#consume">§ 05</a>.</p>
 
         <h3>GET <code>/api/v1/health</code></h3>
         <p>Returns:</p>
