@@ -1,15 +1,15 @@
 /**
- * v7 state queries — fetch the current Oracle UTXO from Fulcrum and decode
- * its 115-byte commitment per the v7 contract layout.
+ * State queries — fetch the current Oracle UTXO from Fulcrum and decode
+ * its 19-byte commitment per contracts/Oracle.cash.
  *
- * Commitment layouts (locked in contracts/v7/Oracle.cash):
- *   Oracle (115 B):
- *     0x60 || seq(u32 LE) || locktime(u32 LE) || medianPrice(u64 LE)
- *       || activeCount(u16 LE) || history(12 × u64 LE) = 1+4+4+8+2+96 = 115
+ * Commitment layout (locked in contracts/Oracle.cash):
+ *   Oracle (19 B):
+ *     0x60 || seq(u32 LE) || lastTs(u32 LE) || medianPrice(u64 LE)
+ *       || activeCount(u16 LE) = 1+4+4+8+2 = 19
  *
- * Quote (113 B) is defined in v7.contracts/Quote.cash but currently UNUSED
- * by Oracle.update (cashscript dual-loop issue under investigation; v7.1
- * will re-enable). Until then, consumers read price directly from Oracle.
+ * Consumers read price atomically on-chain by spending a Ticker NFT
+ * (17-byte 0x80 commit) — see contracts/Ticker.cash for the chain-head
+ * pattern.
  */
 import { electrumRequest } from './electrum.js';
 import contracts from './contracts.json';
