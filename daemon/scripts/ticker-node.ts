@@ -4,7 +4,8 @@
  *
  * Operationally bundles both roles into one systemd unit. Conceptually
  * keeps them separate: notary holds a federation Schnorr key + signs
- * (price, ts, cycleSeq); publisher relays via Gateway + Oracle.update.
+ * (price, ts, cycleSeq); publisher relays via PublisherSlot.attest() +
+ * Oracle.update.
  *
  * Usage:
  *   ticker-node --notary --slot 0                       # notary only

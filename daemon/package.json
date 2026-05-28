@@ -4,7 +4,7 @@
   "type": "module",
   "description": "Notary + publisher + deploy daemons for the BCH/USD ticker on chipnet.",
   "scripts": {
-    "compile": "cashc ../contracts/Oracle.cash -o ../contracts/artifacts/Oracle.json && cashc ../contracts/Ticker.cash -o ../contracts/artifacts/Ticker.json && cashc ../contracts/VerifiedAttestation.cash -o ../contracts/artifacts/VerifiedAttestation.json && cashc ../contracts/TLSNotaryGateway.cash -o ../contracts/artifacts/TLSNotaryGateway.json",
+    "compile": "cashc ../contracts/Oracle.cash -o ../contracts/artifacts/Oracle.json && cashc ../contracts/Ticker.cash -o ../contracts/artifacts/Ticker.json && cashc ../contracts/PublisherSlot.cash -o ../contracts/artifacts/PublisherSlot.json",
     "deploy": "tsx scripts/deploy.ts",
     "notary": "tsx scripts/notary.ts",
     "publisher": "tsx scripts/publisher.ts",

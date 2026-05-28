@@ -14,9 +14,11 @@ const sha256Hash = (data: Uint8Array): Uint8Array => (sha256 as Sha256).hash(dat
 
 // ─── Source registry ──────────────────────────────────────────────────────
 //
-// sourceId → canonical server name. The TLSNotaryGateway constructor pins
+// sourceId → canonical server name. The PublisherSlot constructor pins
 // HASH160(canonicalCN) for each sourceId. Adding a new source requires a
-// new Gateway deployment (the source-CN hash blob is baked into bytecode).
+// fresh PublisherSlot covenant + slot-fleet migration (the source-CN hash
+// blob is baked into bytecode, and the slot category is closed forever
+// after genesis).
 //
 // 13 endpoints, operator-diverse, USD-anchored:
 //   IDs 1..9  → USD-quoted spot markets (4 US, 5 non-US)
@@ -58,7 +60,7 @@ export const sourceCNHashHex = (sc: SourceConfig): string =>
 
 /**
  * Pack all source CN hashes into a single (N × 20)-byte blob for the
- * TLSNotaryGateway constructor. The Gateway verification does
+ * PublisherSlot constructor. The slot's notary-sig verification does
  * `sourceCNHashes.slice((sid - 1) * 20, sid * 20)`.
  */
 export const packedSourceCNHashes = (): string => {
@@ -153,9 +155,5 @@ export const publisherSigDigest = (
 
 export const ORACLE_DUST = 2000n;
 export const TICKER_DUST = 1500n;
-export const GATEWAY_DUST = 2000n;
-export const VA_DUST = 1500n;
 
-export const VA_EXPIRY_OFFSET = 600;  // VA stays valid for 10 min after mint
-export const CYCLE_STRIDE_SEC = 60;
 export const THR_FLOOR = 7;            // T_floor — covenant minimum quorum

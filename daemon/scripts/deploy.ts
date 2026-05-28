@@ -171,7 +171,7 @@ const main = async (): Promise<void> => {
     console.log(`  ⚠ master needs ≥ ${GENESIS_INPUT_MIN_SATS * 2n} sats (slot + oracle genesis).`);
   }
 
-  console.log(`\n[2/4] Ticker covenant (unchanged from v11, no constructor args):`);
+  console.log(`\n[2/4] Ticker covenant (no constructor args):`);
   const tickerContract = new Contract(TickerArtifact, [], { provider });
   state.tickerAddress = tickerContract.tokenAddress;
   state.tickerLockingBytecodeHex = tickerContract.lockingBytecode;

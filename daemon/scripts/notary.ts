@@ -52,10 +52,11 @@ const buildLocalProvider = (): ElectrumNetworkProvider => {
 const sha256Hash = (data: Uint8Array): Uint8Array => (sha256 as Sha256).hash(data);
 
 // The notary stamps wall-clock time. The Oracle covenant enforces
-// `newTs > prevTs + [30, 7200]` on the median of these stamps. Chain time
-// (MTP, tx.locktime) is not in the trust path anywhere — this lets cycles
-// run at notary cadence (~60 s) without being gated by chipnet block
-// production.
+// `newTs > prevTs` AND `newTs - prevTs >= 30` on the median of these
+// stamps (no upper ceiling — the chain self-heals from idle gaps in a
+// single catch-up cycle). Chain time (MTP, tx.locktime) is not in the
+// trust path anywhere — this lets cycles run at notary cadence (~60 s)
+// without being gated by chipnet block production.
 
 interface ParsedArgs { slot: number; port: number }
 const parseArgs = (): ParsedArgs => {

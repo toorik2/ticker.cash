@@ -2,7 +2,7 @@ pragma cashscript >= 0.13.0;
 
 // Ticker — self-replicating chain head for atomic price consumption.
 //
-// Each Oracle.update cycle mints K (= 4) Ticker NFTs with MUTABLE capability
+// Each Oracle.update cycle mints K (= 2) Ticker NFTs with MUTABLE capability
 // (0x01). A consumer's tx spends a Ticker at input[idx] and is required to
 // re-emit an IDENTICAL Ticker at output[idx] (same lockingBytecode, same
 // tokenCategory including the mutable capability suffix, same nftCommitment,
@@ -12,7 +12,7 @@ pragma cashscript >= 0.13.0;
 // linkage (BCH consensus enforces parent in canonical chain ⇒ child in
 // canonical chain).
 //
-// Capacity per cycle ≈ K × D where K is the number of pre-minted heads (4)
+// Capacity per cycle ≈ K × D where K is the number of pre-minted heads (2)
 // and D is the achievable chain depth (RTT-bounded, typically thousands).
 //
 // The Ticker covenant has no auth gate beyond the version byte and the

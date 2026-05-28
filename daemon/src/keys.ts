@@ -2,7 +2,7 @@
 //
 // Roles (one wallet per role, all derived from the same seed):
 //   "master"        — hot wallet for deploy ceremony + treasury top-ups.
-//   "notary-N"      — 7 federation Schnorr keys, the OR-list in the Gateway.
+//   "notary-N"      — 7 federation Schnorr keys, the OR-list inside PublisherSlot.attest().
 //   "publisher-N"   — 13 publisher wallets (one per source).
 //
 // Each operator runs ONE binary that holds ONE of these private keys.
