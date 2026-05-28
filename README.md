@@ -86,7 +86,7 @@ Anyone with the seed can produce any wallet. Treat it like the master secret it 
 
 ## Architecture in one paragraph
 
-Publishers fetch a price from one of 13 operator-diverse exchanges, get a notary signature over `(serverName, sourceId, price, ts, cycleSeq)`, mint a `VerifiedAttestation` NFT through the `TLSNotaryGateway` covenant (which pins each source's CN/SAN hash and verifies the notary sig + publisher sig), then race to broadcast `Oracle.update` consuming ≥ 7 distinct VAs. The Oracle covenant position-checks the median and emits four mutable `Ticker` NFTs. Consumer dApps spend a Ticker in their tx for atomic co-finality.
+Publishers fetch a price from one of 13 operator-diverse exchanges, get a notary signature over `(serverName, sourceId, price, ts, cycleSeq)`, then refresh their persistent `PublisherSlot` NFT via `slot.attest()` — same UTXO identity, new commitment, monotonic cycleSeq. The covenant pins each source's CN/SAN hash and verifies the notary sig + publisher sig inside the slot refresh. Any publisher then races to broadcast `Oracle.update` consuming ≥ 7 distinct slot inputs and re-emitting each one unchanged at the matching output index. The Oracle covenant position-checks the median and emits 2 mutable `Ticker` NFTs. Consumer dApps spend a Ticker in their tx for atomic co-finality.
 
 ## License
 
