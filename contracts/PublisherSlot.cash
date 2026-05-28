@@ -162,11 +162,6 @@ contract PublisherSlot(
         bytes expectedCNHash = sourceCNHashes.slice((int(sourceId) - 1) * 20, int(sourceId) * 20);
         require(hash160(serverName) == expectedCNHash);
 
-        // ── 5. Freshness (±7200 s, matches v11 gateway) ───────────────
-        int ts = int(timestamp);
-        require(ts - tx.locktime <= 7200);
-        require(tx.locktime - ts <= 7200);
-
         // ── 6. Publisher sig over committed payload ───────────────────
         bytes pubMessage = sourceId + price + timestamp + publisherPkh + cycleSeq + hash160(serverName);
         require(checkDataSig(publisherSig, pubMessage, publisherPubkey));

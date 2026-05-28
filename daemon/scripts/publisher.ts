@@ -110,7 +110,7 @@ const DEPLOY_STATE_PATH = '.ticker/deploy-state.json';
 const POLL_INTERVAL_MS = 2_000;
 const SLOT_WAIT_MS = 25_000;
 const TX_FEE_BUFFER_ATTEST = 2_000n;
-const TX_FEE_BUFFER_UPDATE = 6_000n;
+const TX_FEE_BUFFER_UPDATE = 20_000n;
 
 interface ParsedArgs {
   slot: number;
@@ -332,7 +332,7 @@ const main = async (): Promise<void> => {
       }
       const mySlotCommit = decodeSlotCommit(hexToBin(mySlot.token!.nft!.commitment))!;
 
-      if (newSeq <= mySlotCommit.cycleSeq) {
+      if (newSeq < mySlotCommit.cycleSeq) {
         console.log(`  newSeq=${newSeq} <= slot.cycleSeq=${mySlotCommit.cycleSeq}; skip`);
         await sleep(POLL_INTERVAL_MS);
         continue;
@@ -365,8 +365,7 @@ const main = async (): Promise<void> => {
           await sleep(POLL_INTERVAL_MS);
           continue;
         }
-
-        const targetLocktime = attestation.timestamp;
+        const targetLocktime = 0;
         const newCommit = encodeSlotCommit(source.id, myPkh, price, attestation.timestamp, newSeq);
 
         const attestTx = new TransactionBuilder({ provider });
