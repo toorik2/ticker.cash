@@ -30,6 +30,10 @@ import {
 } from '@bitauth/libauth';
 import type { Wallet } from './master-seed.js';
 
+// Re-export so callers using the new install layout don't need to import
+// from master-seed.ts at all (that module is coordinator-side tooling).
+export type { Wallet } from './master-seed.js';
+
 export type Network = 'chipnet' | 'mainnet';
 
 const networkPrefix = (network: Network): CashAddressNetworkPrefix =>

@@ -1,37 +1,41 @@
 #!/usr/bin/env tsx
 /**
  * Notary daemon — HTTP service that:
- *   1. Receives a sign request for (sourceId).
+ *   1. Receives a sign request for (sourceId, cycleSeq, publisherPkh).
  *   2. Fetches the live price from sourceId's canonical CEX endpoint.
- *   3. Signs (server_name || sourceId || price || timestamp) with notary key.
- *   4. Returns: { sourceId, price, timestamp, serverName, notarySig }.
+ *   3. Signs (server_name || sourceId || price || timestamp || cycleSeq || publisherPkh)
+ *      with the notary's Schnorr key.
+ *   4. Returns: { sourceId, cycleSeq, price, timestamp, serverName, notarySig, notaryPubkey }.
  *
- * Why this is "trusted" vs full TLS-notary: the notary itself parses the
- * JSON response off-chain. It can lie about the price. Mitigations:
- *   - OR-list of M ≥ 3 notaries → publishers choose; one rogue notary is
- *     bypassed by choosing another.
- *   - Sentinel-skip in Oracle.update → outlier prices excluded.
- *   - Reputational off-chain: notaries with poor track records lose mindshare.
+ * Two credential layouts are accepted at start-up (auto-detected):
  *
- * Usage:
- *   npx tsx scripts/notary.ts --slot 0 --port 8081
- *     → derives notary-0 from seed, listens on 0.0.0.0:8081
+ *   New (per-operator install):
+ *     .ticker/notary.key       32-byte private key, this operator's slot only
+ *     .ticker/manifest.json    public bundle (contracts + 7 notary pubkeys + ...)
+ *   Slot derived from pubkey match against manifest.notaryPubkeys.
+ *   --slot is ignored on this path.
+ *
+ *   Legacy (coordinator's seed-derived layout):
+ *     .ticker/seed.hex         32-byte master seed; all 20 keys derivable
+ *   --slot N selects wallets.notaries[N].
+ *
+ * --port defaults to 8081 + slot when omitted (loopback only).
  *
  * Endpoints:
- *   POST /sign  { sourceId: number, fresh?: boolean }
- *     → 200 { sourceId, price, timestamp, serverName, notarySig: hex, notaryPubkey: hex }
+ *   POST /sign  { sourceId, cycleSeq, pubkeyHash }
+ *     → 200 { sourceId, cycleSeq, price, timestamp, serverName, notarySig, notaryPubkey }
  *     → 4xx { error: ... }
- *   GET /health → 200 { ok: true, slot, address, pubkey }
- *
- * Pulls price via simple HTTPS fetch — no TLS-notary co-witness in this
- * iteration. Future: integrate with tlsn.org notary as a "co-signer."
+ *   GET /health → 200 { ok: true, slot, address, pubkey, mode }
  */
 import { createServer } from 'node:http';
+import { existsSync } from 'node:fs';
 import { secp256k1, sha256, binToHex, hexToBin, type Sha256, type Secp256k1 } from '@bitauth/libauth';
 import { ElectrumNetworkProvider, Network } from 'cashscript';
 import { ElectrumClient } from '@electrum-cash/network';
 import { ElectrumTcpSocket } from '@electrum-cash/tcp-socket';
 import { deriveWallets, loadSeed, NOTARY_COUNT } from '../src/keys.js';
+import { loadOperatorKey, type Wallet } from '../src/operator-key.js';
+import { loadManifest } from '../src/manifest.js';
 import { SOURCES, notarySigDigest } from '../src/helpers.js';
 
 // Point at a Fulcrum you control. Public chipnet Fulcrums drop idle
@@ -58,22 +62,70 @@ const sha256Hash = (data: Uint8Array): Uint8Array => (sha256 as Sha256).hash(dat
 // trust path anywhere — this lets cycles run at notary cadence (~60 s)
 // without being gated by chipnet block production.
 
-interface ParsedArgs { slot: number; port: number }
-const parseArgs = (): ParsedArgs => {
-  const argv = process.argv.slice(2);
-  let slot = 0;
-  let port = 8081;
-  for (let i = 0; i < argv.length; i += 1) {
-    if (argv[i] === '--slot') { slot = parseInt(argv[++i] ?? '', 10); }
-    else if (argv[i] === '--port') { port = parseInt(argv[++i] ?? '', 10); }
+type Mode = 'operator-key' | 'seed-derived';
+interface Identity {
+  readonly slot: number;
+  readonly notary: Wallet;
+  readonly mode: Mode;
+}
+
+const flagValue = (argv: ReadonlyArray<string>, name: string): string | undefined => {
+  const i = argv.indexOf(name);
+  return i >= 0 ? argv[i + 1] : undefined;
+};
+
+const resolveIdentity = (argv: ReadonlyArray<string>): Identity => {
+  const hasManifest = existsSync('.ticker/manifest.json');
+  const hasSeed = existsSync('.ticker/seed.hex');
+
+  // New layout — preferred when manifest is present.
+  if (hasManifest) {
+    if (!existsSync('.ticker/notary.key')) {
+      throw new Error(
+        `manifest is present but .ticker/notary.key is not.\n` +
+        `if you are running publisher-only, run the publisher binary instead.\n` +
+        `if you should be running a notary, re-install or restore notary.key.`,
+      );
+    }
+    const manifest = loadManifest();
+    const notary = loadOperatorKey('.ticker/notary.key', 'notary', manifest.network);
+    const myPubHex = binToHex(notary.publicKey);
+    const slot = manifest.notaryPubkeys.indexOf(myPubHex);
+    if (slot < 0) {
+      throw new Error(
+        `notary.key pubkey ${myPubHex} is not in this manifest's notary list.\n` +
+        `wrong installer? wrong manifest? verify with your coordinator.`,
+      );
+    }
+    return { slot, notary, mode: 'operator-key' };
   }
-  if (!Number.isInteger(slot) || slot < 0 || slot >= NOTARY_COUNT) {
-    throw new Error(`--slot must be 0..${NOTARY_COUNT - 1}`);
+
+  // Legacy layout — fall back to seed-derived.
+  if (hasSeed) {
+    const slotFlag = flagValue(argv, '--slot') ?? '0';
+    const slot = parseInt(slotFlag, 10);
+    if (!Number.isInteger(slot) || slot < 0 || slot >= NOTARY_COUNT) {
+      throw new Error(`--slot must be 0..${NOTARY_COUNT - 1}`);
+    }
+    const seed = loadSeed();
+    const wallets = deriveWallets(seed);
+    return { slot, notary: wallets.notaries[slot]!, mode: 'seed-derived' };
   }
+
+  throw new Error(
+    `no credentials found. expected one of:\n` +
+    `  .ticker/notary.key + .ticker/manifest.json   (per-operator install)\n` +
+    `  .ticker/seed.hex                              (legacy seed-derived layout)\n`,
+  );
+};
+
+const resolvePort = (argv: ReadonlyArray<string>, slot: number): number => {
+  const override = flagValue(argv, '--port');
+  const port = override !== undefined ? parseInt(override, 10) : 8081 + slot;
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error(`--port must be 1..65535`);
+    throw new Error(`--port must be 1..65535 (got ${override ?? port})`);
   }
-  return { slot, port };
+  return port;
 };
 
 interface SourceFetcher {
@@ -190,20 +242,21 @@ const fetchAndSign = async (
 };
 
 const main = (): void => {
-  const { slot, port } = parseArgs();
-  const seed = loadSeed();
-  const wallets = deriveWallets(seed);
-  const notary = wallets.notaries[slot]!;
-  console.log(`  electrum: ${ELECTRUM_HOST}:${ELECTRUM_PORT}${ELECTRUM_TLS ? ' (tls)' : ''} (fresh per /sign)`);
-  console.log(`notary slot=${slot} address=${notary.address}`);
+  const argv = process.argv.slice(2);
+  const { slot, notary, mode } = resolveIdentity(argv);
+  const port = resolvePort(argv, slot);
+
+  console.log(`ticker-notary slot=${slot} mode=${mode}`);
+  console.log(`  address=${notary.address}`);
   console.log(`  pubkey=${binToHex(notary.publicKey)}`);
-  console.log(`  serving on http://0.0.0.0:${port}`);
+  console.log(`  electrum: ${ELECTRUM_HOST}:${ELECTRUM_PORT}${ELECTRUM_TLS ? ' (tls)' : ''} (fresh per /sign)`);
+  console.log(`  serving on http://127.0.0.1:${port}`);
 
   const server = createServer(async (req, res) => {
     if (req.method === 'GET' && req.url === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
-        ok: true, slot, address: notary.address, pubkey: binToHex(notary.publicKey),
+        ok: true, slot, address: notary.address, pubkey: binToHex(notary.publicKey), mode,
       }));
       return;
     }
