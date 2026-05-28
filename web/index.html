@@ -167,15 +167,15 @@
       <div class="specs">
         <div class="spec">
           <div class="h">Notaries</div><div class="v">7</div>
-          <span class="info" data-tip="7 independent notary signing keys. Each VerifiedAttestation NFT is signed by exactly one of the seven (OR-list dispatched by notaryIdx). Wormhole-tier federation size — bribing a majority (≥4 of 7) is the new collusion threshold. The federation is the trust root for prices and timestamps.">i</span>
+          <span class="info" data-tip="7 independent notary signing keys. Every slot refresh is signed by exactly one of the seven (OR-list dispatched by notaryIdx, verified inside PublisherSlot.attest). Wormhole-tier federation size — bribing a majority (≥4 of 7) is the new collusion threshold. The federation is the trust root for prices and timestamps.">i</span>
         </div>
         <div class="spec">
           <div class="h">Sources</div><div class="v">13</div>
-          <span class="info" data-tip="13 operator-diverse CEX endpoints pinned in the gateway covenant by CN/SAN hash: 7 USD-quoted (Kraken, Coinbase, Gemini, Binance.US, Bitstamp, Crypto.com, Bitfinex, EXMO, Independent Reserve — 4 US, 5 non-US), 2 USDC (OKX, KuCoin), 2 USDT (Bybit, HTX). No two from the same operator family; no quote-currency dominates. Position-checked median absorbs ≤6 outliers without bias.">i</span>
+          <span class="info" data-tip="13 operator-diverse CEX endpoints pinned in the PublisherSlot covenant by CN/SAN hash: 7 USD-quoted (Kraken, Coinbase, Gemini, Binance.US, Bitstamp, Crypto.com, Bitfinex, EXMO, Independent Reserve — 4 US, 5 non-US), 2 USDC (OKX, KuCoin), 2 USDT (Bybit, HTX). No two from the same operator family; no quote-currency dominates. Position-checked median absorbs ≤6 outliers without bias.">i</span>
         </div>
         <div class="spec">
           <div class="h">Cadence</div><div class="v">~1<small>m</small></div>
-          <span class="info" data-tip="New Oracle.update tx every ~60 s when publishers are funded. Settles per chipnet block. v11 has no MTP gate, so cycle cadence is bounded only by notary throughput, not chain rate.">i</span>
+          <span class="info" data-tip="New Oracle.update tx every ~60 s when publishers are funded. Settles per chipnet block. v12 has no MTP gate and no on-chain wall-clock freshness check — replay protection comes from monotonic cycleSeq enforced inside PublisherSlot.attest. Cadence is bounded only by notary throughput, not chain rate.">i</span>
         </div>
         <div class="spec">
           <div class="h">Quorum</div><div class="v">≥7<small> publishers</small></div>
@@ -199,7 +199,7 @@
         </div>
         <div class="longread">
           <h4>Run a notary or publisher</h4>
-          <p><b>Notary:</b> HTTP daemon that holds one of the 7 federation Schnorr keys. <b>Publisher:</b> daemon that requests notary sigs, mints VA NFTs, broadcasts Oracle.update. ~12k sats/cycle.</p>
+          <p><b>Notary:</b> HTTP daemon that holds one of the 7 federation Schnorr keys. <b>Publisher:</b> daemon that requests notary sigs, refreshes its persistent PublisherSlot NFT, then races to broadcast Oracle.update. ~12k sats/cycle.</p>
           <p>Code lives on <a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github.com/toorik2/ticker.cash</a>. Full operator playbook at <a href="/docs#operate">/docs#operate</a>.</p>
         </div>
       </div>
@@ -219,9 +219,9 @@
           <p>The trust root is a <b>7-key notary federation</b>. Each notary independently fetches a CEX price over TLS and signs <code>(serverName, sourceId, price, timestamp, cycleSeq)</code> with their Schnorr key. The Oracle covenant trusts these signatures and nothing else off-chain.</p>
           <p><b>Publishers are interchangeable relays.</b> They request a notary signature, pay tx fees, broadcast. They have no special role and cannot fake notary sigs. Anyone with chipnet funds can run one.</p>
           <p><b>Sources are operator-diverse.</b> 13 endpoints: 7 USD-quoted spot markets (Kraken, Coinbase, Gemini, Binance.US, Bitstamp, Crypto.com, Bitfinex, EXMO, Independent Reserve — 4 US, 5 non-US), 2 USDC (OKX, KuCoin), 2 USDT (Bybit, HTX). No two share an operator family; no quote-currency dominates. A position-checked median absorbs ≤6 outliers without bias — both stablecoin clusters could depeg the same direction simultaneously and the median still lands in the 7-USD cluster.</p>
-          <p><b>The covenant is the only on-chain rule.</b> It enforces: ≥7 distinct publishers attest per cycle (the quorum ratchets up with active committee at ~50%), notary-attested time is strictly forward, the median is position-checked, the threshold-ratchet bleeds 10%/cycle so a single spike doesn't lock the system. Distinct-pubkeyHash160 across VA inputs is the load-bearing anti-Sybil check.</p>
+          <p><b>The covenant is the only on-chain rule.</b> It enforces: ≥7 distinct publishers attest per cycle (the quorum ratchets up with active committee at ~50%), notary-attested time is strictly forward, the median is position-checked, the threshold-ratchet bleeds 10%/cycle so a single spike doesn't lock the system. One persistent slot NFT per <code>(publisher, sourceId)</code> pair — minted once at genesis, closed forever by CashTokens consensus — is the load-bearing anti-Sybil check (the slot category is the publisher-set; no further mints possible).</p>
           <p><b>No admin keys.</b> No upgrade path. The Oracle UTXO chain is self-perpetuating; the only way to update behavior is to deploy a new covenant at a new address.</p>
-          <p>What the federation <i>can</i> do if a majority (≥ 4 of 7) of notaries collude: fast-forward time within a 7200-second-per-cycle stride cap, sign attestations for arbitrary prices. With 7 keys held by independent operators, the collusion cost is comparable to Wormhole-class bridges (~$1M+ bribery floor). What the federation <i>cannot</i> do: rewind time, skip the quorum check, hide a cycle from observers, run faster than ~1 cycle/minute (notary throughput cap).</p>
+          <p>What the federation <i>can</i> do if a majority (≥ 4 of 7) of notaries collude: sign attestations for arbitrary prices. With 7 keys held by independent operators, the collusion cost is comparable to Wormhole-class bridges (~$1M+ bribery floor). What the federation <i>cannot</i> do: skip the quorum check, replay a stale attestation past the slot's cycleSeq, hide a cycle from observers, run faster than ~1 cycle/minute (notary throughput cap).</p>
         </div>
         <div class="modal-section longread" data-section="consume" hidden>
           <h4>How to consume the price NFT</h4>
@@ -235,14 +235,14 @@
             <li><code>output[2]</code> — optional change</li>
           </ul>
           <p>Read <code>price</code> and <code>lastTs</code> from <code>tx.inputs[1].nftCommitment</code>. The 17-byte layout is <code>0x80 | seq(4) | lastTs(4) | medianPrice(8)</code>. Use <code>medianPrice / 10⁸</code> for USD. Pin the Oracle category as a constructor arg (LE-reversed) so an attacker can't feed you a Ticker from a different oracle.</p>
-          <p>A working reference covenant (PriceGatedRelease — locks BCH, releases on price ≥ strike) lives at <code>contracts/v11/examples/</code> in the source tree, ~286 bytes compiled. Drop your own freshness gate on <code>lastTs</code> (avoid <code>tx.locktime</code>; that introduces a chain-MTP lag the design was built to escape).</p>
+          <p>A working reference covenant (PriceGatedRelease — locks BCH, releases on price ≥ strike) lives at <code>contracts/examples/</code> in the source tree, ~286 bytes compiled. Drop your own freshness gate on <code>lastTs</code> (avoid <code>tx.locktime</code>; that introduces a chain-MTP lag the design was built to escape).</p>
         </div>
         <div class="modal-section longread" data-section="operate" hidden>
           <h4>Run a notary or publisher</h4>
-          <p><b>Notary:</b> a stateless HTTP daemon that holds one Schnorr key from the OR-list. Exposes <code>POST /sign</code>; on each request fetches the current price from its assigned CEX, signs <code>(serverName, sourceId, price, ts, cycleSeq)</code>, returns the signature. The federation's seven keys live independently — separate hosts, separate operators. Add an 8th notary by deploying a new Gateway covenant with the extended OR-list.</p>
-          <p><b>Publisher:</b> a daemon that polls the Oracle UTXO, requests notary signatures for its assigned source, mints a VerifiedAttestation NFT via the Gateway, waits ~25 s for peer VAs from other publishers, then builds and broadcasts the <code>Oracle.update</code> tx consuming all VAs. First publisher to broadcast wins the cycle; losers retry on the new tip. A publisher needs ~12 k sats per cycle (VA mint + Oracle.update share of fee + Ticker dust).</p>
+          <p><b>Notary:</b> a stateless HTTP daemon that holds one Schnorr key from the OR-list. Exposes <code>POST /sign</code>; on each request fetches the current price from its assigned CEX, signs <code>(serverName, sourceId, price, ts, cycleSeq)</code>, returns the signature. The federation's seven keys live independently — separate hosts, separate operators. Adding an 8th notary is a hard cutover: redeploy a fresh PublisherSlot covenant carrying the extended OR-list and migrate the publisher fleet.</p>
+          <p><b>Publisher:</b> a daemon that polls the Oracle UTXO, requests a notary signature for its assigned source, refreshes its <b>persistent PublisherSlot NFT</b> via <code>slot.attest()</code> (rewriting <code>(sourceId, publisherPkh, price, ts, cycleSeq)</code> in place — same UTXO identity, new commitment), waits ~25 s for peer slot refreshes, then races to broadcast the <code>Oracle.update</code> tx that consumes ≥ 7 slot inputs and re-emits each one unchanged. First publisher to broadcast wins the cycle; losers retry on the new tip. A publisher needs ~12 k sats per cycle (slot refresh + Oracle.update share of fee + Ticker dust).</p>
+          <p><b>One slot per <code>(publisher, sourceId)</code> pair</b>, minted once at genesis. After genesis the slot category is closed forever — CashTokens consensus refuses further mints, so the publisher set is fixed by the covenant address. No registration, no allowlist <i>within</i> the active set; to enlarge the set, redeploy.</p>
           <p><b>Unified binary:</b> <code>scripts/ticker-node.ts</code> wraps both daemons. Run as <code>ticker-node --notary --slot 0</code>, <code>ticker-node --publisher --slot 0</code>, or both flags together. Federation operators bundle both for their slot (no HTTP roundtrip for own attestations); community operators run publisher-only.</p>
-          <p>No registration. No allowlist. Run as many publishers as you can fund — they compete to land the cycle, but they all contribute their attestation toward the median.</p>
         </div>
       </div>
     </div>
@@ -256,10 +256,10 @@
       <div>
         <h3>§ 3 &nbsp; Contracts</h3>
         <div class="kv">
-          <div class="row"><span class="k">Oracle</span><span class="v"><a href="https://chipnet.imaginary.cash/address/bchtest:rdsr2sj0yqwn96gecsz4d9sc2ktjz0kdkthw6qyxssychhajuxcw63q2tgge3" target="_blank" rel="noopener"><code>rdsr2sj0…63q2tgge3 ↗</code></a></span></div>
+          <div class="row"><span class="k">Oracle</span><span class="v"><a href="https://chipnet.imaginary.cash/address/bchtest:rwgvjpjdcmlw342a4q0q02mtp0w4tenm46xnsdmrdrveww2h4ru060alut77s" target="_blank" rel="noopener"><code>rwgvjpjd…0alut77s ↗</code></a></span></div>
+          <div class="row"><span class="k">Slot</span><span class="v"><a href="https://chipnet.imaginary.cash/address/bchtest:r0kguz7zfa5nfje32xr3fg2utsc5y3g5hwdume2h3csd4rfrrg2dkvcqr9pn9" target="_blank" rel="noopener"><code>r0kguz7z…kvcqr9pn9 ↗</code></a></span></div>
           <div class="row"><span class="k">Ticker</span><span class="v"><a href="https://chipnet.imaginary.cash/address/bchtest:r0r403dhnnahycepwklerew4js0q6t2eme69ex3vvgkuk7jps8hdcrntknsph" target="_blank" rel="noopener"><code>r0r403dh…rntknsph ↗</code></a></span></div>
-          <div class="row"><span class="k">Gateway</span><span class="v"><a href="https://chipnet.imaginary.cash/address/bchtest:r0l0et34cez293u9kxrnajwa29zt47ew0c2xqz8a6nv3qm5ekf32xc6ax22qg" target="_blank" rel="noopener"><code>r0l0et34…xc6ax22qg ↗</code></a></span></div>
-          <div class="row"><span class="k">Category</span><span class="v"><button class="copy" data-clip="b678b8af87861e51d6ff3d0b21b4f163927d0188046fc8c8d58110c79d695911" title="Click to copy full category id"><code>b678b8af…9d695911</code> <span class="copy-ic">⧉</span></button></span></div>
+          <div class="row"><span class="k">Category</span><span class="v"><button class="copy" data-clip="9880c31334f9f708e9e0a3cf956442290ae1a463bd806fd416a5ed10b40f0d17" title="Click to copy full Oracle category id"><code>9880c313…40f0d17</code> <span class="copy-ic">⧉</span></button></span></div>
         </div>
         <p class="note">Spend a Ticker NFT to read the price atomically on-chain — your tx becomes a chain-descendant of the Oracle.update that minted it, co-final by BCH consensus.</p>
       </div>
