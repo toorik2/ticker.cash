@@ -138,8 +138,7 @@ interface ParsedArgs {
   once?: boolean;
 }
 
-const parseArgs = (): ParsedArgs => {
-  const argv = process.argv.slice(2);
+const parseArgs = (argv: ReadonlyArray<string>): ParsedArgs => {
   let slotFlag: string | undefined;
   const notaryUrls: string[] = [];
   let once = false;
@@ -351,8 +350,15 @@ const resolveIdentity = (slotFlag: string | undefined): PublisherIdentity => {
   );
 };
 
-const main = async (): Promise<void> => {
-  const { slotFlag, notaryUrls, once } = parseArgs();
+/**
+ * Run the publisher cycle loop. Returns a Promise that resolves when the
+ * loop exits (with --once after one successful cycle, or never under
+ * normal long-running operation). Callers in the unified ticker-node
+ * entry point pass a tailored argv; direct CLI invocation passes
+ * `process.argv.slice(2)`.
+ */
+export const runPublisher = async (argv: ReadonlyArray<string>): Promise<void> => {
+  const { slotFlag, notaryUrls, once } = parseArgs(argv);
   const { slot, publisher, notaryPubkeysHex, deploy, mode } = resolveIdentity(slotFlag);
   const publisherSig = new SignatureTemplate(publisher.privateKey);
   const myPkh = hash160(publisher.publicKey);
@@ -676,4 +682,13 @@ const main = async (): Promise<void> => {
   }
 };
 
-main().catch((err) => { console.error(scrubSecrets(err instanceof Error ? err.message : String(err))); process.exit(1); });
+// Direct CLI invocation: run the publisher in this process. Importers (e.g.
+// ticker-node.ts in unified single-process mode) should NOT trigger this
+// auto-call; they call `runPublisher(argv)` themselves with a tailored argv.
+const isDirect = import.meta.url === `file://${process.argv[1]}`;
+if (isDirect) {
+  runPublisher(process.argv.slice(2)).catch((err) => {
+    console.error(scrubSecrets(err instanceof Error ? err.message : String(err)));
+    process.exit(1);
+  });
+}

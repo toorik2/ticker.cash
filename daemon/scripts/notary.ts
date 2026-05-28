@@ -241,8 +241,15 @@ const fetchAndSign = async (
   };
 };
 
-const main = (): void => {
-  const argv = process.argv.slice(2);
+/**
+ * Start the notary HTTP server. Returns a Promise that resolves only when
+ * the server closes (typically: signal-induced shutdown by the caller, or
+ * the unified ticker-node entry point invoking server.close()).
+ *
+ * `argv` lets the caller override CLI flags when invoking in-process from
+ * ticker-node. Direct CLI invocation passes `process.argv.slice(2)`.
+ */
+export const runNotary = (argv: ReadonlyArray<string>): Promise<void> => {
   const { slot, notary, mode } = resolveIdentity(argv);
   const port = resolvePort(argv, slot);
 
@@ -284,7 +291,20 @@ const main = (): void => {
   // Bind to loopback only — publishers are co-located on each host. Defense
   // in depth on top of ufw rules; if ufw is ever disabled the notary doesn't
   // become a public sign-oracle.
-  server.listen(port, '127.0.0.1');
+  return new Promise<void>((resolve, reject) => {
+    server.on('error', reject);
+    server.on('close', () => resolve());
+    server.listen(port, '127.0.0.1');
+  });
 };
 
-main();
+// Direct CLI invocation: run the notary in this process. Importers (e.g.
+// ticker-node.ts in unified single-process mode) should NOT trigger this
+// auto-call; they call `runNotary(argv)` themselves with a tailored argv.
+const isDirect = import.meta.url === `file://${process.argv[1]}`;
+if (isDirect) {
+  runNotary(process.argv.slice(2)).catch((err) => {
+    console.error('notary:', err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  });
+}
