@@ -1,0 +1,55 @@
+pragma cashscript >= 0.13.0;
+
+// PriceGatedRelease — locks BCH; releases to the holder of recipientPubkey
+// once an atomically co-final Ticker NFT shows medianPrice >= strikePrice
+// (and the notary-attested lastTs is at or above minLastTs).
+//
+// Tx shape:
+//   input[0]   this covenant (the funded UTXO)
+//   input[1]   Ticker NFT from the pinned Oracle category
+//   output[0]  payout — recipient builds any P2PKH / P2SH / token output
+//   output[1]  Ticker re-emit at the same index (Ticker.cash enforces this)
+//   output[2]  optional change
+//
+// Co-finality: input[1] being a Ticker from the pinned category makes this
+// tx a chain-descendant of the Oracle.update that minted (or relayed) the
+// Ticker. BCH consensus refuses to confirm this tx in any chain that
+// excludes the Oracle.update — the price gate is atomic, not advisory.
+//
+// Constructor args:
+//   recipientPubkey         — 33 B pubkey allowed to spend after the gate
+//   strikePrice             — 8 B u64 LE; release iff median >= strike
+//                             (sat-scaled USD per BCH × 1e8 — same scale
+//                             as the Oracle commit's medianPrice field)
+//   oracleCategoryReversed  — 32 B Oracle category (byte-reversed for the
+//                             little-endian tokenCategory comparison)
+//   minLastTs               — u32 UNIX ts floor; refuses stale Tickers
+
+contract PriceGatedRelease(
+    pubkey  recipientPubkey,
+    bytes8  strikePrice,
+    bytes32 oracleCategoryReversed,
+    int     minLastTs
+) {
+    function release(sig recipientSig) {
+        require(this.activeInputIndex == 0);
+
+        // input[1]: Ticker from the pinned Oracle category, mutable cap 0x01
+        require(tx.inputs[1].tokenCategory.slice(0, 32) == oracleCategoryReversed);
+        require(tx.inputs[1].tokenCategory.slice(32, 33) == 0x01);
+
+        // Ticker commit shape (17 B, version 0x80)
+        bytes tickerCommit = tx.inputs[1].nftCommitment;
+        require(tickerCommit.length == 17);
+        require(tickerCommit.slice(0, 1) == 0x80);
+
+        // Freshness — notary-attested wall-clock, not BIP-113-laggable
+        require(int(tickerCommit.slice(5, 9)) >= minLastTs);
+
+        // Price gate — both sides are u64 LE, sat-scaled USD/BCH × 1e8
+        require(int(tickerCommit.slice(9, 17)) >= int(strikePrice));
+
+        // Recipient holds the gate key
+        require(checkSig(recipientSig, recipientPubkey));
+    }
+}
