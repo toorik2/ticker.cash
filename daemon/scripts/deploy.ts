@@ -62,7 +62,7 @@ import {
   TickerArtifact,
 } from '../src/load-artifacts.js';
 import { deriveWallets, NOTARY_COUNT, PUBLISHER_COUNT } from '../src/keys.js';
-import { loadSeed } from '../src/seed.js';
+import { loadSeed } from '../src/master-seed.js';
 import {
   SOURCES,
   SOURCE_COUNT,

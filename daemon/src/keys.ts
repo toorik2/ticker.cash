@@ -11,7 +11,7 @@
 // publisher-only.
 
 import { binToHex } from '@bitauth/libauth';
-import { deriveWallet, loadSeed, stripWallet, type Wallet, type PublicWallet } from './seed.js';
+import { deriveWallet, loadSeed, stripWallet, type Wallet, type PublicWallet } from './master-seed.js';
 
 export const NOTARY_COUNT = 7;
 export const PUBLISHER_COUNT = 13;

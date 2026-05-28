@@ -4,7 +4,7 @@ import { ElectrumClient } from '@electrum-cash/network';
 import { ElectrumTcpSocket } from '@electrum-cash/tcp-socket';
 import { ElectrumNetworkProvider, Network, SignatureTemplate, TransactionBuilder } from 'cashscript';
 import { deriveWallets } from '../src/keys.js';
-import { loadSeed } from '../src/seed.js';
+import { loadSeed } from '../src/master-seed.js';
 
 const host = process.env.TICKER_ELECTRUM_HOST ?? '127.0.0.1';
 const port = Number(process.env.TICKER_ELECTRUM_PORT ?? 50001);

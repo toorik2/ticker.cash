@@ -4,7 +4,7 @@ import { ElectrumTcpSocket } from '@electrum-cash/tcp-socket';
 import { ElectrumNetworkProvider, Network, SignatureTemplate, TransactionBuilder, type Utxo } from 'cashscript';
 import fs from 'node:fs';
 import path from 'node:path';
-import { loadSeed } from '../src/seed.js';
+import { loadSeed } from '../src/master-seed.js';
 import { deriveWallets } from '../src/keys.js';
 
 const KEY_DIR = '/tmp/recovered-keys/projects/cashlink/publisher-v6/keys';
