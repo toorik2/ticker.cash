@@ -5,9 +5,9 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="theme-color" content="#f3efe4" />
-<meta name="description" content="A decentralized BCH/USD ticker on chipnet. 7-notary federation signs prices from 13 operator-diverse sources (9 USD + 2 USDC + 2 USDT); covenant emits the median per cycle (~1 min). No admin keys." />
+<meta name="description" content="A decentralized BCH/USD ticker on chipnet. 7 notaries, 13 exchanges, on-chain median per cycle." />
 <meta property="og:title" content="Ticker · BCH/USD on chain" />
-<meta property="og:description" content="A decentralized BCH/USD ticker. 7-notary federation, 13 operator-diverse sources, per-cycle median on chain. No admin keys." />
+<meta property="og:description" content="A decentralized BCH/USD ticker. 7 notaries, 13 exchanges, on-chain median per cycle. No admin keys." />
 <meta property="og:type" content="website" />
 <meta property="og:url" content="https://usd.ticker.cash/" />
 <title>Ticker · BCH/USD on chain</title>
@@ -30,8 +30,6 @@
   .doc{max-width:1180px;margin:0 auto;padding:3rem 1.75rem 5rem;display:grid;grid-template-columns:1fr 300px;gap:3rem;align-items:start}
   @media(max-width:880px){.doc{grid-template-columns:1fr;gap:2.5rem}}
   .main{min-width:0}
-  .doc-meta{display:flex;justify-content:space-between;font-size:10.5px;letter-spacing:0.16em;text-transform:uppercase;color:#6a6457;border-bottom:1px solid #c8c2b3;padding-bottom:0.5rem;margin-bottom:2.5rem;flex-wrap:wrap;gap:0.5rem;font-weight:500}
-  .doc-meta b{color:#1a1a18;font-weight:700;letter-spacing:0.05em}
   .price-panel{border:1px solid #1a1a18;display:grid;grid-template-columns:auto 1fr;background:#fffcf0}
   .vtag{background:#1a1a18;color:#fffcf0;writing-mode:vertical-rl;transform:rotate(180deg);padding:1rem 0.55rem;font-size:10.5px;font-weight:600;letter-spacing:0.4em;text-transform:uppercase;display:flex;align-items:center;justify-content:center}
   .price-body{padding:2.25rem 2.25rem 1.5rem}
@@ -44,73 +42,20 @@
   .price-stats .row:last-child{border-bottom:none}
   .price-stats .k{color:#6a6457;text-transform:uppercase;font-size:10.5px;letter-spacing:0.1em;font-weight:500}
   .price-stats .v{font-weight:600;font-variant-numeric:tabular-nums;color:#1a1a18;grid-column:3;text-align:right}
-  .price-stats .v small{color:#6a6457;font-weight:400}
   .price-stats .v.warn{color:#a02010}
   .price-stats .v.ok{color:#1a7b3b}
-  .cta-row{display:grid;grid-template-columns:repeat(3,1fr);gap:0.75rem;margin:1.75rem 0 0}
-  @media(max-width:680px){.cta-row{grid-template-columns:1fr}}
-  .btn{padding:0.95rem 1rem;font-family:inherit;font-size:11px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;text-decoration:none;border:1px solid #1a1a18;background:transparent;color:#1a1a18;cursor:pointer;transition:all 0.18s ease;text-align:center;line-height:1.3}
-  .btn:hover{background:#1a1a18;color:#fffcf0;text-decoration:none}
-  .longread{font-size:13.5px;line-height:1.7;color:#3a3a32}
-  .longread h4{font-size:10.5px;letter-spacing:0.22em;text-transform:uppercase;font-weight:600;color:#1a1a18;border-bottom:1px solid #c8c2b3;padding-bottom:0.45rem;margin:0 0 1.25rem 0}
-  .longread p{margin-bottom:0.85rem}
-  .longread p:last-child{margin-bottom:0}
-  .longread b{color:#1a1a18;font-weight:600}
-  .longread code{font-family:inherit;font-size:0.92em;background:#ecebe0;padding:0.05em 0.35em;border-radius:2px}
-  .longread ul{margin:0.4rem 0 0.85rem 1.3rem;padding:0}
-  .longread ul li{margin-bottom:0.3rem}
-  /* Modal overlay for §5/§6/§7 content. JS-enhanced; no-JS users see
-     the section in the static fallback at the page bottom. */
-  .modal[hidden]{display:none}
-  .modal{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;padding:1.5rem;animation:modalIn 0.18s ease-out}
-  @keyframes modalIn{from{opacity:0}to{opacity:1}}
-  .modal-backdrop{position:absolute;inset:0;background:rgba(243,239,228,0.78);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);cursor:pointer}
-  .modal-panel{position:relative;background:#fffcf0;border:1px solid #1a1a18;max-width:680px;width:100%;max-height:min(85vh,720px);overflow-y:auto;padding:2.5rem 2.5rem 2.25rem;box-shadow:0 12px 48px rgba(26,26,24,0.18)}
-  .modal-close{position:absolute;top:0.75rem;right:0.85rem;background:transparent;border:none;font-size:22px;font-weight:300;line-height:1;cursor:pointer;color:#6a6457;width:32px;height:32px;display:flex;align-items:center;justify-content:center;font-family:inherit;border-radius:50%;transition:all 0.15s ease}
-  .modal-close:hover{color:#1a1a18;background:#ecebe0}
-  .modal-section[hidden]{display:none}
-  /* No-JS fallback section styling at page bottom — only shown if JS is off */
-  .no-js-fallback{margin-top:3rem;border-top:1px solid #c8c2b3;padding-top:2rem}
-  .js .no-js-fallback{display:none}
-  .section-head{font-size:10.5px;letter-spacing:0.22em;text-transform:uppercase;font-weight:600;color:#1a1a18;border-bottom:1px solid #c8c2b3;padding-bottom:0.45rem;margin-bottom:1rem;display:flex;justify-content:space-between;gap:0.5rem}
-  .section-head .sub{color:#6a6457;font-weight:400;letter-spacing:0.1em}
-  .specs{display:grid;grid-template-columns:repeat(2,1fr);border:1px solid #1a1a18;background:#fffcf0;margin-bottom:2.5rem}
-  .spec{padding:1.1rem 1.25rem;border-right:1px solid #c8c2b3;border-bottom:1px solid #c8c2b3;position:relative}
-  .spec:nth-child(2n){border-right:none}
-  .spec:nth-last-child(-n+2){border-bottom:none}
-  .spec .h{font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:#6a6457;margin-bottom:0.5rem;font-weight:500}
+  .lead{font-size:14px;line-height:1.75;color:#3a3a32;margin:2.5rem 0 0}
+  .lead p{margin-bottom:0.85rem}
+  .lead p:last-child{margin-bottom:0}
+  .lead b{color:#1a1a18;font-weight:600}
+  .lead a{font-weight:500}
+  .specs{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid #1a1a18;background:#fffcf0;margin-top:2rem}
+  @media(max-width:680px){.specs{grid-template-columns:repeat(2,1fr)}}
+  .spec{padding:1.1rem 1.25rem;border-right:1px solid #c8c2b3}
+  .spec:last-child{border-right:none}
+  .spec .h{font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:#6a6457;margin-bottom:0.4rem;font-weight:500}
   .spec .v{font-size:1.5rem;font-weight:300;line-height:1.05;letter-spacing:-0.025em}
   .spec .v small{font-size:0.5em;font-weight:400;color:#6a6457;letter-spacing:0}
-  .info{
-    position:absolute;top:0.7rem;right:0.7rem;
-    width:15px;height:15px;display:inline-flex;align-items:center;justify-content:center;
-    border:1px solid #c8c2b3;border-radius:50%;background:transparent;
-    color:#8a8472;font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;font-style:italic;
-    cursor:help;letter-spacing:0;line-height:1;
-    user-select:none;transition:all 0.15s ease;
-  }
-  .info:hover{border-color:#1a1a18;color:#1a1a18;background:#fffcf0}
-  .info[data-tip]:hover::after{
-    content:attr(data-tip);
-    position:absolute;top:calc(100% + 0.55rem);right:-0.4rem;
-    width:max(240px,18rem);max-width:calc(100vw - 2rem);
-    background:#1a1a18;color:#fffcf0;
-    padding:0.7rem 0.9rem;
-    font-family:'IBM Plex Mono',monospace;
-    font-size:11.5px;font-weight:400;font-style:normal;line-height:1.55;letter-spacing:0;text-transform:none;text-align:left;
-    z-index:20;pointer-events:none;
-    box-shadow:0 6px 20px rgba(26,26,24,0.2);
-    white-space:normal;
-  }
-  /* Tip arrow */
-  .info[data-tip]:hover::before{
-    content:'';
-    position:absolute;top:calc(100% + 0.1rem);right:0.2rem;
-    width:0;height:0;
-    border-left:5px solid transparent;border-right:5px solid transparent;
-    border-bottom:5px solid #1a1a18;
-    z-index:21;pointer-events:none;
-  }
   .side{position:sticky;top:1.5rem;display:flex;flex-direction:column;gap:1.85rem}
   .side h3{font-size:10.5px;letter-spacing:0.22em;text-transform:uppercase;font-weight:600;color:#1a1a18;border-bottom:1px solid #c8c2b3;padding-bottom:0.45rem;margin-bottom:0.85rem}
   .side .kv{font-size:12.5px;display:flex;flex-direction:column}
@@ -119,255 +64,77 @@
   .side .kv .k{color:#6a6457;font-size:11px;letter-spacing:0.04em}
   .side .kv .v{font-weight:600;text-align:right;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
   .side .kv .v code{font-family:inherit;font-size:11px;color:#1a1a18}
-  .side .kv .v .copy{
-    background:transparent;border:none;padding:0;cursor:pointer;
-    color:#1a1a18;font-family:inherit;font-size:inherit;
-    border-bottom:1px solid #b6b1a3;transition:all 0.15s ease;
-    display:inline-flex;align-items:baseline;gap:0.3rem;
-  }
-  .side .kv .v .copy:hover{border-bottom-color:#1a1a18}
-  .side .kv .v .copy .copy-ic{font-size:11px;color:#8a8472;transition:color 0.15s ease}
-  .side .kv .v .copy:hover .copy-ic{color:#1a1a18}
-  .side .kv .v .copy.copied{border-bottom-color:#1a7b3b;color:#1a7b3b}
-  .side .kv .v .copy.copied .copy-ic{color:#1a7b3b}
-  .side p{font-size:12.5px;line-height:1.7;color:#3a3a32}
-  .side p b{color:#1a1a18;font-weight:600}
-  .side p + p{margin-top:0.65rem}
-  .side a{color:#1a1a18;text-decoration:underline;text-decoration-color:#b6b1a3}
-  .side a:hover{text-decoration-color:#1a1a18}
-  .side .note{font-size:11px;color:#6a6457;line-height:1.6;margin-top:0.4rem;font-style:italic}
   .foot{margin-top:3rem;padding-top:0.8rem;border-top:1px solid #c8c2b3;font-size:10.5px;color:#6a6457;letter-spacing:0.1em;text-transform:uppercase;display:flex;justify-content:space-between;gap:0.5rem;flex-wrap:wrap;font-weight:500}
   .foot a{color:#6a6457;text-decoration:none;border-bottom:1px solid transparent}
   .foot a:hover{color:#1a1a18;border-bottom-color:#6a6457}
 </style>
 </head>
 <body>
-  <header class="head">
-    <div class="l">▌ TICKER <span class="pair">BCH / USD · chipnet</span></div>
-    <div class="r"><a href="/docs">docs</a><a href="/api/v1/price">api</a><a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github</a></div>
-  </header>
-  <div class="doc">
-    <div class="main">
-      <div class="price-panel">
-        <div class="vtag">Median</div>
-        <div class="price-body">
-          <div class="price-big"><span class="d">$</span><span id="price">———</span></div>
-          <div class="price-trust">Median of <b><span id="active">—</span> publishers</b>, attested by <b>7 independent notaries</b>.</div>
-          <div class="price-stats">
-            <div class="row"><span class="k">Updated</span><span class="v" id="age">—</span></div>
-            <div class="row"><span class="k">Status</span><span class="v ok" id="status">—</span></div>
-          </div>
-        </div>
-      </div>
-
-      <div class="cta-row">
-        <a class="btn" href="#trust" data-modal="trust">Where is the trust?</a>
-        <a class="btn" href="#consume" data-modal="consume">How to consume</a>
-        <a class="btn" href="#operate" data-modal="operate">Run a notary / publisher</a>
-      </div>
-
-      <div class="section-head" style="margin-top:2.5rem"><span>§ 1 &nbsp; Parameters</span><span class="sub">covenant constants</span></div>
-      <div class="specs">
-        <div class="spec">
-          <div class="h">Notaries</div><div class="v">7</div>
-          <span class="info" data-tip="7 independent notary signing keys. Every slot refresh is signed by exactly one of the seven (OR-list dispatched by notaryIdx, verified inside PublisherSlot.attest). A 7-key M-of-N federation with operator-diverse keys; bribing 4 of them is the new collusion threshold. The federation is the trust root for prices and timestamps.">i</span>
-        </div>
-        <div class="spec">
-          <div class="h">Sources</div><div class="v">13</div>
-          <span class="info" data-tip="13 operator-diverse CEX endpoints pinned in the PublisherSlot covenant by CN/SAN hash: 9 USD-quoted (Kraken, Coinbase, Gemini, Binance.US, Bitstamp, Crypto.com, Bitfinex, EXMO, Independent Reserve — 4 US, 5 non-US), 2 USDC (OKX, KuCoin), 2 USDT (Bybit, HTX). No two from the same operator family; no quote-currency dominates. Position-checked median absorbs ≤6 outliers without bias.">i</span>
-        </div>
-        <div class="spec">
-          <div class="h">Cadence</div><div class="v">~1<small>m</small></div>
-          <span class="info" data-tip="New Oracle.update tx every ~60 s when publishers are funded. Settles per chipnet block. v12 has no MTP gate and no on-chain wall-clock freshness check — replay protection comes from monotonic cycleSeq enforced inside PublisherSlot.attest. Cadence is bounded only by notary throughput, not chain rate.">i</span>
-        </div>
-        <div class="spec">
-          <div class="h">Quorum</div><div class="v">≥7<small> publishers</small></div>
-          <span class="info" data-tip="At least 7 distinct publishers must attest per cycle for the median to commit. Threshold ratchets up with active participation (≈50% of recent count), decays 10%/cycle if participation drops. At N=13 steady-state the threshold is 7 = T_floor, so the system tolerates 6 simultaneous publisher failures. This is a config floor — the live publisher count is shown above the parameters.">i</span>
-        </div>
-      </div>
-
-      <!-- No-JS fallback — the same content as the modals lives here so the
-           sections are still readable if scripts are disabled. JS hides this
-           on load (.js .no-js-fallback). -->
-      <div class="no-js-fallback">
-        <div class="longread" style="margin-bottom:2.5rem">
-          <h4>Where is the trust?</h4>
-          <p>The trust root is a <b>7-key notary federation</b>. Each notary independently fetches a CEX price over TLS and signs <code>(serverName, sourceId, price, timestamp, cycleSeq)</code> with their Schnorr key.</p>
-          <p>Publishers are interchangeable relays — they cannot fake notary sigs. The covenant enforces everything else: ≥7 distinct publishers per cycle, monotonic time, position-checked median, 50% threshold ratchet with 10%/cycle decay. No admin keys.</p>
-        </div>
-        <div class="longread" style="margin-bottom:2.5rem">
-          <h4>How to consume the price NFT</h4>
-          <p>Spend a Ticker NFT (mutable, anyone-can-spend) as a tx input. The Ticker covenant requires identical re-emit at the same output index. Your tx becomes a chain-descendant of the Oracle.update — BCH consensus refuses to confirm it in any chain that excludes the Oracle update. Atomic co-finality.</p>
-          <p>Read <code>price</code> and <code>lastTs</code> from the input's 17-byte commit.</p>
-        </div>
-        <div class="longread">
-          <h4>Run a notary or publisher</h4>
-          <p><b>Notary:</b> HTTP daemon that holds one of the 7 federation Schnorr keys. <b>Publisher:</b> daemon that requests notary sigs, refreshes its persistent PublisherSlot NFT, then races to broadcast Oracle.update. ~12k sats/cycle.</p>
-          <p>Code lives on <a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github.com/toorik2/ticker.cash</a>. Full operator playbook at <a href="/docs#operate">/docs#operate</a>.</p>
-        </div>
-      </div>
-
-      <div class="foot">
-        <div>usd.ticker.cash · chipnet</div>
-      </div>
-    </div>
-
-    <!-- Modal overlay (JS-enhanced) -->
-    <div class="modal" id="modal" hidden role="dialog" aria-modal="true">
-      <div class="modal-backdrop" data-close></div>
-      <div class="modal-panel">
-        <button class="modal-close" data-close aria-label="Close">×</button>
-        <div class="modal-section longread" data-section="trust" hidden>
-          <h4>Where is the trust?</h4>
-          <p>The trust root is a <b>7-key notary federation</b>. Each notary independently fetches a CEX price over TLS and signs <code>(serverName, sourceId, price, timestamp, cycleSeq)</code> with their Schnorr key. The Oracle covenant trusts these signatures and nothing else off-chain.</p>
-          <p><b>Publishers are interchangeable relays.</b> They request a notary signature, pay tx fees, broadcast. They have no special role and cannot fake notary sigs. Anyone with chipnet funds can run one.</p>
-          <p><b>Sources are operator-diverse.</b> 13 endpoints: 9 USD-quoted spot markets (Kraken, Coinbase, Gemini, Binance.US, Bitstamp, Crypto.com, Bitfinex, EXMO, Independent Reserve — 4 US, 5 non-US), 2 USDC (OKX, KuCoin), 2 USDT (Bybit, HTX). No two share an operator family; no quote-currency dominates. A position-checked median absorbs ≤6 outliers without bias — both stablecoin clusters could depeg the same direction simultaneously and the median still lands in the 9-USD cluster.</p>
-          <p><b>The covenant is the only on-chain rule.</b> It enforces: ≥7 distinct publishers attest per cycle (the quorum ratchets up with active committee at ~50%), notary-attested time is strictly forward, the median is position-checked, the threshold-ratchet bleeds 10%/cycle so a single spike doesn't lock the system. Anti-Sybil rests on two complementary, load-bearing checks: (a) the slot category is closed forever at genesis by CashTokens consensus, so the publisher set is fixed and cannot be inflated by minting new slots; (b) within each <code>Oracle.update</code> tx, the covenant enforces distinct, monotonically-sorted <code>publisherPkh</code> across slot inputs, so a publisher cannot inflate quorum by submitting their own slot twice.</p>
-          <p><b>No admin keys.</b> No upgrade path. The Oracle UTXO chain is self-perpetuating; the only way to update behavior is to deploy a new covenant at a new address.</p>
-          <p>What the federation <i>can</i> do if a majority (≥ 4 of 7) of notaries collude: sign attestations for arbitrary prices. With 7 keys held by independent operators, bribing 4 of them is the new collusion threshold. What the federation <i>cannot</i> do: (i) skip the quorum check, (ii) replay a stale notary signature — <code>PublisherSlot.attest()</code> requires <code>newCycleSeq &gt; slot.cycleSeq</code> (strict-greater, not ≥), so once a slot has advanced past a cycle, that cycle's signature is dead, (iii) hide a cycle from observers, (iv) run faster than the 30 s minimum stride enforced by <code>Oracle.cash</code> (<code>require(newTs - prevTs &gt;= 30)</code>); typical cadence is ~60 s when funded.</p>
-        </div>
-        <div class="modal-section longread" data-section="consume" hidden>
-          <h4>How to consume the price NFT</h4>
-          <p>Each cycle mints <b>2 Ticker NFTs</b> at the address shown in §3. They are mutable (capability 0x01), anyone-can-spend, and self-replicate via the Ticker covenant. A consumer's tx that spends a Ticker becomes a <b>chain-descendant of the Oracle.update</b> that produced it — BCH consensus refuses to confirm the consumer's tx in any chain that excludes the Oracle.update. That is co-finality, atomic by construction.</p>
-          <p>Minimal tx shape:</p>
-          <ul>
-            <li><code>input[0]</code> — your consumer contract</li>
-            <li><code>input[1]</code> — Ticker NFT from the pinned Oracle category</li>
-            <li><code>output[0]</code> — your business logic (payment, mint, settle…)</li>
-            <li><code>output[1]</code> — identical Ticker re-emit (Ticker covenant enforces this, mutable cap, same commit)</li>
-            <li><code>output[2]</code> — optional change</li>
-          </ul>
-          <p>Read <code>price</code> and <code>lastTs</code> from <code>tx.inputs[1].nftCommitment</code> — the Ticker's 17-byte <code>0x80</code> commit, distinct from the Oracle UTXO's 19-byte <code>0x60</code> state commit. The 17-byte layout is <code>0x80 | seq(4) | lastTs(4) | medianPrice(8)</code>. Use <code>medianPrice / 10⁸</code> for USD. Pin the Oracle category as a constructor arg (LE-reversed) so an attacker can't feed you a Ticker from a different oracle.</p>
-          <p>A working reference covenant (PriceGatedRelease — locks BCH, releases on price ≥ strike) lives at <code>contracts/examples/PriceGatedRelease.cash</code> in the source tree. ~64-byte script body; ~145 bytes including the four constructor args (pubkey + strike + oracle category + minLastTs). Drop your own freshness gate on <code>lastTs</code> (avoid <code>tx.locktime</code>; that introduces a chain-MTP lag the design was built to escape).</p>
-        </div>
-        <div class="modal-section longread" data-section="operate" hidden>
-          <h4>Run a notary or publisher</h4>
-          <p><b>Notary:</b> a stateless HTTP daemon that holds one Schnorr key from the OR-list. Exposes <code>POST /sign</code>; on each request fetches the current price from its assigned CEX, signs <code>(serverName, sourceId, price, ts, cycleSeq)</code>, returns the signature. The federation's seven keys live independently — separate hosts, separate operators. Adding an 8th notary is a hard cutover: redeploy a fresh PublisherSlot covenant carrying the extended OR-list and migrate the publisher fleet.</p>
-          <p><b>Publisher:</b> a daemon that polls the Oracle UTXO, requests a notary signature for its assigned source, refreshes its <b>persistent PublisherSlot NFT</b> via <code>slot.attest()</code> (rewriting <code>(sourceId, publisherPkh, price, ts, cycleSeq)</code> in place — same UTXO identity, new commitment), waits ~25 s for peer slot refreshes, then races to broadcast the <code>Oracle.update</code> tx that consumes ≥ 7 slot inputs and re-emits each one unchanged. First publisher to broadcast wins the cycle; losers retry on the new tip. A publisher needs ~12 k sats per cycle (slot refresh + Oracle.update share of fee + Ticker dust).</p>
-          <p><b>One slot per <code>(publisher, sourceId)</code> pair</b>, minted once at genesis. After genesis the slot category is closed forever — CashTokens consensus refuses further mints, so the publisher set is fixed by the covenant address. No registration, no allowlist <i>within</i> the active set; to enlarge the set, redeploy.</p>
-          <p><b>Unified binary:</b> <code>scripts/ticker-node.ts</code> wraps both daemons. Run as <code>ticker-node --notary --slot 0</code>, <code>ticker-node --publisher --slot 0</code>, or both flags together. Federation operators bundle both for their slot (no HTTP roundtrip for own attestations); community operators run publisher-only.</p>
+<header class="head">
+  <div class="l">▌ TICKER <span class="pair">BCH / USD · chipnet</span></div>
+  <div class="r"><a href="/docs">docs</a><a href="/api/v1/price">api</a><a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github</a></div>
+</header>
+<div class="doc">
+  <div class="main">
+    <div class="price-panel">
+      <div class="vtag">Median</div>
+      <div class="price-body">
+        <div class="price-big"><span class="d">$</span><span id="price">———</span></div>
+        <div class="price-trust">Median of <b><span id="active">—</span> publishers</b>, attested by <b>7 independent notaries</b>.</div>
+        <div class="price-stats">
+          <div class="row"><span class="k">Updated</span><span class="v" id="age">—</span></div>
+          <div class="row"><span class="k">Status</span><span class="v ok" id="status">—</span></div>
         </div>
       </div>
     </div>
 
-    <aside class="side">
-      <div>
-        <h3>§ 2 &nbsp; About</h3>
-        <p>A <b>decentralized BCH/USD ticker</b>. A <b>7-notary federation</b> signs prices from <b>13 operator-diverse sources</b> (9 USD-quoted, 2 USDC, 2 USDT); any publisher relays them to a covenant that emits the median on Bitcoin Cash.</p>
-        <p>New cycle every <b>~1 minute</b> when funded. Settlement at chipnet block rate. No admin keys. The covenant is the only rule beyond the notary federation.</p>
-      </div>
-      <div>
-        <h3>§ 3 &nbsp; Contracts</h3>
-        <div class="kv">
-          <div class="row"><span class="k">Version</span><span class="v"><code>v12.1 · chipnet</code></span></div>
-          <div class="row"><span class="k">Oracle</span><span class="v"><a href="https://chipnet.imaginary.cash/address/bchtest:rwgvjpjdcmlw342a4q0q02mtp0w4tenm46xnsdmrdrveww2h4ru060alut77s" target="_blank" rel="noopener"><code>rwgvjpjd…0alut77s ↗</code></a></span></div>
-          <div class="row"><span class="k">Slot</span><span class="v"><a href="https://chipnet.imaginary.cash/address/bchtest:r0kguz7zfa5nfje32xr3fg2utsc5y3g5hwdume2h3csd4rfrrg2dkvcqr9pn9" target="_blank" rel="noopener"><code>r0kguz7z…kvcqr9pn9 ↗</code></a></span></div>
-          <div class="row"><span class="k">Ticker</span><span class="v"><a href="https://chipnet.imaginary.cash/address/bchtest:r0r403dhnnahycepwklerew4js0q6t2eme69ex3vvgkuk7jps8hdcrntknsph" target="_blank" rel="noopener"><code>r0r403dh…rntknsph ↗</code></a></span></div>
-          <div class="row"><span class="k">Category</span><span class="v"><button class="copy" data-clip="9880c31334f9f708e9e0a3cf956442290ae1a463bd806fd416a5ed10b40f0d17" title="Click to copy full Oracle category id"><code>9880c313…40f0d17</code> <span class="copy-ic">⧉</span></button></span></div>
-        </div>
-        <p class="note">Spend a Ticker NFT to read the price atomically on-chain — your tx becomes a chain-descendant of the Oracle.update that minted it, co-final by BCH consensus.</p>
-      </div>
-      <div>
-        <h3>§ 4 &nbsp; API</h3>
-        <div class="kv">
-          <div class="row"><span class="k">JSON</span><span class="v"><a href="/api/v1/price"><code>GET /api/v1/price</code></a></span></div>
-          <div class="row"><span class="k">Health</span><span class="v"><a href="/api/v1/health"><code>GET /api/v1/health</code></a></span></div>
-          <div class="row"><span class="k">Auth</span><span class="v">none</span></div>
-          <div class="row"><span class="k">CORS</span><span class="v">open</span></div>
-          <div class="row"><span class="k">Cycle (seq)</span><span class="v">#<span id="seq">—</span></span></div>
-        </div>
-      </div>
-    </aside>
+    <div class="specs">
+      <div class="spec"><div class="h">Sources</div><div class="v">13</div></div>
+      <div class="spec"><div class="h">Quorum</div><div class="v">≥7</div></div>
+      <div class="spec"><div class="h">Notaries</div><div class="v">7</div></div>
+      <div class="spec"><div class="h">Cycle</div><div class="v">~1<small>m</small></div></div>
+    </div>
+
+    <div class="lead">
+      <p>A <b>decentralized BCH/USD price feed</b> on Bitcoin Cash chipnet. Seven notaries co-witness prices from thirteen exchanges (9 USD-quoted, 2 USDC, 2 USDT); any publisher relays them to a smart contract that commits the median on chain.</p>
+      <p>The notaries are the only off-chain trust assumption — corrupting a majority of them (≥ 4 of 7) is the only attack the design admits; everything else is rejected by script.</p>
+      <p><b>Read the price.</b> On-chain: spend a Ticker NFT as an input, decode its 17-byte commit. Off-chain: <code>GET /api/v1/price</code>. Integration guide, signature inventory, and operator playbook in the <a href="/docs">docs</a>.</p>
+    </div>
+
   </div>
 
+  <aside class="side">
+    <div>
+      <h3>Contracts</h3>
+      <div class="kv">
+        <div class="row"><span class="k">Oracle</span><span class="v"><a href="https://chipnet.imaginary.cash/address/bchtest:rwgvjpjdcmlw342a4q0q02mtp0w4tenm46xnsdmrdrveww2h4ru060alut77s" target="_blank" rel="noopener"><code>rwgvjpjd…0alut77s ↗</code></a></span></div>
+        <div class="row"><span class="k">Slot</span><span class="v"><a href="https://chipnet.imaginary.cash/address/bchtest:r0kguz7zfa5nfje32xr3fg2utsc5y3g5hwdume2h3csd4rfrrg2dkvcqr9pn9" target="_blank" rel="noopener"><code>r0kguz7z…kvcqr9pn9 ↗</code></a></span></div>
+        <div class="row"><span class="k">Ticker</span><span class="v"><a href="https://chipnet.imaginary.cash/address/bchtest:r0r403dhnnahycepwklerew4js0q6t2eme69ex3vvgkuk7jps8hdcrntknsph" target="_blank" rel="noopener"><code>r0r403dh…rntknsph ↗</code></a></span></div>
+        <div class="row"><span class="k">Category</span><span class="v"><code>9880c313…40f0d17</code></span></div>
+      </div>
+    </div>
+    <div>
+      <h3>Endpoints</h3>
+      <div class="kv">
+        <div class="row"><span class="k">Price</span><span class="v"><a href="/api/v1/price"><code>/api/v1/price</code></a></span></div>
+        <div class="row"><span class="k">Health</span><span class="v"><a href="/api/v1/health"><code>/api/v1/health</code></a></span></div>
+        <div class="row"><span class="k">Seq</span><span class="v">#<span id="seq">—</span></span></div>
+      </div>
+    </div>
+  </aside>
+</div>
+<div class="foot" style="max-width:1180px;margin:3rem auto 0;padding:0.8rem 1.75rem 1.5rem">
+  <div>usd.ticker.cash · chipnet</div>
+  <div><a href="/docs">docs</a> · <a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github</a></div>
+</div>
 <script>
-// Tag <html> as JS-enabled so the no-JS fallback gets hidden.
-document.documentElement.classList.add('js');
-
-// Modal open/close for §5-7 content
-const modal = document.getElementById('modal');
-const sections = modal.querySelectorAll('[data-section]');
-function openModal(id) {
-  sections.forEach((s) => { s.hidden = (s.dataset.section !== id); });
-  modal.hidden = false;
-  // scrollbar-gutter:stable on <html> reserves the scrollbar's width
-  // permanently, so hiding overflow here doesn't cause a horizontal shift.
-  document.body.style.overflow = 'hidden';
-  modal.querySelector('.modal-panel').scrollTop = 0;
-}
-function closeModal() {
-  modal.hidden = true;
-  document.body.style.overflow = '';
-}
-document.querySelectorAll('[data-modal]').forEach((btn) => {
-  btn.addEventListener('click', (e) => { e.preventDefault(); openModal(btn.dataset.modal); });
-});
-modal.querySelectorAll('[data-close]').forEach((el) => el.addEventListener('click', closeModal));
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !modal.hidden) closeModal(); });
-
-const STALE_SEC = 300;   // sub-minute cycles → 5 min is loose but catches real outages
-function fmtUsd(n){ if(n==null||!isFinite(n)) return '———'; return n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
-function fmtAge(s){ if(s==null) return '—'; if(s<60) return s+'s'; if(s<3600) return Math.floor(s/60)+'m '+(s%60)+'s'; return Math.floor(s/3600)+'h '+Math.floor((s%3600)/60)+'m'; }
-// Track when this client first observed each seq. Updated label is
-// `now - cycleObservedAtMs` rather than `now - lastLocktime`, so a new
-// cycle ticks from ~0s instead of from "wall-clock - notary-attested ts"
-// (which is already 15-30s old because of publisher stride wait + network).
-let currentSeq = null;
-let cycleObservedAtMs = null;
-function refreshAge(){
-  if (cycleObservedAtMs == null) return;
-  const ageSec = Math.floor((Date.now() - cycleObservedAtMs) / 1000);
-  document.getElementById('age').textContent = fmtAge(ageSec);
-  const isStale = ageSec > STALE_SEC;
-  const sv = document.getElementById('status'); sv.textContent = isStale ? 'Stale' : 'Live'; sv.className = 'v ' + (isStale ? 'warn' : 'ok');
-}
-async function poll(){
-  try{
-    const r = await fetch('/api/v1/price', {cache:'no-store'});
-    const d = await r.json();
-    document.getElementById('price').textContent = fmtUsd(d.medianUsd);
-    document.getElementById('seq').textContent = d.seq ?? '—';
-    document.getElementById('active').textContent = d.activeCount ?? '—';
-    if (d.seq != null) {
-      if (currentSeq == null) {
-        // First poll after page load — anchor age to the notary-attested
-        // timestamp on the latest commit (best estimate of when this cycle
-        // actually happened, since we missed the prior observation).
-        currentSeq = d.seq;
-        cycleObservedAtMs = d.lastLocktime ? d.lastLocktime * 1000 : Date.now();
-      } else if (d.seq !== currentSeq) {
-        // New cycle — reset the age timer to now.
-        currentSeq = d.seq;
-        cycleObservedAtMs = Date.now();
-      }
-    }
-    refreshAge();
-  } catch(e){}
-}
-poll(); setInterval(poll, 12000);
-setInterval(refreshAge, 1000);
-
-// Click-to-copy for category id (and any other element with .copy + data-clip)
-document.querySelectorAll('.copy[data-clip]').forEach((btn) => {
-  btn.addEventListener('click', async (e) => {
-    e.preventDefault();
-    const text = btn.getAttribute('data-clip') || '';
-    try {
-      await navigator.clipboard.writeText(text);
-      btn.classList.add('copied');
-      const ic = btn.querySelector('.copy-ic');
-      const orig = ic.textContent;
-      ic.textContent = '✓';
-      setTimeout(() => { btn.classList.remove('copied'); ic.textContent = orig; }, 1200);
-    } catch (_) {
-      // Clipboard API can fail on non-https/insecure contexts; fall back to a temp range selection
-      const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta);
-      ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
-      btn.classList.add('copied');
-      setTimeout(() => btn.classList.remove('copied'), 1200);
-    }
-  });
-});
+const STALE_SEC=300;
+function fmtUsd(n){if(n==null||!isFinite(n))return'———';return n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}
+function fmtAge(s){if(s==null)return'—';if(s<60)return s+'s';if(s<3600)return Math.floor(s/60)+'m '+(s%60)+'s';return Math.floor(s/3600)+'h '+Math.floor((s%3600)/60)+'m'}
+let currentSeq=null,cycleObservedAtMs=null;
+function refreshAge(){if(cycleObservedAtMs==null)return;const ageSec=Math.floor((Date.now()-cycleObservedAtMs)/1000);document.getElementById('age').textContent=fmtAge(ageSec);const isStale=ageSec>STALE_SEC;const sv=document.getElementById('status');sv.textContent=isStale?'Stale':'Live';sv.className='v '+(isStale?'warn':'ok')}
+async function poll(){try{const r=await fetch('/api/v1/price',{cache:'no-store'});const d=await r.json();document.getElementById('price').textContent=fmtUsd(d.medianUsd);document.getElementById('seq').textContent=d.seq??'—';document.getElementById('active').textContent=d.activeCount??'—';if(d.seq!=null){if(currentSeq==null){currentSeq=d.seq;cycleObservedAtMs=d.lastLocktime?d.lastLocktime*1000:Date.now()}else if(d.seq!==currentSeq){currentSeq=d.seq;cycleObservedAtMs=Date.now()}}refreshAge()}catch(e){}}
+poll();setInterval(poll,12000);setInterval(refreshAge,1000);
 </script>
 </body>
 </html>
