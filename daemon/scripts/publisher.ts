@@ -20,13 +20,22 @@
  *
  * No central coordinator. Each publisher acts independently.
  *
- * Usage:
- *   npx tsx scripts/publisher.ts --slot 0 \
- *     --notary-url http://127.0.0.1:8081 \
- *     --notary-url http://127.0.0.1:8082 \
- *     ...
+ * Two credential layouts are accepted at start-up (auto-detected):
  *
- * One publisher per slot in {0..12}.
+ *   New (per-operator install):
+ *     .ticker/publisher.key    32-byte private key, this operator's slot only
+ *     .ticker/manifest.json    public bundle (contracts + 13 publisher pkhs +
+ *                              7 notary pubkeys + electrum default)
+ *   Slot derived from pkh match against manifest.publisherPkhs.
+ *   --slot is optional and must agree with the derived slot if supplied.
+ *
+ *   Legacy (coordinator's seed-derived layout):
+ *     .ticker/seed.hex             32-byte master seed; all 20 keys derivable
+ *     .ticker/deploy-state.json    contract addresses + categories
+ *   --slot N selects wallets.publishers[N] exactly as before.
+ *
+ * --notary-url is optional; defaults to http://127.0.0.1:8081..8087 when
+ * omitted (matches the standard colocated-notaries deploy).
  */
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -73,6 +82,8 @@ import {
 } from '../src/load-artifacts.js';
 import { deriveWallets, NOTARY_COUNT, PUBLISHER_COUNT } from '../src/keys.js';
 import { loadSeed } from '../src/master-seed.js';
+import { loadOperatorKey, type Wallet } from '../src/operator-key.js';
+import { loadManifest } from '../src/manifest.js';
 import {
   SOURCES,
   packedSourceCNHashes,
@@ -112,27 +123,36 @@ const SLOT_WAIT_MS = 25_000;
 const TX_FEE_BUFFER_ATTEST = 2_000n;
 const TX_FEE_BUFFER_UPDATE = 20_000n;
 
+// Default notary endpoints — used when no --notary-url is given. Matches
+// the standard install where 7 notaries are co-located on the publisher's
+// host, each bound to loopback on 8081..8087 (per notary.ts:resolvePort).
+const DEFAULT_NOTARY_URLS: ReadonlyArray<string> = [
+  'http://127.0.0.1:8081', 'http://127.0.0.1:8082', 'http://127.0.0.1:8083',
+  'http://127.0.0.1:8084', 'http://127.0.0.1:8085', 'http://127.0.0.1:8086',
+  'http://127.0.0.1:8087',
+];
+
 interface ParsedArgs {
-  slot: number;
-  notaryUrls: string[];
+  slotFlag?: string;          // raw; resolved against the chosen credential layout
+  notaryUrls: ReadonlyArray<string>;
   once?: boolean;
 }
 
 const parseArgs = (): ParsedArgs => {
   const argv = process.argv.slice(2);
-  let slot = 0;
+  let slotFlag: string | undefined;
   const notaryUrls: string[] = [];
   let once = false;
   for (let i = 0; i < argv.length; i += 1) {
-    if (argv[i] === '--slot') slot = parseInt(argv[++i] ?? '', 10);
+    if (argv[i] === '--slot') slotFlag = argv[++i];
     else if (argv[i] === '--notary-url') notaryUrls.push(argv[++i] ?? '');
     else if (argv[i] === '--once') once = true;
   }
-  if (!Number.isInteger(slot) || slot < 0 || slot >= PUBLISHER_COUNT) {
-    throw new Error(`--slot must be 0..${PUBLISHER_COUNT - 1}`);
-  }
-  if (notaryUrls.length === 0) throw new Error('at least one --notary-url required');
-  return { slot, notaryUrls, once };
+  return {
+    slotFlag,
+    notaryUrls: notaryUrls.length > 0 ? notaryUrls : DEFAULT_NOTARY_URLS,
+    once,
+  };
 };
 
 interface PublisherState {
@@ -245,34 +265,116 @@ const encodeSlotCommit = (
   return c;
 };
 
+type Mode = 'operator-key' | 'seed-derived';
+interface PublisherIdentity {
+  readonly slot: number;
+  readonly publisher: Wallet;
+  /** 7 notary compressed pubkeys, hex, in slot order — for slot covenant constructor. */
+  readonly notaryPubkeysHex: ReadonlyArray<string>;
+  readonly deploy: DeployState;
+  readonly mode: Mode;
+}
+
+const resolveIdentity = (slotFlag: string | undefined): PublisherIdentity => {
+  if (existsSync('.ticker/manifest.json')) {
+    if (!existsSync('.ticker/publisher.key')) {
+      throw new Error(
+        `manifest is present but .ticker/publisher.key is not.\n` +
+        `if you are running notary-only, run the notary binary instead.\n` +
+        `if you should be running a publisher, re-install or restore publisher.key.`,
+      );
+    }
+    const manifest = loadManifest();
+    const publisher = loadOperatorKey('.ticker/publisher.key', 'publisher', manifest.network);
+    const myPkhHex = binToHex(hash160(publisher.publicKey));
+    const slot = manifest.publisherPkhs.indexOf(myPkhHex);
+    if (slot < 0) {
+      throw new Error(
+        `publisher.key pkh ${myPkhHex} is not in this manifest's publisher list.\n` +
+        `wrong installer? wrong manifest? verify with your coordinator.`,
+      );
+    }
+    if (slotFlag !== undefined) {
+      const supplied = parseInt(slotFlag, 10);
+      if (supplied !== slot) {
+        throw new Error(
+          `--slot ${supplied} disagrees with derived slot ${slot} (from pubkey); ` +
+          `omit --slot in the per-operator install layout.`,
+        );
+      }
+    }
+    if (manifest.notaryPubkeys.length !== NOTARY_COUNT) {
+      throw new Error(`manifest must have ${NOTARY_COUNT} notaryPubkeys`);
+    }
+    return {
+      slot,
+      publisher,
+      notaryPubkeysHex: manifest.notaryPubkeys,
+      deploy: {
+        tickerAddress: manifest.contracts.ticker.address,
+        tickerLockingBytecodeHex: manifest.contracts.ticker.lockingBytecodeHex,
+        slotCategory: manifest.contracts.slot.category,
+        slotAddress: manifest.contracts.slot.address,
+        slotLockingBytecodeHex: manifest.contracts.slot.lockingBytecodeHex,
+        oracleCategory: manifest.contracts.oracle.category,
+        oracleAddress: manifest.contracts.oracle.address,
+        oracleLockingBytecodeHex: manifest.contracts.oracle.lockingBytecodeHex,
+      },
+      mode: 'operator-key',
+    };
+  }
+
+  if (existsSync('.ticker/seed.hex')) {
+    const slot = parseInt(slotFlag ?? '0', 10);
+    if (!Number.isInteger(slot) || slot < 0 || slot >= PUBLISHER_COUNT) {
+      throw new Error(`--slot must be 0..${PUBLISHER_COUNT - 1}`);
+    }
+    const seed = loadSeed();
+    const wallets = deriveWallets(seed);
+    if (wallets.notaries.length !== NOTARY_COUNT) {
+      throw new Error(`v12 requires ${NOTARY_COUNT} notaries`);
+    }
+    const deploy = loadDeployState();
+    return {
+      slot,
+      publisher: wallets.publishers[slot]!,
+      notaryPubkeysHex: wallets.notaries.map((n) => binToHex(n.publicKey)),
+      deploy,
+      mode: 'seed-derived',
+    };
+  }
+
+  throw new Error(
+    `no credentials found. expected one of:\n` +
+    `  .ticker/publisher.key + .ticker/manifest.json    (per-operator install)\n` +
+    `  .ticker/seed.hex + .ticker/deploy-state.json     (legacy seed-derived layout)\n`,
+  );
+};
+
 const main = async (): Promise<void> => {
-  const { slot, notaryUrls, once } = parseArgs();
-  const seed = loadSeed();
-  const wallets = deriveWallets(seed);
-  const publisher = wallets.publishers[slot]!;
+  const { slotFlag, notaryUrls, once } = parseArgs();
+  const { slot, publisher, notaryPubkeysHex, deploy, mode } = resolveIdentity(slotFlag);
   const publisherSig = new SignatureTemplate(publisher.privateKey);
   const myPkh = hash160(publisher.publicKey);
 
-  const deploy = loadDeployState();
   const provider = buildLocalProvider();
   console.log(`  electrum: ${ELECTRUM_HOST}:${ELECTRUM_PORT}${ELECTRUM_TLS ? ' (tls)' : ''}`);
 
   if (slot >= SOURCES.length) throw new Error(`slot ${slot} ≥ SOURCES.length ${SOURCES.length}`);
   const source = SOURCES[slot]!;
-  console.log(`ticker-publisher slot=${slot} addr=${publisher.address} → sourceId=${source.id} (${source.name})`);
+  console.log(`ticker-publisher slot=${slot} mode=${mode} addr=${publisher.address} → sourceId=${source.id} (${source.name})`);
   console.log(`  oracle ${deploy.oracleAddress}`);
   console.log(`  slot   ${deploy.slotAddress}`);
-
-  if (wallets.notaries.length !== 7) throw new Error(`v12 requires 7 notaries`);
+  console.log(`  notaries: ${notaryUrls.length} URL(s), first=${notaryUrls[0]}`);
 
   const slotConstructorArgs = [
-    binToHex(wallets.notaries[0]!.publicKey),
-    binToHex(wallets.notaries[1]!.publicKey),
-    binToHex(wallets.notaries[2]!.publicKey),
-    binToHex(wallets.notaries[3]!.publicKey),
-    binToHex(wallets.notaries[4]!.publicKey),
-    binToHex(wallets.notaries[5]!.publicKey),
-    binToHex(wallets.notaries[6]!.publicKey),
+    notaryPubkeysHex[0]!,
+    notaryPubkeysHex[1]!,
+    notaryPubkeysHex[2]!,
+    notaryPubkeysHex[3]!,
+    notaryPubkeysHex[4]!,
+    notaryPubkeysHex[5]!,
+    notaryPubkeysHex[6]!,
     packedSourceCNHashes(),
     reverseHex(deploy.oracleCategory),
     deploy.oracleLockingBytecodeHex,
