@@ -24,13 +24,24 @@
  *   --notary-port 8081       (default per slot: 8081 + slot)
  *   --notary-url URL         (publisher: notary endpoints; repeatable;
  *                             default: http://127.0.0.1:8081..8087)
+ *   --stats-bind ADDR:PORT   opt-in: mount a tiny /stats HTTP endpoint
+ *                             that returns this operator's process-level
+ *                             signal (uptime, per-slot lastAttestTxid,
+ *                             lastCycleSeq, lastUpdateTxid, error count).
+ *                             Off by default. CORS open so the
+ *                             stats.ticker.cash aggregator can fetch from
+ *                             a browser if desired.
  *
  * Lifecycle: SIGINT / SIGTERM trigger a clean exit. Either role throwing
  * during start-up or runtime takes the process down — systemd handles
  * restart per Restart=on-failure.
  */
+import { createServer } from 'node:http';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { runNotary } from './notary.js';
 import { runPublisher } from './publisher.js';
+import { getCycleErrorCount } from '../src/error-counter.js';
 
 const argv = process.argv.slice(2);
 
@@ -118,3 +129,94 @@ for (const { label, promise } of tasks) {
 
 process.on('SIGINT',  () => { console.log('[ticker-node] SIGINT');  shutdown(130); });
 process.on('SIGTERM', () => { console.log('[ticker-node] SIGTERM'); shutdown(143); });
+
+// ─── /stats endpoint (opt-in via --stats-bind ADDR:PORT) ─────────────────
+//
+// Exposes minimal process-level signal so a community aggregator can enrich
+// stats.ticker.cash with operator-reported data. Off by default; only mounts
+// when --stats-bind is supplied. Returns 200 application/json on /stats,
+// 404 elsewhere, with CORS-* response headers.
+
+const STATE_DIR = '.ticker';
+const STATE_RE = /^publisher-state-(\d+)\.json$/;
+
+interface PublisherStateOnDisk {
+  lastCycleSeq?: number;
+  lastAttestTxid?: string;
+  lastUpdateTxid?: string;
+}
+interface PublisherSummary {
+  slot: number;
+  lastAttestTxid: string | null;
+  lastUpdateTxid: string | null;
+  lastCycleSeq: number | null;
+  errorsSinceStart: number;
+}
+
+const readPublisherStates = (): PublisherSummary[] => {
+  if (!existsSync(STATE_DIR)) return [];
+  const out: PublisherSummary[] = [];
+  for (const f of readdirSync(STATE_DIR)) {
+    const m = f.match(STATE_RE);
+    if (!m) continue;
+    const slot = parseInt(m[1]!, 10);
+    try {
+      const j = JSON.parse(readFileSync(join(STATE_DIR, f), 'utf8')) as PublisherStateOnDisk;
+      out.push({
+        slot,
+        lastAttestTxid: j.lastAttestTxid ?? null,
+        lastUpdateTxid: j.lastUpdateTxid ?? null,
+        lastCycleSeq: j.lastCycleSeq ?? null,
+        errorsSinceStart: getCycleErrorCount(),
+      });
+    } catch {
+      // Skip malformed files silently — the next cycle will rewrite them.
+    }
+  }
+  return out.sort((a, b) => a.slot - b.slot);
+};
+
+const statsBind = flagValue('--stats-bind');
+const procStartMs = Date.now();
+if (statsBind) {
+  const m = statsBind.match(/^(.+):(\d+)$/);
+  if (!m) {
+    console.error('--stats-bind: expected ADDR:PORT, got:', statsBind);
+    process.exit(2);
+  }
+  const host = m[1]!;
+  const port = parseInt(m[2]!, 10);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    console.error(`--stats-bind: port must be 1..65535 (got ${port})`);
+    process.exit(2);
+  }
+  const statsServer = createServer((req, res) => {
+    res.setHeader('access-control-allow-origin', '*');
+    res.setHeader('access-control-allow-methods', 'GET, OPTIONS');
+    if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+    if (req.method === 'GET' && req.url === '/stats') {
+      try {
+        const payload = {
+          uptimeSec: Math.floor((Date.now() - procStartMs) / 1000),
+          fetchedAt: Math.floor(Date.now() / 1000),
+          publishers: readPublisherStates(),
+        };
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(payload));
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        res.writeHead(500, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: msg }));
+      }
+      return;
+    }
+    res.writeHead(404); res.end();
+  });
+  statsServer.on('error', (err) => {
+    console.error('[ticker-node] /stats server error:', err.message);
+    shutdown(1);
+  });
+  statsServer.listen(port, host, () => {
+    console.log(`[ticker-node] /stats serving on http://${host}:${port}`);
+  });
+}

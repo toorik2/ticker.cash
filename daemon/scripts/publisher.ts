@@ -101,6 +101,7 @@ import {
   type OracleState,
 } from '../src/oracle-update.js';
 import { decodeSlotCommit, encodeSlotCommit } from '../src/slot-commit.js';
+import { incrementCycleError } from '../src/error-counter.js';
 
 const sha256Hash = (data: Uint8Array): Uint8Array => (sha256 as Sha256).hash(data);
 
@@ -639,6 +640,7 @@ export const runPublisher = async (argv: ReadonlyArray<string>): Promise<void> =
       if (once) break;
     } catch (err) {
       console.error(`  cycle error:`, scrubSecrets(err instanceof Error ? err.message : String(err)));
+      incrementCycleError();
       if (once) throw err;
       await sleep(POLL_INTERVAL_MS);
     }
