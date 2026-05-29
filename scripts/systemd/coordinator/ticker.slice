@@ -1,0 +1,6 @@
+[Unit]
+Description=ticker.cash service slice (CPU-capped)
+Before=slices.target
+
+[Slice]
+CPUQuota=180%

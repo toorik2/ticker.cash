@@ -1,0 +1,22 @@
+[Unit]
+Description=ticker.cash web (Express JSON API + static SPA)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/toorik/projects/ticker.cash/web
+Environment=PATH=/home/toorik/.nvm/versions/node/v24.12.0/bin:/usr/bin
+Environment=PORT=3000
+Environment=HOST=127.0.0.1
+Environment=TICKER_ELECTRUM_HOST=159.195.80.214
+Environment=TICKER_ELECTRUM_PORT=50001
+Environment=NODE_ENV=production
+ExecStart=/home/toorik/projects/ticker.cash/web/node_modules/.bin/tsx server/server.ts
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+Slice=ticker.slice
+
+[Install]
+WantedBy=default.target
