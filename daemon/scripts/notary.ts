@@ -28,14 +28,12 @@
  *   GET /health → 200 { ok: true, slot, address, pubkey, mode }
  */
 import { createServer } from 'node:http';
-import { existsSync } from 'node:fs';
 import { secp256k1, binToHex, hexToBin, type Secp256k1 } from '@bitauth/libauth';
-import { deriveWallets, loadSeed, NOTARY_COUNT } from '../src/keys.js';
-import { loadOperatorKey, type Wallet, type Mode } from '../src/operator-key.js';
-import { loadManifest } from '../src/manifest.js';
+import { type Wallet, type Mode } from '../src/operator-key.js';
 import { SOURCES, notarySigDigest } from '../src/helpers.js';
 import { setNotaryIdentity, incrementNotarySignRequest } from '../src/notary-stats.js';
 import { flagValue } from '../src/argv.js';
+import { resolveOperatorIdentity, NOTARY_ROLE } from '../src/identity.js';
 
 // The notary stamps wall-clock time. The Oracle covenant enforces
 // `newTs > prevTs` AND `newTs - prevTs >= 30` on the median of these
@@ -51,48 +49,8 @@ interface Identity {
 }
 
 const resolveIdentity = (argv: ReadonlyArray<string>): Identity => {
-  const hasManifest = existsSync('.ticker/manifest.json');
-  const hasSeed = existsSync('.ticker/seed.hex');
-
-  // New layout — preferred when manifest is present.
-  if (hasManifest) {
-    if (!existsSync('.ticker/notary.key')) {
-      throw new Error(
-        `manifest is present but .ticker/notary.key is not.\n` +
-        `if you are running publisher-only, run the publisher binary instead.\n` +
-        `if you should be running a notary, re-install or restore notary.key.`,
-      );
-    }
-    const manifest = loadManifest();
-    const notary = loadOperatorKey('.ticker/notary.key', 'notary', manifest.network);
-    const myPubHex = binToHex(notary.publicKey);
-    const slot = manifest.notaryPubkeys.indexOf(myPubHex);
-    if (slot < 0) {
-      throw new Error(
-        `notary.key pubkey ${myPubHex} is not in this manifest's notary list.\n` +
-        `wrong installer? wrong manifest? verify with your coordinator.`,
-      );
-    }
-    return { slot, notary, mode: 'operator-key' };
-  }
-
-  // Legacy layout — fall back to seed-derived.
-  if (hasSeed) {
-    const slotFlag = flagValue(argv, '--slot') ?? '0';
-    const slot = parseInt(slotFlag, 10);
-    if (!Number.isInteger(slot) || slot < 0 || slot >= NOTARY_COUNT) {
-      throw new Error(`--slot must be 0..${NOTARY_COUNT - 1}`);
-    }
-    const seed = loadSeed();
-    const wallets = deriveWallets(seed);
-    return { slot, notary: wallets.notaries[slot]!, mode: 'seed-derived' };
-  }
-
-  throw new Error(
-    `no credentials found. expected one of:\n` +
-    `  .ticker/notary.key + .ticker/manifest.json   (per-operator install)\n` +
-    `  .ticker/seed.hex                              (legacy seed-derived layout)\n`,
-  );
+  const base = resolveOperatorIdentity(NOTARY_ROLE, flagValue(argv, '--slot'));
+  return { slot: base.slot, notary: base.wallet, mode: base.mode };
 };
 
 const resolvePort = (argv: ReadonlyArray<string>, slot: number): number => {

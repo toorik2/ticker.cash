@@ -77,10 +77,9 @@ import {
   ORACLE_COMMIT_LEN,
   TICKER_HEAD_COUNT,
 } from '../src/load-artifacts.js';
-import { deriveWallets, NOTARY_COUNT, PUBLISHER_COUNT } from '../src/keys.js';
-import { loadSeed } from '../src/master-seed.js';
-import { loadOperatorKey, type Wallet, type Mode } from '../src/operator-key.js';
-import { loadManifest } from '../src/manifest.js';
+import { NOTARY_COUNT, PUBLISHER_COUNT } from '../src/keys.js';
+import { type Wallet, type Mode } from '../src/operator-key.js';
+import { resolveOperatorIdentity, PUBLISHER_ROLE } from '../src/identity.js';
 import {
   SOURCES,
   packedSourceCNHashes,
@@ -234,79 +233,27 @@ interface PublisherIdentity {
 }
 
 const resolveIdentity = (slotFlag: string | undefined): PublisherIdentity => {
-  if (existsSync('.ticker/manifest.json')) {
-    if (!existsSync('.ticker/publisher.key')) {
-      throw new Error(
-        `manifest is present but .ticker/publisher.key is not.\n` +
-        `if you are running notary-only, run the notary binary instead.\n` +
-        `if you should be running a publisher, re-install or restore publisher.key.`,
-      );
-    }
-    const manifest = loadManifest();
-    const publisher = loadOperatorKey('.ticker/publisher.key', 'publisher', manifest.network);
-    const myPkhHex = binToHex(hash160(publisher.publicKey));
-    const slot = manifest.publisherPkhs.indexOf(myPkhHex);
-    if (slot < 0) {
-      throw new Error(
-        `publisher.key pkh ${myPkhHex} is not in this manifest's publisher list.\n` +
-        `wrong installer? wrong manifest? verify with your coordinator.`,
-      );
-    }
-    if (slotFlag !== undefined) {
-      const supplied = parseInt(slotFlag, 10);
-      if (supplied !== slot) {
-        throw new Error(
-          `--slot ${supplied} disagrees with derived slot ${slot} (from pubkey); ` +
-          `omit --slot in the per-operator install layout.`,
-        );
-      }
-    }
-    if (manifest.notaryPubkeys.length !== NOTARY_COUNT) {
-      throw new Error(`manifest must have ${NOTARY_COUNT} notaryPubkeys`);
-    }
-    return {
-      slot,
-      publisher,
-      notaryPubkeysHex: manifest.notaryPubkeys,
-      deploy: {
-        tickerAddress: manifest.contracts.ticker.address,
-        tickerLockingBytecodeHex: manifest.contracts.ticker.lockingBytecodeHex,
-        slotCategory: manifest.contracts.slot.category,
-        slotAddress: manifest.contracts.slot.address,
-        slotLockingBytecodeHex: manifest.contracts.slot.lockingBytecodeHex,
-        oracleCategory: manifest.contracts.oracle.category,
-        oracleAddress: manifest.contracts.oracle.address,
-        oracleLockingBytecodeHex: manifest.contracts.oracle.lockingBytecodeHex,
-      },
-      mode: 'operator-key',
+  const base = resolveOperatorIdentity(PUBLISHER_ROLE, slotFlag);
+  let notaryPubkeysHex: ReadonlyArray<string>;
+  let deploy: DeployState;
+  if (base.mode === 'operator-key') {
+    const m = base.manifest!;
+    notaryPubkeysHex = m.notaryPubkeys;
+    deploy = {
+      tickerAddress: m.contracts.ticker.address,
+      tickerLockingBytecodeHex: m.contracts.ticker.lockingBytecodeHex,
+      slotCategory: m.contracts.slot.category,
+      slotAddress: m.contracts.slot.address,
+      slotLockingBytecodeHex: m.contracts.slot.lockingBytecodeHex,
+      oracleCategory: m.contracts.oracle.category,
+      oracleAddress: m.contracts.oracle.address,
+      oracleLockingBytecodeHex: m.contracts.oracle.lockingBytecodeHex,
     };
+  } else {
+    notaryPubkeysHex = base.wallets!.notaries.map((n) => binToHex(n.publicKey));
+    deploy = loadDeployState();
   }
-
-  if (existsSync('.ticker/seed.hex')) {
-    const slot = parseInt(slotFlag ?? '0', 10);
-    if (!Number.isInteger(slot) || slot < 0 || slot >= PUBLISHER_COUNT) {
-      throw new Error(`--slot must be 0..${PUBLISHER_COUNT - 1}`);
-    }
-    const seed = loadSeed();
-    const wallets = deriveWallets(seed);
-    if (wallets.notaries.length !== NOTARY_COUNT) {
-      throw new Error(`v12 requires ${NOTARY_COUNT} notaries`);
-    }
-    const deploy = loadDeployState();
-    return {
-      slot,
-      publisher: wallets.publishers[slot]!,
-      notaryPubkeysHex: wallets.notaries.map((n) => binToHex(n.publicKey)),
-      deploy,
-      mode: 'seed-derived',
-    };
-  }
-
-  throw new Error(
-    `no credentials found. expected one of:\n` +
-    `  .ticker/publisher.key + .ticker/manifest.json    (per-operator install)\n` +
-    `  .ticker/seed.hex + .ticker/deploy-state.json     (legacy seed-derived layout)\n`,
-  );
+  return { slot: base.slot, publisher: base.wallet, notaryPubkeysHex, deploy, mode: base.mode };
 };
 
 /**
