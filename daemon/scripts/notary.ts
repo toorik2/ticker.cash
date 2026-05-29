@@ -37,6 +37,7 @@ import { deriveWallets, loadSeed, NOTARY_COUNT } from '../src/keys.js';
 import { loadOperatorKey, type Wallet } from '../src/operator-key.js';
 import { loadManifest } from '../src/manifest.js';
 import { SOURCES, notarySigDigest } from '../src/helpers.js';
+import { setNotaryIdentity, incrementNotarySignRequest } from '../src/notary-stats.js';
 
 // Point at a Fulcrum you control. Public chipnet Fulcrums drop idle
 // connections without warning, which the electrum-cash client does not
@@ -259,6 +260,12 @@ export const runNotary = (argv: ReadonlyArray<string>): Promise<void> => {
   console.log(`  electrum: ${ELECTRUM_HOST}:${ELECTRUM_PORT}${ELECTRUM_TLS ? ' (tls)' : ''} (fresh per /sign)`);
   console.log(`  serving on http://127.0.0.1:${port}`);
 
+  setNotaryIdentity({
+    slot, port, mode,
+    address: notary.address,
+    pubkeyHex: binToHex(notary.publicKey),
+  });
+
   const server = createServer(async (req, res) => {
     if (req.method === 'GET' && req.url === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -277,6 +284,7 @@ export const runNotary = (argv: ReadonlyArray<string>): Promise<void> => {
         }
         const pubkeyHash20 = hexToBin(body.pubkeyHash);
         const result = await fetchAndSign(body.sourceId, body.cycleSeq, pubkeyHash20, notary.privateKey, notary.publicKey);
+        incrementNotarySignRequest();
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(result));
       } catch (err) {

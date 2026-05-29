@@ -42,6 +42,7 @@ import { join } from 'node:path';
 import { runNotary } from './notary.js';
 import { runPublisher } from './publisher.js';
 import { getCycleErrorCount } from '../src/error-counter.js';
+import { getNotaryIdentity, getNotarySignRequestCount } from '../src/notary-stats.js';
 
 const argv = process.argv.slice(2);
 
@@ -196,9 +197,21 @@ if (statsBind) {
     if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
     if (req.method === 'GET' && req.url === '/stats') {
       try {
+        const ident = getNotaryIdentity();
+        const notary = ident
+          ? {
+              slot: ident.slot,
+              port: ident.port,
+              address: ident.address,
+              pubkey: ident.pubkeyHex,
+              mode: ident.mode,
+              signRequestsSinceStart: getNotarySignRequestCount(),
+            }
+          : null;
         const payload = {
           uptimeSec: Math.floor((Date.now() - procStartMs) / 1000),
           fetchedAt: Math.floor(Date.now() / 1000),
+          notary,
           publishers: readPublisherStates(),
         };
         res.writeHead(200, { 'content-type': 'application/json' });
