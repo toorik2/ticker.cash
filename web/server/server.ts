@@ -1,20 +1,26 @@
 /**
- * Ticker web server — serves the React SPA + a minimal JSON API.
+ * Ticker web server — serves the static SPA(s) + a minimal JSON API.
  *
  * Endpoints:
  *   GET /api/v1/price   — current Oracle snapshot
  *   GET /api/v1/health  — component health + staleness flag
- *   GET /              — static SPA (any non-/api/* path)
+ *   GET /api/v1/stats   — chain-derived observability snapshot
+ *                          (per-slot freshness, balances, runway)
+ *   GET /              — static page (any non-/api/* path)
  *
- * Designed to replace the previous Astro SSR. The API code is identical
- * to what Astro was serving; just packaged into a 60-line express app.
+ * Host-header routing for the static fallback:
+ *   Host: usd.ticker.cash   →  index.html  (the public price page)
+ *   Host: stats.ticker.cash →  stats.html  (the observability dashboard)
+ *   anything else           →  index.html  (default; covers local dev)
  */
 import express from 'express';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import { electrumPing } from './electrum.js';
 import { getOracleState } from './oracle-state.js';
+import { getStats } from './stats.js';
 import contracts from './contracts.json' with { type: 'json' };
 
 const PORT = Number(process.env.PORT ?? 3001);
@@ -181,7 +187,17 @@ app.get('/api/v1/health', async (_req, res) => {
   }
 });
 
-// ─── static SPA ────────────────────────────────────────────────────────
+app.get('/api/v1/stats', async (_req, res) => {
+  try {
+    const stats = await getStats();
+    res.setHeader('cache-control', 'no-store');
+    res.json(stats);
+  } catch (e) {
+    res.status(500).json({ error: errorMessage(e) });
+  }
+});
+
+// ─── static pages ──────────────────────────────────────────────────────
 
 app.use(express.static(DIST_DIR, {
   index: 'index.html',
@@ -196,10 +212,17 @@ app.use(express.static(DIST_DIR, {
   },
 }));
 
-// SPA fallback — any non-/api GET serves index.html
-app.get(/^(?!\/api\/).*/, (_req, res) => {
+// Per-Host fallback for "/" and any non-/api path that doesn't match a static
+// file. usd.ticker.cash gets index.html; stats.ticker.cash gets stats.html;
+// anything else falls through to index.html (dev hosts, IPs, etc.).
+const STATS_HOSTS = new Set(['stats.ticker.cash']);
+app.get(/^(?!\/api\/).*/, (req, res) => {
   res.setHeader('cache-control', 'no-store');
-  res.sendFile(join(DIST_DIR, 'index.html'));
+  const host = req.hostname.toLowerCase();
+  const target = STATS_HOSTS.has(host) && existsSync(join(DIST_DIR, 'stats.html'))
+    ? 'stats.html'
+    : 'index.html';
+  res.sendFile(join(DIST_DIR, target));
 });
 
 app.listen(PORT, HOST, () => {
