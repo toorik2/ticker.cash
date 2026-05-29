@@ -14,4 +14,7 @@
 pub mod chain;
 pub mod covenant;
 pub mod crypto;
+pub mod electrum;
+pub mod identity;
+pub mod prover;
 pub mod tx;
