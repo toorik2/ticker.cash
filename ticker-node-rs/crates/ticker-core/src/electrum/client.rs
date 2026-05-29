@@ -11,7 +11,7 @@ use rustls::pki_types::ServerName;
 use rustls::{ClientConnection, StreamOwned};
 use serde::Serialize;
 use serde_json::Value;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::net::TcpStream;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;

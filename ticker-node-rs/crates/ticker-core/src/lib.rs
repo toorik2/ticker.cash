@@ -14,7 +14,11 @@
 pub mod chain;
 pub mod covenant;
 pub mod crypto;
+pub mod cycle;
 pub mod electrum;
 pub mod identity;
+pub mod logging;
+pub mod notary_server;
 pub mod prover;
+pub mod stats_server;
 pub mod tx;
