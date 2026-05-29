@@ -78,15 +78,30 @@ const decodePushAsSmallInt = (b: Uint8Array): number | null => {
   return v;
 };
 
-// Slot.attest unlocking layout (PUSHes, bottom of stack first):
-//   notaryIdx, notarySig, serverName, price, timestamp, publisherPubkey,
-//   publisherSchnorr, newSeq, funcSelector, redeemScript     = 10 pushes
-// Slot.consume unlocking layout: funcSelector, redeemScript  = 2 pushes
+// Slot.attest unlocking layout (PUSHes in script byte order).
+// CashScript pushes args in *reverse* declaration order so the contract pops
+// them out in declaration order. So for attest(notaryIdx, …, newSeq):
+//   push[0] = newSeq (4 B)
+//   push[1] = publisherSchnorr (64 B)
+//   push[2] = publisherPubkey (33 B)
+//   push[3] = timestamp (4 B)
+//   push[4] = price (8 B)
+//   push[5] = serverName (variable, ~14-20 B)
+//   push[6] = notarySig (64 B, Schnorr)
+//   push[7] = notaryIdx (0..6, OP_0 or OP_1..OP_6)
+//   push[8] = funcSelector (OP_0 for attest, OP_1 for consume)
+//   push[9] = redeemScript (~1 KB)
+// Slot.consume unlocking: push[0] = sig (65 B P2SH-32 placeholder),
+//   push[1] = funcSelector (OP_1), push[2] = redeemScript — 3 pushes? actually
+//   for the covenant pattern consume() has no args, so the unlocking is just
+//   funcSelector + redeemScript = 2 pushes. We discriminate by push count
+//   alone: 10 → attest, anything else → null (consume / unknown).
 const ATTEST_PUSH_COUNT = 10;
+const NOTARY_IDX_PUSH_INDEX = 7;
 const notaryIdxFromSlotInputScript = (script: Uint8Array): number | null => {
   const { pushes, ok } = parsePushOnlyScript(script);
   if (!ok || pushes.length !== ATTEST_PUSH_COUNT) return null;
-  const v = decodePushAsSmallInt(pushes[0]!);
+  const v = decodePushAsSmallInt(pushes[NOTARY_IDX_PUSH_INDEX]!);
   if (v === null || v < 0 || v >= 7) return null;
   return v;
 };
