@@ -12,3 +12,6 @@
 //!   logging   — structured stdout (JSON-per-line)
 
 pub mod chain;
+pub mod covenant;
+pub mod crypto;
+pub mod tx;
