@@ -312,287 +312,320 @@ export const runPublisher = async (argv: ReadonlyArray<string>): Promise<void> =
   };
   let cycleCounter = 0;
 
+  // ─── phase 1 ─── read oracle + slots, find my slot, gate on stride floor.
+  interface CycleSnapshot {
+    readonly oracleUtxo: Utxo;
+    readonly oracleCommitment: Uint8Array;
+    readonly prevTs: number;
+    readonly newSeq: number;
+    readonly mySlot: Utxo;
+    readonly alreadyAttested: boolean;
+  }
+  const fetchCurrentCycle = async (): Promise<CycleSnapshot | null> => {
+    const [oracleUtxos, allSlots] = await Promise.all([
+      provider.getUtxos(oracle.tokenAddress),
+      provider.getUtxos(deploy.slotAddress),
+    ]);
+    const oracleUtxo = oracleUtxos.find(
+      (u) => u.token?.category === deploy.oracleCategory && u.token.nft?.capability === 'minting',
+    );
+    if (!oracleUtxo) { await sleep(POLL_INTERVAL_MS); return null; }
+    const oracleCommitment = hexToBin(oracleUtxo.token!.nft!.commitment);
+    const prevSeq = u32LE_read(oracleCommitment, 1);
+    const prevTs = u32LE_read(oracleCommitment, 5);
+    const newSeq = prevSeq + 1;
+    const now = Math.floor(Date.now() / 1000);
+    console.log(`  prevSeq=${prevSeq} → newSeq=${newSeq}  prevTs=${prevTs}`);
+    if (now < prevTs + 30) {
+      const waitSec = (prevTs + 30) - now + 1;
+      console.log(`  stride floor — waiting ${waitSec}s`);
+      await sleep(waitSec * 1000);
+      return null;
+    }
+    const myPkhHex = binToHex(myPkh);
+    const mySlot = allSlots.find((u) => {
+      if (!u.token || u.token.category !== deploy.slotCategory) return false;
+      if (u.token.nft?.capability !== 'mutable') return false;
+      const sc = decodeSlotCommit(hexToBin(u.token.nft!.commitment));
+      return sc !== undefined && binToHex(sc.pkh) === myPkhHex;
+    });
+    if (!mySlot) {
+      console.log(`  could not find my slot`);
+      await sleep(POLL_INTERVAL_MS);
+      return null;
+    }
+    const mySlotCommit = decodeSlotCommit(hexToBin(mySlot.token!.nft!.commitment))!;
+    if (newSeq < mySlotCommit.cycleSeq) {
+      console.log(`  newSeq=${newSeq} <= slot.cycleSeq=${mySlotCommit.cycleSeq}; skip`);
+      await sleep(POLL_INTERVAL_MS);
+      return null;
+    }
+    return {
+      oracleUtxo,
+      oracleCommitment,
+      prevTs,
+      newSeq,
+      mySlot,
+      alreadyAttested: mySlotCommit.cycleSeq === newSeq,
+    };
+  };
+
+  // ─── phase 2 ─── request notary sig, sign our witness, broadcast slot.attest.
+  // Returns false on notary failure / insufficient funds / lost race (continue);
+  // returns true on success (proceed to wait + Oracle.update).
+  const tryAttest = async (snap: CycleSnapshot): Promise<boolean> => {
+    const { newSeq, mySlot } = snap;
+    const notaryUrl = notaryUrls[cycleCounter % notaryUrls.length]!;
+    const notaryIdx = cycleCounter % NOTARY_COUNT;
+    let attestation: NotarySignResponse;
+    try {
+      attestation = await requestNotarySign(notaryUrl, source.id, newSeq, binToHex(myPkh));
+    } catch (err) {
+      console.log(`  notary failed: ${scrubSecrets(err instanceof Error ? err.message : String(err))}`);
+      await sleep(POLL_INTERVAL_MS);
+      return false;
+    }
+    const price = BigInt(attestation.price);
+    console.log(`  notary ok: price=${price} ts=${attestation.timestamp}`);
+
+    const serverNameBytes = new TextEncoder().encode(attestation.serverName);
+    const cnHash20 = hash160(serverNameBytes);
+    const digest = publisherSigDigest(source.id, price, attestation.timestamp, myPkh, newSeq, cnHash20);
+    const publisherSchnorr = (secp256k1 as Secp256k1).signMessageHashSchnorr(publisher.privateKey, digest);
+    if (typeof publisherSchnorr === 'string') throw new Error(`sign: ${publisherSchnorr}`);
+
+    const funderUtxos = (await provider.getUtxos(publisher.address)).filter((u) => !u.token);
+    const funderBalance = funderUtxos.reduce((s, u) => s + u.satoshis, 0n);
+    if (funderBalance < TX_FEE_BUFFER_ATTEST) {
+      console.log(`  insufficient funds ${funderBalance}`);
+      await sleep(POLL_INTERVAL_MS);
+      return false;
+    }
+    const newCommit = encodeSlotCommit(source.id, myPkh, price, attestation.timestamp, newSeq);
+
+    const attestTx = new TransactionBuilder({ provider });
+    attestTx.addInput(
+      mySlot,
+      slotContract.unlock.attest(
+        BigInt(notaryIdx),
+        attestation.notarySig,
+        binToHex(serverNameBytes),
+        binToHex(u64LE(price)),
+        binToHex(u32LE(attestation.timestamp)),
+        binToHex(publisher.publicKey),
+        binToHex(publisherSchnorr),
+        binToHex(u32LE(newSeq)),
+      ),
+    );
+    for (const u of funderUtxos) attestTx.addInput(u, publisherSig.unlockP2PKH());
+    attestTx.addOutput({
+      to: slotContract.tokenAddress,
+      amount: mySlot.satoshis,
+      token: {
+        amount: 0n,
+        category: deploy.slotCategory,
+        nft: { capability: 'mutable', commitment: binToHex(newCommit) },
+      },
+    });
+    const change = funderBalance - TX_FEE_BUFFER_ATTEST;
+    if (change >= 546n) attestTx.addOutput({ to: publisher.address, amount: change });
+    attestTx.setLocktime(0);
+
+    // De-sync slot.attest broadcasts across the 13 publishers so we don't all
+    // hit Fulcrum in the same millisecond.
+    await sleep(Math.floor(Math.random() * 1000));
+    let attestTxid: string;
+    try {
+      const raw = attestTx.build();
+      attestTxid = await provider.sendRawTransaction(raw);
+    } catch (err) {
+      const msg = scrubSecrets(err instanceof Error ? err.message : String(err));
+      if (msg.includes('mempool-conflict') || msg.includes('already spent')) {
+        console.log(`  attest race lost`);
+        await sleep(POLL_INTERVAL_MS);
+        return false;
+      }
+      throw err;
+    }
+    updateState({ lastAttestTxid: attestTxid, lastCycleSeq: newSeq });
+    console.log(`  ✓ attest: ${attestTxid}`);
+    return true;
+  };
+
+  // ─── phase 3 ─── poll until ≥ THR_FLOOR slots have cycleSeq === newSeq.
+  // Returns the deduped, pkh-sorted slot UTXOs, or null on timeout.
+  // (Replacing this poll with `blockchain.scripthash.subscribe` is the
+  //  next Fulcrum-load win — see audit report.)
+  const waitForQuorum = async (newSeq: number): Promise<Utxo[] | null> => {
+    console.log(`  waiting for ≥${THR_FLOOR} slots at cycleSeq=${newSeq}…`);
+    const waitUntil = Date.now() + SLOT_WAIT_MS;
+    let cycleSlots: Utxo[] = [];
+    while (Date.now() < waitUntil) {
+      await sleep(3_000);
+      const allNow = await provider.getUtxos(deploy.slotAddress);
+      cycleSlots = allNow.filter((u) => {
+        if (!u.token || u.token.category !== deploy.slotCategory) return false;
+        if (u.token.nft?.capability !== 'mutable') return false;
+        const sc = decodeSlotCommit(hexToBin(u.token.nft!.commitment));
+        return sc !== undefined && sc.cycleSeq === newSeq;
+      });
+      if (cycleSlots.length >= THR_FLOOR) break;
+    }
+    console.log(`  cycleSlots.length=${cycleSlots.length}`);
+    if (cycleSlots.length < THR_FLOOR) return null;
+
+    // Covenant invariants: inputs must be sorted by pkh ascending,
+    // and each pkh distinct.
+    cycleSlots.sort((a, b) => {
+      const ca = hexToBin(a.token!.nft!.commitment);
+      const cb = hexToBin(b.token!.nft!.commitment);
+      for (let i = 22; i >= 3; i -= 1) {
+        if (ca[i]! !== cb[i]!) return ca[i]! - cb[i]!;
+      }
+      return 0;
+    });
+    const seenPkh = new Set<string>();
+    return cycleSlots.filter((u) => {
+      const k = binToHex(hexToBin(u.token!.nft!.commitment).slice(3, 23));
+      if (seenPkh.has(k)) return false;
+      seenPkh.add(k);
+      return true;
+    });
+  };
+
+  // ─── phase 4 ─── compose Oracle.update, race-broadcast.
+  const tryOracleUpdate = async (snap: CycleSnapshot, cycleSlots: Utxo[]): Promise<void> => {
+    const { oracleUtxo, oracleCommitment, prevTs, newSeq } = snap;
+    const updateFunder = (await provider.getUtxos(publisher.address)).filter((u) => !u.token);
+    const updateFunderBal = updateFunder.reduce((s, u) => s + u.satoshis, 0n);
+    const minUpdateFunds = BigInt(TICKER_HEAD_COUNT) * TICKER_DUST + TX_FEE_BUFFER_UPDATE;
+    if (updateFunderBal < minUpdateFunds) {
+      console.log(`  funder too low ${updateFunderBal}`);
+      return;
+    }
+    if (oracleCommitment.length !== ORACLE_COMMIT_LEN) {
+      throw new Error(`bad oracle commit length`);
+    }
+    const prevState: OracleState = decodeOracleCommit(oracleCommitment);
+
+    const tsValues = cycleSlots.map((u) => u32LE_read(hexToBin(u.token!.nft!.commitment), 31)).sort((a, b) => a - b);
+    const claimedNewTs = tsValues[Math.floor(tsValues.length / 2)]!;
+    if (claimedNewTs <= prevTs || claimedNewTs - prevTs < 30) return;
+
+    const pricesBlobParts = cycleSlots.map((u) => hexToBin(u.token!.nft!.commitment).slice(23, 31));
+    const pricesBlob = new Uint8Array(pricesBlobParts.reduce((s, p) => s + p.length, 0));
+    let off = 0;
+    for (const p of pricesBlobParts) { pricesBlob.set(p, off); off += p.length; }
+
+    const priceValues = cycleSlots.map((u) => {
+      const c = hexToBin(u.token!.nft!.commitment);
+      return new DataView(c.buffer, c.byteOffset + 23, 8).getBigUint64(0, true);
+    }).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    const claimedMedian = priceValues[Math.floor((priceValues.length - 1) / 2)]!;
+
+    const decayed = Number((BigInt(prevState.activeCount) * 9n) / 10n);
+    let newActive = cycleSlots.length;
+    if (decayed > newActive) newActive = decayed;
+    if (newActive < 7) newActive = 7;
+
+    const newOracleCommit = encodeOracleCommit({
+      seq: newSeq, lastTs: claimedNewTs, medianUsd: claimedMedian, activeCount: newActive,
+    });
+    const newTickerCommit = encodeTickerCommit({
+      seq: newSeq, lastTs: claimedNewTs, medianUsd: claimedMedian,
+    });
+
+    const builder = new TransactionBuilder({ provider });
+    // 1 KB pad on the unlock so cashc reserves enough bytecode budget for
+    // the worst-case path — sized for 13 slot inputs; smaller cycles overpay
+    // harmlessly.
+    const budgetPad = new Uint8Array(1024);
+    builder.addInput(
+      oracleUtxo,
+      oracle.unlock.update(
+        binToHex(pricesBlob),
+        binToHex(u64LE(claimedMedian)),
+        binToHex(u32LE(claimedNewTs)),
+        binToHex(budgetPad),
+      ),
+    );
+    for (const s of cycleSlots) builder.addInput(s, slotConsumeUnlocker);
+    for (const u of updateFunder) builder.addInput(u, publisherSig.unlockP2PKH());
+
+    builder.addOutput({
+      to: oracle.tokenAddress,
+      amount: ORACLE_DUST,
+      token: {
+        amount: 0n,
+        category: deploy.oracleCategory,
+        nft: { capability: 'minting', commitment: binToHex(newOracleCommit) },
+      },
+    });
+    for (const s of cycleSlots) {
+      builder.addOutput({
+        to: slotContract.tokenAddress,
+        amount: s.satoshis,
+        token: {
+          amount: 0n,
+          category: deploy.slotCategory,
+          nft: { capability: 'mutable', commitment: s.token!.nft!.commitment },
+        },
+      });
+    }
+    const tickerOutput = {
+      to: ticker.tokenAddress,
+      amount: TICKER_DUST,
+      token: {
+        amount: 0n,
+        category: deploy.oracleCategory,
+        nft: { capability: 'mutable' as const, commitment: binToHex(newTickerCommit) },
+      },
+    };
+    builder.addOutput(tickerOutput);
+    builder.addOutput(tickerOutput);
+    const funderChange = updateFunderBal - BigInt(TICKER_HEAD_COUNT) * TICKER_DUST - TX_FEE_BUFFER_UPDATE;
+    if (funderChange >= 546n) builder.addOutput({ to: publisher.address, amount: funderChange });
+
+    try {
+      const raw = builder.build();
+      const updateTxid = await provider.sendRawTransaction(raw);
+      updateState({ lastUpdateTxid: updateTxid });
+      console.log(`  ✓ Oracle.update: ${updateTxid}`);
+    } catch (err) {
+      const msg = scrubSecrets(err instanceof Error ? err.message : String(err));
+      if (msg.includes('txn-mempool-conflict') || msg.includes('already spent') || msg.includes('duplicate')) {
+        console.log(`  Oracle.update race lost — OK`);
+      } else {
+        console.log(`  Oracle.update failed: ${msg}`);
+        incrementCycleError();
+      }
+    }
+  };
+
+  // ─── cycle loop — orchestrates the four phases. ──────────────────────
   while (true) {
     cycleCounter += 1;
     console.log(`\n── cycle ${cycleCounter} ──`);
     try {
-      // Oracle UTXO + slot UTXO listing are independent reads; fan them out.
-      const [oracleUtxos, allSlots] = await Promise.all([
-        provider.getUtxos(oracle.tokenAddress),
-        provider.getUtxos(deploy.slotAddress),
-      ]);
-      const oracleUtxo = oracleUtxos.find(
-        (u) => u.token?.category === deploy.oracleCategory && u.token.nft?.capability === 'minting',
-      );
-      if (!oracleUtxo) {
-        await sleep(POLL_INTERVAL_MS);
-        continue;
-      }
-      const oracleCommitment = hexToBin(oracleUtxo.token!.nft!.commitment);
-      const prevSeq = u32LE_read(oracleCommitment, 1);
-      const prevTs = u32LE_read(oracleCommitment, 5);
-      const newSeq = prevSeq + 1;
-      const now = Math.floor(Date.now() / 1000);
-      console.log(`  prevSeq=${prevSeq} → newSeq=${newSeq}  prevTs=${prevTs}`);
+      const snap = await fetchCurrentCycle();
+      if (!snap) continue;
 
-      if (now < prevTs + 30) {
-        const waitSec = (prevTs + 30) - now + 1;
-        console.log(`  stride floor — waiting ${waitSec}s`);
-        await sleep(waitSec * 1000);
-        continue;
-      }
-      const mySlot = allSlots.find((u) => {
-        if (!u.token || u.token.category !== deploy.slotCategory) return false;
-        if (u.token.nft?.capability !== 'mutable') return false;
-        const sc = decodeSlotCommit(hexToBin(u.token.nft!.commitment));
-        return sc !== undefined && binToHex(sc.pkh) === binToHex(myPkh);
-      });
-      if (!mySlot) {
-        console.log(`  could not find my slot`);
-        await sleep(POLL_INTERVAL_MS);
-        continue;
-      }
-      const mySlotCommit = decodeSlotCommit(hexToBin(mySlot.token!.nft!.commitment))!;
-
-      if (newSeq < mySlotCommit.cycleSeq) {
-        console.log(`  newSeq=${newSeq} <= slot.cycleSeq=${mySlotCommit.cycleSeq}; skip`);
-        await sleep(POLL_INTERVAL_MS);
-        continue;
+      if (!snap.alreadyAttested) {
+        const ok = await tryAttest(snap);
+        if (!ok) continue;
       }
 
-      const alreadyAttestedForNewSeq = mySlotCommit.cycleSeq === newSeq;
-      if (!alreadyAttestedForNewSeq) {
-        const notaryUrl = notaryUrls[cycleCounter % notaryUrls.length]!;
-        const notaryIdx = cycleCounter % NOTARY_COUNT;
-        let attestation: NotarySignResponse;
-        try {
-          attestation = await requestNotarySign(notaryUrl, source.id, newSeq, binToHex(myPkh));
-        } catch (err) {
-          console.log(`  notary failed: ${scrubSecrets(err instanceof Error ? err.message : String(err))}`);
-          await sleep(POLL_INTERVAL_MS);
-          continue;
-        }
-        const price = BigInt(attestation.price);
-        console.log(`  notary ok: price=${price} ts=${attestation.timestamp}`);
+      const cycleSlots = await waitForQuorum(snap.newSeq);
+      if (!cycleSlots) { if (once) break; continue; }
 
-        const serverNameBytes = new TextEncoder().encode(attestation.serverName);
-        const cnHash20 = hash160(serverNameBytes);
-        const digest = publisherSigDigest(source.id, price, attestation.timestamp, myPkh, newSeq, cnHash20);
-        const publisherSchnorr = (secp256k1 as Secp256k1).signMessageHashSchnorr(publisher.privateKey, digest);
-        if (typeof publisherSchnorr === 'string') throw new Error(`sign: ${publisherSchnorr}`);
-
-        const funderUtxos = (await provider.getUtxos(publisher.address)).filter((u) => !u.token);
-        const funderBalance = funderUtxos.reduce((s, u) => s + u.satoshis, 0n);
-        if (funderBalance < TX_FEE_BUFFER_ATTEST) {
-          console.log(`  insufficient funds ${funderBalance}`);
-          await sleep(POLL_INTERVAL_MS);
-          continue;
-        }
-        const targetLocktime = 0;
-        const newCommit = encodeSlotCommit(source.id, myPkh, price, attestation.timestamp, newSeq);
-
-        const attestTx = new TransactionBuilder({ provider });
-        attestTx.addInput(
-          mySlot,
-          slotContract.unlock.attest(
-            BigInt(notaryIdx),
-            attestation.notarySig,            // already hex; was binToHex(hexToBin(…))
-            binToHex(serverNameBytes),
-            binToHex(u64LE(price)),
-            binToHex(u32LE(attestation.timestamp)),
-            binToHex(publisher.publicKey),
-            binToHex(publisherSchnorr),
-            binToHex(u32LE(newSeq)),
-          ),
-        );
-        for (const u of funderUtxos) attestTx.addInput(u, publisherSig.unlockP2PKH());
-        attestTx.addOutput({
-          to: slotContract.tokenAddress,
-          amount: mySlot.satoshis,
-          token: {
-            amount: 0n,
-            category: deploy.slotCategory,
-            nft: { capability: 'mutable', commitment: binToHex(newCommit) },
-          },
-        });
-        const change = funderBalance - TX_FEE_BUFFER_ATTEST;
-        if (change >= 546n) attestTx.addOutput({ to: publisher.address, amount: change });
-        attestTx.setLocktime(targetLocktime);
-
-        await sleep(Math.floor(Math.random() * 1000));
-        let attestTxid: string;
-        try {
-          const raw = attestTx.build();
-          attestTxid = await provider.sendRawTransaction(raw);
-        } catch (err) {
-          const msg = scrubSecrets(err instanceof Error ? err.message : String(err));
-          if (msg.includes('mempool-conflict') || msg.includes('already spent')) {
-            console.log(`  attest race lost`);
-            await sleep(POLL_INTERVAL_MS);
-            continue;
-          }
-          throw err;
-        }
-        updateState({ lastAttestTxid: attestTxid, lastCycleSeq: newSeq });
-        console.log(`  ✓ attest: ${attestTxid}`);
-      }
-
-      console.log(`  waiting for ≥${THR_FLOOR} slots at cycleSeq=${newSeq}…`);
-      const waitUntil = Date.now() + SLOT_WAIT_MS;
-      let cycleSlots: Utxo[] = [];
-      while (Date.now() < waitUntil) {
-        await sleep(3_000);
-        const allNow = await provider.getUtxos(deploy.slotAddress);
-        cycleSlots = allNow.filter((u) => {
-          if (!u.token || u.token.category !== deploy.slotCategory) return false;
-          if (u.token.nft?.capability !== 'mutable') return false;
-          const sc = decodeSlotCommit(hexToBin(u.token.nft!.commitment));
-          return sc !== undefined && sc.cycleSeq === newSeq;
-        });
-        if (cycleSlots.length >= THR_FLOOR) break;
-      }
-      console.log(`  cycleSlots.length=${cycleSlots.length}`);
-      if (cycleSlots.length < THR_FLOOR) {
-        if (once) break;
-        continue;
-      }
-
-      cycleSlots.sort((a, b) => {
-        const ca = hexToBin(a.token!.nft!.commitment);
-        const cb = hexToBin(b.token!.nft!.commitment);
-        for (let i = 22; i >= 3; i -= 1) {
-          if (ca[i]! !== cb[i]!) return ca[i]! - cb[i]!;
-        }
-        return 0;
-      });
-      const seenPkh = new Set<string>();
-      cycleSlots = cycleSlots.filter((u) => {
-        const k = binToHex(hexToBin(u.token!.nft!.commitment).slice(3, 23));
-        if (seenPkh.has(k)) return false;
-        seenPkh.add(k);
-        return true;
-      });
-
-      const updateFunder = (await provider.getUtxos(publisher.address)).filter((u) => !u.token);
-      const updateFunderBal = updateFunder.reduce((s, u) => s + u.satoshis, 0n);
-      const minUpdateFunds = BigInt(TICKER_HEAD_COUNT) * TICKER_DUST + TX_FEE_BUFFER_UPDATE;
-      if (updateFunderBal < minUpdateFunds) {
-        console.log(`  funder too low ${updateFunderBal}`);
-        if (once) break;
-        continue;
-      }
-
-      if (oracleCommitment.length !== ORACLE_COMMIT_LEN) {
-        throw new Error(`bad oracle commit length`);
-      }
-      const prevState: OracleState = decodeOracleCommit(oracleCommitment);
-
-      const tsValues = cycleSlots.map((u) => u32LE_read(hexToBin(u.token!.nft!.commitment), 31)).sort((a, b) => a - b);
-      const claimedNewTs = tsValues[Math.floor(tsValues.length / 2)]!;
-      if (claimedNewTs <= prevTs || claimedNewTs - prevTs < 30) {
-        if (once) break;
-        continue;
-      }
-
-      const pricesBlobParts = cycleSlots.map((u) => hexToBin(u.token!.nft!.commitment).slice(23, 31));
-      const pricesBlob = new Uint8Array(pricesBlobParts.reduce((s, p) => s + p.length, 0));
-      let off = 0;
-      for (const p of pricesBlobParts) { pricesBlob.set(p, off); off += p.length; }
-
-      const priceValues = cycleSlots.map((u) => {
-        const c = hexToBin(u.token!.nft!.commitment);
-        return new DataView(c.buffer, c.byteOffset + 23, 8).getBigUint64(0, true);
-      }).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-      const claimedMedian = priceValues[Math.floor((priceValues.length - 1) / 2)]!;
-
-      const decayed = Number((BigInt(prevState.activeCount) * 9n) / 10n);
-      let newActive = cycleSlots.length;
-      if (decayed > newActive) newActive = decayed;
-      if (newActive < 7) newActive = 7;
-
-      const newOracleCommit = encodeOracleCommit({
-        seq: newSeq,
-        lastTs: claimedNewTs,
-        medianUsd: claimedMedian,
-        activeCount: newActive,
-      });
-      const newTickerCommit = encodeTickerCommit({
-        seq: newSeq,
-        lastTs: claimedNewTs,
-        medianUsd: claimedMedian,
-      });
-
-      const builder = new TransactionBuilder({ provider });
-      const budgetPad = new Uint8Array(1024);
-      builder.addInput(
-        oracleUtxo,
-        oracle.unlock.update(
-          binToHex(pricesBlob),
-          binToHex(u64LE(claimedMedian)),
-          binToHex(u32LE(claimedNewTs)),
-          binToHex(budgetPad),
-        ),
-      );
-      for (const s of cycleSlots) builder.addInput(s, slotConsumeUnlocker);
-      for (const u of updateFunder) builder.addInput(u, publisherSig.unlockP2PKH());
-
-      builder.addOutput({
-        to: oracle.tokenAddress,
-        amount: ORACLE_DUST,
-        token: {
-          amount: 0n,
-          category: deploy.oracleCategory,
-          nft: { capability: 'minting', commitment: binToHex(newOracleCommit) },
-        },
-      });
-      for (const s of cycleSlots) {
-        builder.addOutput({
-          to: slotContract.tokenAddress,
-          amount: s.satoshis,
-          token: {
-            amount: 0n,
-            category: deploy.slotCategory,
-            nft: { capability: 'mutable', commitment: s.token!.nft!.commitment },
-          },
-        });
-      }
-      const tickerOutput = {
-        to: ticker.tokenAddress,
-        amount: TICKER_DUST,
-        token: {
-          amount: 0n,
-          category: deploy.oracleCategory,
-          nft: { capability: 'mutable' as const, commitment: binToHex(newTickerCommit) },
-        },
-      };
-      builder.addOutput(tickerOutput);
-      builder.addOutput(tickerOutput);
-      const funderChange = updateFunderBal - BigInt(TICKER_HEAD_COUNT) * TICKER_DUST - TX_FEE_BUFFER_UPDATE;
-      if (funderChange >= 546n) {
-        builder.addOutput({ to: publisher.address, amount: funderChange });
-      }
-
-      try {
-        const raw = builder.build();
-        const updateTxid = await provider.sendRawTransaction(raw);
-        updateState({ lastUpdateTxid: updateTxid });
-        console.log(`  ✓ Oracle.update: ${updateTxid}`);
-      } catch (err) {
-        const msg = scrubSecrets(err instanceof Error ? err.message : String(err));
-        if (msg.includes('txn-mempool-conflict') || msg.includes('already spent') || msg.includes('duplicate')) {
-          console.log(`  Oracle.update race lost — OK`);
-        } else {
-          console.log(`  Oracle.update failed: ${msg}`);
-          incrementCycleError();
-        }
-      }
-      if (once) break;
+      await tryOracleUpdate(snap, cycleSlots);
     } catch (err) {
       console.error(`  cycle error:`, scrubSecrets(err instanceof Error ? err.message : String(err)));
       incrementCycleError();
       if (once) throw err;
       await sleep(POLL_INTERVAL_MS);
     }
+    if (once) break;
   }
 };
 
