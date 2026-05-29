@@ -110,6 +110,13 @@ RestartSec=15s
 WantedBy=default.target
 EOF
 
+# Symlink the operator CLI into ~/.local/bin so the operator can run `ticker
+# status`, `ticker logs -f`, etc. from any shell. Tolerates a pre-existing
+# symlink (re-install / re-bake case).
+LOCAL_BIN="$HOME/.local/bin"
+mkdir -p "$LOCAL_BIN"
+ln -sf "$TICKER_HOME/daemon/scripts/ticker" "$LOCAL_BIN/ticker"
+
 systemctl --user daemon-reload
 systemctl --user enable --now ticker-node.service >/dev/null 2>&1 || true
 
@@ -131,10 +138,17 @@ echo "[6/6] systemd unit installed and active ✓"
 
 echo
 echo "your ticker.cash node is running."
-echo "  status:  systemctl --user status ticker-node"
-echo "  logs:    journalctl --user -fu ticker-node"
-echo "  stop:    systemctl --user stop ticker-node"
-echo "  start:   systemctl --user start ticker-node"
+echo "  ticker status        cycle + service state"
+echo "  ticker logs -f       follow the daemon log"
+echo "  ticker upgrade       pull latest + restart"
+echo "  ticker help          all commands"
+if ! echo ":$PATH:" | grep -q ":$LOCAL_BIN:"; then
+  echo
+  echo "note: $LOCAL_BIN is not on your PATH yet. add this to ~/.bashrc or ~/.zshrc:"
+  echo "  export PATH=\"\$HOME/.local/bin:\$PATH\""
+  echo "then 'source ~/.bashrc' (or open a new shell). until then, run the CLI as:"
+  echo "  $LOCAL_BIN/ticker status"
+fi
 echo
 echo "back up your operator key(s) NOW:"
 [ -n "$TICKER_NOTARY_KEY_HEX" ]    && echo "  $DOT_TICKER/notary.key"
