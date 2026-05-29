@@ -199,6 +199,22 @@ app.get('/api/v1/stats', async (_req, res) => {
 
 // ─── static pages ──────────────────────────────────────────────────────
 
+// Per-Host index: /  on stats.ticker.cash → stats.html; everywhere else
+// the regular index.html. Must run BEFORE express.static, otherwise the
+// static middleware's `index: 'index.html'` intercepts "/" first.
+const STATS_HOSTS = new Set(['stats.ticker.cash']);
+app.get('/', (req, res, next) => {
+  if (
+    STATS_HOSTS.has(req.hostname.toLowerCase()) &&
+    existsSync(join(DIST_DIR, 'stats.html'))
+  ) {
+    res.setHeader('cache-control', 'no-store');
+    res.sendFile(join(DIST_DIR, 'stats.html'));
+    return;
+  }
+  next();
+});
+
 app.use(express.static(DIST_DIR, {
   index: 'index.html',
   // extensions: ['html'] lets /docs serve dist/docs.html without the URL
@@ -212,16 +228,16 @@ app.use(express.static(DIST_DIR, {
   },
 }));
 
-// Per-Host fallback for "/" and any non-/api path that doesn't match a static
-// file. usd.ticker.cash gets index.html; stats.ticker.cash gets stats.html;
-// anything else falls through to index.html (dev hosts, IPs, etc.).
-const STATS_HOSTS = new Set(['stats.ticker.cash']);
+// Final fallback for any non-/api path that didn't match a static file —
+// honors the same per-Host rule so a 404 on stats.ticker.cash returns
+// the stats page (SPA-style) instead of the home page.
 app.get(/^(?!\/api\/).*/, (req, res) => {
   res.setHeader('cache-control', 'no-store');
-  const host = req.hostname.toLowerCase();
-  const target = STATS_HOSTS.has(host) && existsSync(join(DIST_DIR, 'stats.html'))
-    ? 'stats.html'
-    : 'index.html';
+  const target =
+    STATS_HOSTS.has(req.hostname.toLowerCase()) &&
+    existsSync(join(DIST_DIR, 'stats.html'))
+      ? 'stats.html'
+      : 'index.html';
   res.sendFile(join(DIST_DIR, target));
 });
 
