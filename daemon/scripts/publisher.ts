@@ -304,6 +304,12 @@ export const runPublisher = async (argv: ReadonlyArray<string>): Promise<void> =
   const slotConsumeUnlocker = slotContract.unlock.consume();
 
   let pubState = loadPublisherState(slot);
+  // Apply partial changes + persist atomically — single call-site so
+  // neither attest nor update writes can be silently forgotten.
+  const updateState = (changes: Partial<PublisherState>): void => {
+    pubState = { ...pubState, ...changes };
+    savePublisherState(slot, pubState);
+  };
   let cycleCounter = 0;
 
   while (true) {
@@ -427,9 +433,7 @@ export const runPublisher = async (argv: ReadonlyArray<string>): Promise<void> =
           }
           throw err;
         }
-        pubState.lastAttestTxid = attestTxid;
-        pubState.lastCycleSeq = newSeq;
-        savePublisherState(slot, pubState);
+        updateState({ lastAttestTxid: attestTxid, lastCycleSeq: newSeq });
         console.log(`  ✓ attest: ${attestTxid}`);
       }
 
@@ -571,8 +575,7 @@ export const runPublisher = async (argv: ReadonlyArray<string>): Promise<void> =
       try {
         const raw = builder.build();
         const updateTxid = await provider.sendRawTransaction(raw);
-        pubState.lastUpdateTxid = updateTxid;
-        savePublisherState(slot, pubState);
+        updateState({ lastUpdateTxid: updateTxid });
         console.log(`  ✓ Oracle.update: ${updateTxid}`);
       } catch (err) {
         const msg = scrubSecrets(err instanceof Error ? err.message : String(err));
