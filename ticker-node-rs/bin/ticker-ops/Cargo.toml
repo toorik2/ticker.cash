@@ -1,0 +1,15 @@
+[package]
+name        = "ticker-ops"
+description = "ticker.cash coordinator tooling (deploy, bake-installer, fund, dump-state)"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+
+[[bin]]
+name = "ticker-ops"
+path = "src/main.rs"
+
+[dependencies]
+ticker-core = { workspace = true }
+pico-args   = { workspace = true }
