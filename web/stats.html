@@ -49,9 +49,9 @@
   .slot-table tbody td .sub{color:#6a6457;font-size:10.5px;letter-spacing:0;margin-left:0.4em;font-weight:400}
   .slot-table tbody td.status{font-weight:600;text-transform:uppercase;letter-spacing:0.1em;font-size:10.5px}
   .status-ok       {color:#1a7b3b}
-  .status-lagging  {color:#a07000}
+  .status-lagging  {color:#b88800}
+  .status-unfunded {color:#c84800}
   .status-stalled  {color:#a02010}
-  .status-unfunded {color:#a02010}
   .op-cell{color:#8a8472;font-style:italic;font-size:11px}
   .op-cell .err{color:#a02010;font-style:normal;margin-left:0.4em}
   .foot{margin-top:3rem;padding-top:0.8rem;border-top:1px solid #c8c2b3;font-size:10.5px;color:#6a6457;letter-spacing:0.1em;text-transform:uppercase;display:flex;justify-content:space-between;gap:0.5rem;flex-wrap:wrap;font-weight:500}
@@ -203,14 +203,19 @@ function makeOperatorCell(op){
   return td;
 }
 
-function makeRow(s, oracleLastTs){
+function makeRow(s){
   const tr = document.createElement('tr');
-  const ageAttest = oracleLastTs ? Math.max(0, oracleLastTs - s.lastAttestTs) : 0;
+  // ageAttest is "how long since the slot was last rewritten on chain",
+  // computed against current wall-clock — not oracle.lastTs (which is the
+  // MEDIAN of all 13 slot timestamps, so half the slots would round to 0).
+  const nowSec = Math.floor(Date.now() / 1000);
+  const ageAttest = Math.max(0, nowSec - s.lastAttestTs);
+  tr.dataset.slot = String(s.slot);                  // for tick() to find this row
+  tr.dataset.lastAttestTs = String(s.lastAttestTs);
   tr.appendChild(makeTd(String(s.slot)));
   tr.appendChild(makeSourceCell(s.sourceName, fmtPkh(s.publisherPkh)));
-  // "ago" subscript
   const ageTd = document.createElement('td');
-  ageTd.classList.add('r');
+  ageTd.classList.add('r', 'age-attest');
   ageTd.appendChild(document.createTextNode(fmtAge(ageAttest) + ' '));
   const ago = document.createElement('span');
   ago.className = 'sub';
@@ -261,7 +266,7 @@ function render(d){
     tbody.appendChild(tr);
   } else {
     for (const s of d.slots) {
-      tbody.appendChild(makeRow(s, o ? o.lastTs : null));
+      tbody.appendChild(makeRow(s));
     }
   }
 
@@ -301,14 +306,34 @@ async function poll(){
 }
 
 function tick(){
-  if (!lastFetch || !lastFetch.oracle) return;
+  if (!lastFetch) return;
   const nowSec = Math.floor(Date.now() / 1000);
-  const ageSec = Math.max(0, nowSec - lastFetch.oracle.lastTs);
-  const el = document.getElementById('agg-age');
-  if (el) {
-    el.textContent = fmtAge(ageSec);
-    el.className = 'v ' + (ageSec < lastFetch.health.stalenessThresholdSec ? 'ok' : 'warn');
+
+  // Header age
+  if (lastFetch.oracle) {
+    const ageSec = Math.max(0, nowSec - lastFetch.oracle.lastTs);
+    const el = document.getElementById('agg-age');
+    if (el) {
+      el.textContent = fmtAge(ageSec);
+      el.className = 'v ' + (ageSec < lastFetch.health.stalenessThresholdSec ? 'ok' : 'warn');
+    }
   }
+
+  // Per-slot lastAttest age — recompute from dataset.lastAttestTs so it
+  // ticks each second without re-rendering the table.
+  const rows = document.querySelectorAll('#slot-rows tr[data-last-attest-ts]');
+  rows.forEach((tr) => {
+    const ts = Number(tr.dataset.lastAttestTs);
+    if (!isFinite(ts) || ts <= 0) return;
+    const cell = tr.querySelector('td.age-attest');
+    if (!cell) return;
+    const age = Math.max(0, nowSec - ts);
+    // Preserve the trailing "ago" subscript span.
+    const sub = cell.querySelector('span.sub');
+    while (cell.firstChild) cell.removeChild(cell.firstChild);
+    cell.appendChild(document.createTextNode(fmtAge(age) + ' '));
+    if (sub) cell.appendChild(sub);
+  });
 }
 
 poll();

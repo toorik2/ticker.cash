@@ -251,25 +251,39 @@ async function buildSnapshot(): Promise<Stats> {
     errors.push(`operator-poll: ${(operatorResult.reason as Error)?.message ?? 'unknown'}`);
   }
 
+  // Slot index = position in SOURCES (slot 0 = kraken, slot 1 = coinbase, …),
+  // derived from the sourceId baked into each commit. Fulcrum returns UTXOs in
+  // arbitrary order (and each slot.attest produces a new txid, so that order
+  // changes every cycle), so we MUST NOT use the array index as the slot.
   const oracleSeq = oracleState?.seq ?? 0;
-  const slots: SlotRow[] = decodedSlots.map((d, i) => {
+  const slotsByIndex = new Map<number, SlotRow>();
+  for (let i = 0; i < decodedSlots.length; i += 1) {
+    const d = decodedSlots[i]!;
+    const slot = SOURCES.findIndex((s) => s.id === d.sourceId);
+    if (slot < 0) {
+      errors.push(`slot UTXO has unknown sourceId ${d.sourceId}`);
+      continue;
+    }
+    if (slotsByIndex.has(slot)) {
+      errors.push(`duplicate slot ${slot} (sourceId ${d.sourceId}) — keeping first`);
+      continue;
+    }
     const balanceRes = balanceResults[i];
     let walletBalanceSats: bigint;
     if (balanceRes && balanceRes.status === 'fulfilled') {
       walletBalanceSats = sumNonTokenSats(balanceRes.value);
     } else {
       walletBalanceSats = 0n;
-      errors.push(`wallet ${i} fetch: ${(balanceRes?.reason as Error)?.message ?? 'unknown'}`);
+      errors.push(`wallet slot ${slot} fetch: ${(balanceRes?.reason as Error)?.message ?? 'unknown'}`);
     }
     const cyclesOfRunway = Number(walletBalanceSats / EXPECTED_SATS_PER_CYCLE);
     const cyclesBehind = Math.max(0, oracleSeq - d.cycleSeq);
-    const source = SOURCES.find((s) => s.id === d.sourceId);
-    const publisherPkh = binToHex(d.pkh);
-    return {
-      slot: i,
+    const source = SOURCES[slot]!;
+    slotsByIndex.set(slot, {
+      slot,
       sourceId: d.sourceId,
-      sourceName: source?.name ?? `source-${d.sourceId}`,
-      publisherPkh,
+      sourceName: source.name,
+      publisherPkh: binToHex(d.pkh),
       publisherAddress: pkhToP2PKH(d.pkh, contracts.network),
       lastAttestTs: d.timestamp,
       lastCycleSeq: d.cycleSeq,
@@ -278,12 +292,12 @@ async function buildSnapshot(): Promise<Stats> {
       cyclesOfRunway,
       runwayDurationSec: cyclesOfRunway * cycleStrideSec,
       status: classify(cyclesBehind, cyclesOfRunway),
-      operatorReported: operatorMap.get(i) ?? null,
-    };
-  });
+      operatorReported: operatorMap.get(slot) ?? null,
+    });
+  }
 
-  // Sort by slot index for stable UI order (slot 0 first).
-  slots.sort((a, b) => a.slot - b.slot);
+  // Stable UI order: slot 0 first, slot 12 last.
+  const slots: SlotRow[] = Array.from(slotsByIndex.values()).sort((a, b) => a.slot - b.slot);
 
   // ─── aggregate + health ─────────────────────────────────────────────
   const slotsCurrent  = slots.filter((s) => s.cyclesBehind === 0).length;
