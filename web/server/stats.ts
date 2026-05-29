@@ -29,6 +29,7 @@ import {
 
 import { electrumRequest, electrumPing } from './electrum.js';
 import { decodeOracleCommitment } from './oracle-state.js';
+import { fetchAllOperatorStats } from './operator-stats-poll.js';
 import { decodeSlotCommit } from '../../daemon/src/slot-commit.js';
 import { SOURCES } from '../../daemon/src/helpers.js';
 import contracts from './contracts.json';
@@ -173,10 +174,11 @@ async function buildSnapshot(): Promise<Stats> {
 
   // Run independent queries in parallel; collect errors per-section so a
   // single Fulcrum hiccup never blanks the whole page.
-  const [oracleResult, slotResult, pingResult] = await Promise.allSettled([
+  const [oracleResult, slotResult, pingResult, operatorResult] = await Promise.allSettled([
     getAddressUtxos(contracts.oracle.address),
     getAddressUtxos(contracts.slot.address),
     electrumPing(),
+    fetchAllOperatorStats(),
   ]);
 
   // ─── oracle ─────────────────────────────────────────────────────────
@@ -241,6 +243,14 @@ async function buildSnapshot(): Promise<Stats> {
     cycleStrideSec = Math.max(30, Math.round((oracleState.lastTs - DEPLOYED_AT_SEC) / oracleState.seq));
   }
 
+  // ─── operator-reported (Phase B, may be empty) ──────────────────────
+  const operatorMap = operatorResult.status === 'fulfilled' ? operatorResult.value.map : new Map();
+  if (operatorResult.status === 'fulfilled') {
+    for (const e of operatorResult.value.errors) errors.push(e);
+  } else if (operatorResult.status === 'rejected') {
+    errors.push(`operator-poll: ${(operatorResult.reason as Error)?.message ?? 'unknown'}`);
+  }
+
   const oracleSeq = oracleState?.seq ?? 0;
   const slots: SlotRow[] = decodedSlots.map((d, i) => {
     const balanceRes = balanceResults[i];
@@ -268,7 +278,7 @@ async function buildSnapshot(): Promise<Stats> {
       cyclesOfRunway,
       runwayDurationSec: cyclesOfRunway * cycleStrideSec,
       status: classify(cyclesBehind, cyclesOfRunway),
-      operatorReported: null,  // populated by operator-stats-poll.ts in PR8f
+      operatorReported: operatorMap.get(i) ?? null,
     };
   });
 
