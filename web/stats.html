@@ -21,82 +21,144 @@
   html,body{min-height:100vh;background:#f3efe4;color:#1a1a18;font-family:'IBM Plex Mono',monospace;font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased}
   a{color:#1a1a18;text-decoration:underline;text-underline-offset:3px;text-decoration-thickness:1px;text-decoration-color:#b6b1a3}
   a:hover{text-decoration-color:#1a1a18}
+
+  /* The HTML `hidden` attribute must always win — several classes below set
+     display:flex/grid which would otherwise leak through. */
+  [hidden]{display:none !important}
+
   .head{padding:1rem 1.75rem;display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:0.5rem;border-bottom:1px solid #c8c2b3}
   .head .l{font-weight:700;letter-spacing:0.22em;text-transform:uppercase;font-size:13px;display:flex;align-items:baseline;gap:0.6rem}
   .head .l .pair{color:#6a6457;font-weight:400;letter-spacing:0.08em;font-size:11px;text-transform:none}
   .head .r{font-size:11px;color:#6a6457;display:flex;gap:1.25rem;align-items:center}
   .head .r a{color:#6a6457;text-decoration:none;border-bottom:1px solid transparent}
   .head .r a:hover{color:#1a1a18;border-bottom-color:#6a6457}
-  .doc{max-width:1180px;margin:0 auto;padding:2.5rem 1.75rem 5rem}
-  .specs{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid #1a1a18;background:#fffcf0;margin-bottom:2.5rem}
-  @media(max-width:680px){.specs{grid-template-columns:repeat(2,1fr)}}
-  .spec{padding:1.1rem 1.25rem;border-right:1px solid #c8c2b3}
-  .spec:last-child{border-right:none}
-  .spec .h{font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:#6a6457;margin-bottom:0.4rem;font-weight:500}
-  .spec .v{font-size:1.5rem;font-weight:300;line-height:1.05;letter-spacing:-0.025em;font-variant-numeric:tabular-nums}
-  .spec .v.ok{color:#1a7b3b}
-  .spec .v.warn{color:#a02010}
-  .section-head{font-size:10.5px;letter-spacing:0.22em;text-transform:uppercase;font-weight:600;color:#1a1a18;border-bottom:1px solid #c8c2b3;padding-bottom:0.45rem;margin-bottom:1rem;display:flex;justify-content:space-between;gap:0.5rem}
-  .section-head .sub{color:#6a6457;font-weight:400;letter-spacing:0.1em}
-  .slot-table{width:100%;border-collapse:collapse;font-size:12.5px;background:#fffcf0;border:1px solid #1a1a18;font-variant-numeric:tabular-nums}
-  .slot-table thead th{text-align:left;padding:0.65rem 0.9rem;border-bottom:1px solid #1a1a18;font-size:10px;letter-spacing:0.16em;text-transform:uppercase;color:#6a6457;font-weight:600;background:#f3efe4}
-  .slot-table thead th.r{text-align:right}
-  .slot-table tbody td{padding:0.55rem 0.9rem;border-bottom:1px solid #ecebe0;vertical-align:baseline}
-  .slot-table tbody tr:last-child td{border-bottom:none}
-  .slot-table tbody td.r{text-align:right}
-  .slot-table tbody td .src{color:#1a1a18;font-weight:600}
-  .slot-table tbody td .pkh{color:#8a8472;font-size:10.5px;letter-spacing:0.05em;margin-top:0.1rem;font-weight:400}
-  .slot-table tbody td .sub{color:#6a6457;font-size:10.5px;letter-spacing:0;margin-left:0.4em;font-weight:400}
-  .slot-table tbody td.status{font-weight:600;text-transform:uppercase;letter-spacing:0.1em;font-size:10.5px}
-  .status-ok       {color:#1a7b3b}
-  .status-lagging  {color:#b88800}
-  .status-unfunded {color:#c84800}
-  .status-stalled  {color:#a02010}
-  .op-cell{color:#8a8472;font-style:italic;font-size:11px}
-  .op-cell .err{color:#a02010;font-style:normal;margin-left:0.4em}
-  .foot{margin-top:3rem;padding-top:0.8rem;border-top:1px solid #c8c2b3;font-size:10.5px;color:#6a6457;letter-spacing:0.1em;text-transform:uppercase;display:flex;justify-content:space-between;gap:0.5rem;flex-wrap:wrap;font-weight:500}
-  .foot a{color:#6a6457;text-decoration:none;border-bottom:1px solid transparent}
-  .foot a:hover{color:#1a1a18;border-bottom-color:#6a6457}
-  .errors{margin-top:1.5rem;padding:0.8rem 1rem;border:1px solid #a02010;background:#fffcf0;color:#a02010;font-size:11.5px}
-  .errors b{font-weight:700;text-transform:uppercase;letter-spacing:0.12em;font-size:10px}
-  .errors ul{margin:0.4rem 0 0 1.25rem;padding:0;font-style:normal;list-style:disc}
 
-  /* Cycle-stopped banner (visible only when oracle age > 5× stride). */
-  .stalled-banner{padding:1rem 1.25rem;border:2px solid #a02010;background:#fff0ec;color:#a02010;margin-bottom:1.5rem;font-weight:600;letter-spacing:0.04em;display:flex;justify-content:space-between;align-items:baseline;gap:0.5rem;flex-wrap:wrap}
+  .doc{max-width:1180px;margin:0 auto;padding:2rem 1.75rem 5rem}
+
+  /* ─── Status stripe — the only thing above the table. ────────────────── */
+  .status-stripe{
+    background:#fffcf0;border:1px solid #1a1a18;
+    padding:0.95rem 1.25rem;margin-bottom:2rem;
+    display:flex;align-items:baseline;flex-wrap:wrap;gap:0.5rem 1rem;
+    font-size:13.5px;font-variant-numeric:tabular-nums;
+  }
+  .status-stripe .dot{font-size:14px;line-height:1;color:#1a7b3b}
+  .status-stripe .status-label{
+    font-weight:700;letter-spacing:0.18em;text-transform:uppercase;
+    font-size:12px;color:#1a7b3b;margin-left:0.15rem;
+  }
+  .status-stripe.warn .dot,
+  .status-stripe.warn .status-label{color:#a02010}
+  .status-stripe .sep{color:#b6b1a3;font-weight:300}
+  .status-stripe .metric{display:inline-flex;align-items:baseline;gap:0.35rem}
+  .status-stripe .metric .k{
+    color:#6a6457;font-size:10px;letter-spacing:0.14em;
+    text-transform:uppercase;font-weight:500;
+  }
+  .status-stripe .metric .v{font-weight:600}
+  .status-stripe .metric.warn .v{color:#a02010}
+  .status-stripe .notaries .v{letter-spacing:0.22em}
+  @media(max-width:680px){
+    .status-stripe{font-size:12px;gap:0.4rem 0.6rem;padding:0.8rem 1rem}
+    .status-stripe .sep{display:none}
+    .status-stripe .metric{flex:0 0 auto}
+  }
+
+  /* ─── Cycles-stopped banner ─────────────────────────────────────────── */
+  .stalled-banner{
+    padding:1rem 1.25rem;border:2px solid #a02010;background:#fff0ec;
+    color:#a02010;margin-bottom:1.5rem;font-weight:600;letter-spacing:0.04em;
+    display:flex;justify-content:space-between;align-items:baseline;
+    gap:0.5rem;flex-wrap:wrap
+  }
   .stalled-banner b{font-size:13px;text-transform:uppercase;letter-spacing:0.14em}
   .stalled-banner .sub{font-weight:400;color:#a02010;opacity:0.7;font-size:11.5px}
 
-  /* Sparklines beneath the .specs grid. */
-  .sparks{display:grid;grid-template-columns:repeat(3,1fr);gap:1.25rem;margin:-1.5rem 0 2.5rem;padding:0.85rem 1.25rem;border:1px solid #c8c2b3;border-top:none;background:#fffcf0}
+  /* ─── Slot table — page primary. ───────────────────────────────────── */
+  .slot-table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid #1a1a18;background:#fffcf0;margin-bottom:2rem}
+  .slot-table{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-numeric:tabular-nums}
+  .slot-table thead th{text-align:left;padding:0.7rem 0.9rem;border-bottom:1px solid #1a1a18;font-size:10px;letter-spacing:0.16em;text-transform:uppercase;color:#6a6457;font-weight:600;background:#f3efe4;white-space:nowrap}
+  .slot-table thead th.r{text-align:right}
+  .slot-table thead th[title]{cursor:help;border-bottom-style:dotted;border-bottom-color:#8a8472}
+  .slot-table tbody td{padding:0.65rem 0.9rem;border-bottom:1px solid #ecebe0;vertical-align:baseline}
+  .slot-table tbody tr:last-child td{border-bottom:none}
+  .slot-table tbody td.r{text-align:right}
+  .slot-table tbody td .src{color:#1a1a18;font-weight:600;display:flex;align-items:baseline;gap:0.5rem}
+  .slot-table tbody td .pkh{color:#8a8472;font-size:10.5px;letter-spacing:0.05em;margin-top:0.15rem;font-weight:400}
+  .slot-table tbody td .sub{color:#6a6457;font-size:10.5px;letter-spacing:0;margin-left:0.4em;font-weight:400}
+  .slot-table tbody td.status{font-weight:600;text-transform:uppercase;letter-spacing:0.1em;font-size:10.5px}
+  .slot-table tbody tr.has-error{background:#fff5f2}
+  .status-ok{color:#1a7b3b}
+  .status-lagging{color:#b88800}
+  .status-unfunded{color:#c84800}
+  .status-stalled{color:#a02010}
+  .notary-cell{font-variant-numeric:tabular-nums;font-weight:600}
+  .notary-cell.unknown{color:#b6b1a3;font-weight:400}
+  .op-cell{color:#8a8472;font-style:italic;font-size:11px}
+  .op-cell .err{color:#a02010;font-style:normal;margin-left:0.4em}
+
+  /* Copy-to-clipboard button beside the source name. */
+  .copy-btn{
+    background:transparent;border:1px solid #c8c2b3;border-radius:2px;
+    font-family:inherit;font-size:9.5px;letter-spacing:0.08em;text-transform:uppercase;
+    color:#6a6457;padding:0.1rem 0.35rem;cursor:pointer;font-weight:500;
+    transition:all 0.15s ease;flex:0 0 auto;line-height:1.3
+  }
+  .copy-btn:hover{color:#1a1a18;border-color:#1a1a18;background:#fffcf0}
+  .copy-btn.copied{color:#1a7b3b;border-color:#1a7b3b}
+
+  /* ─── Foldouts (Trends / Notary detail / Errors). ──────────────────── */
+  .foldout{
+    border:1px solid #c8c2b3;background:#fffcf0;margin-bottom:0.75rem;
+  }
+  .foldout > summary{
+    cursor:pointer;padding:0.7rem 1rem;font-size:10.5px;
+    letter-spacing:0.18em;text-transform:uppercase;font-weight:600;
+    color:#1a1a18;list-style:none;display:flex;align-items:center;gap:0.5rem;
+    user-select:none;
+  }
+  .foldout > summary::-webkit-details-marker{display:none}
+  .foldout > summary::before{
+    content:'▸';display:inline-block;color:#6a6457;
+    transition:transform 0.15s ease;width:0.8rem;
+  }
+  .foldout[open] > summary::before{transform:rotate(90deg)}
+  .foldout > summary .ct{
+    margin-left:auto;font-weight:400;color:#6a6457;letter-spacing:0.04em;
+    font-size:10px;text-transform:none;
+  }
+  .foldout[open] > summary{border-bottom:1px solid #c8c2b3}
+  .foldout-body{padding:1rem 1.25rem}
+  .foldout.alert{border-color:#a02010}
+  .foldout.alert > summary{color:#a02010}
+  .foldout.alert > summary::before{color:#a02010}
+
+  /* Sparklines inside the trends foldout. */
+  .sparks{display:grid;grid-template-columns:repeat(3,1fr);gap:1.25rem}
   @media(max-width:680px){.sparks{grid-template-columns:1fr}}
   .spark{display:flex;flex-direction:column;gap:0.35rem}
   .spark .h{font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:#6a6457;font-weight:500;display:flex;justify-content:space-between;gap:0.5rem}
   .spark .h .v{color:#1a1a18;font-weight:600;letter-spacing:0;text-transform:none;font-variant-numeric:tabular-nums}
-  .spark svg{display:block;width:100%;height:30px}
+  .spark svg{display:block;width:100%;height:34px}
 
-  /* Notary participation histogram. */
-  .notary-panel{margin-bottom:2.5rem;padding:0.95rem 1.25rem 1.1rem;border:1px solid #1a1a18;background:#fffcf0}
-  .notary-head{font-size:10.5px;letter-spacing:0.18em;text-transform:uppercase;color:#1a1a18;font-weight:600;margin-bottom:0.7rem;display:flex;justify-content:space-between;gap:0.5rem;align-items:baseline}
-  .notary-head .sub{font-weight:400;color:#6a6457;letter-spacing:0.04em;text-transform:none;font-size:11px}
-  .notary-bars{display:grid;grid-template-columns:repeat(7,1fr);gap:0.5rem;align-items:end}
+  /* Notary detail panel inside the foldout. */
+  .notary-bars{display:grid;grid-template-columns:repeat(7,1fr);gap:0.65rem;align-items:end}
   .notary-bar{display:flex;flex-direction:column;align-items:center;gap:0.3rem}
-  .notary-bar .col{width:100%;background:#ecebe0;position:relative;border:1px solid #c8c2b3;height:48px;display:flex;align-items:flex-end;overflow:hidden}
+  .notary-bar .col{width:100%;background:#ecebe0;position:relative;border:1px solid #c8c2b3;height:54px;display:flex;align-items:flex-end;overflow:hidden}
   .notary-bar .col .fill{width:100%;background:#1a1a18;transition:height 0.25s ease}
+  .notary-bar.zero .col .fill{background:#b6b1a3}
   .notary-bar .lbl{font-size:10px;letter-spacing:0.04em;color:#6a6457;font-weight:500}
   .notary-bar .ct{font-size:11px;font-weight:600;font-variant-numeric:tabular-nums;color:#1a1a18}
-  .notary-bar.zero .col .fill{background:#b6b1a3}
 
-  /* Slot table — extras. */
-  .slot-table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
-  .slot-table tbody tr.has-error{background:#fff5f2}
-  .slot-table thead th[title]{cursor:help;border-bottom-style:dotted;border-bottom-color:#8a8472}
-  .notary-cell{font-variant-numeric:tabular-nums;font-weight:600}
-  .notary-cell.unknown{color:#b6b1a3;font-weight:400}
+  /* Errors list inside the errors foldout. */
+  .errors-list{margin:0 0 0 1.25rem;padding:0;list-style:disc;color:#a02010;font-size:11.5px;line-height:1.7}
+  .errors-list li{margin-bottom:0.15rem}
 
-  /* Copy-to-clipboard button next to source cell. */
-  .copy-btn{background:transparent;border:1px solid #c8c2b3;border-radius:2px;font-family:inherit;font-size:9.5px;letter-spacing:0.08em;text-transform:uppercase;color:#6a6457;padding:0.1rem 0.35rem;cursor:pointer;margin-left:0.5rem;font-weight:500;transition:all 0.15s ease;vertical-align:1px}
-  .copy-btn:hover{color:#1a1a18;border-color:#1a1a18;background:#fffcf0}
-  .copy-btn.copied{color:#1a7b3b;border-color:#1a7b3b}
+  /* Footer + ts strip. */
+  .ts-strip{margin:-0.5rem 0 1rem;font-size:10.5px;color:#6a6457;letter-spacing:0.04em}
+  .foot{margin-top:3rem;padding-top:0.8rem;border-top:1px solid #c8c2b3;font-size:10.5px;color:#6a6457;letter-spacing:0.1em;text-transform:uppercase;display:flex;justify-content:space-between;gap:0.5rem;flex-wrap:wrap;font-weight:500}
+  .foot a{color:#6a6457;text-decoration:none;border-bottom:1px solid transparent}
+  .foot a:hover{color:#1a1a18;border-bottom-color:#6a6457}
 </style>
 </head>
 <body>
@@ -106,51 +168,43 @@
 </header>
 <div class="doc">
 
-  <!-- Cycle-stopped banner (visible only when age > 5× stride). -->
+  <!-- Cycle-stopped banner — only when truly stopped. -->
   <div id="stalled-banner" class="stalled-banner" hidden>
     <span><b>Cycles stopped</b> <span id="stalled-detail" class="sub">—</span></span>
     <span class="sub">expected stride ~<span id="stalled-stride">—</span></span>
   </div>
 
-  <!-- Top strip — 4 federation-wide signals. -->
-  <div class="specs">
-    <div class="spec"><div class="h">Cycle</div><div class="v"><span id="agg-seq-prefix">#</span><span id="agg-seq">—</span></div></div>
-    <div class="spec"><div class="h">Updated</div><div class="v" id="agg-age">—</div></div>
-    <div class="spec"><div class="h">Quorum</div><div class="v ok" id="agg-quorum">—</div></div>
-    <div class="spec"><div class="h">Status</div><div class="v ok" id="agg-status">—</div></div>
+  <!-- Single-line status pill. -->
+  <div class="status-stripe ok" id="status-stripe">
+    <span class="dot" id="ss-dot">●</span>
+    <span class="status-label" id="ss-status">—</span>
+    <span class="sep">·</span>
+    <span class="metric"><span class="k">cycle</span><span class="v" id="ss-seq">—</span></span>
+    <span class="sep">·</span>
+    <span class="metric" id="ss-age-metric"><span class="v" id="ss-age">—</span><span class="k">ago</span></span>
+    <span class="sep">·</span>
+    <span class="metric" id="ss-quorum-metric"><span class="k">quorum</span><span class="v" id="ss-quorum">—</span></span>
+    <span class="sep">·</span>
+    <span class="metric"><span class="k">stride</span><span class="v" id="ss-stride">—</span></span>
+    <span class="sep">·</span>
+    <span class="metric notaries"><span class="k">notaries</span><span class="v" id="ss-notaries">—</span></span>
   </div>
 
-  <!-- Sparklines from the last 50 cycles of history. -->
-  <div class="sparks" id="sparks">
-    <div class="spark"><div class="h"><span>Cycle seq trend</span><span class="v" id="spark-seq-v">—</span></div><svg id="spark-seq"></svg></div>
-    <div class="spark"><div class="h"><span>Slots current / 13</span><span class="v" id="spark-quorum-v">—</span></div><svg id="spark-quorum"></svg></div>
-    <div class="spark"><div class="h"><span>Stride (s)</span><span class="v" id="spark-stride-v">—</span></div><svg id="spark-stride"></svg></div>
-  </div>
-
-  <!-- Notary participation — current cycle's picks distributed across 7 notaries. -->
-  <div class="notary-panel">
-    <div class="notary-head">
-      <span>Notary participation <span class="sub">· current cycle</span></span>
-      <span class="sub" id="notary-coverage">—</span>
-    </div>
-    <div class="notary-bars" id="notary-bars"></div>
-  </div>
-
-  <!-- Slot table — one row per publisher. -->
-  <div class="section-head"><span>Slots <span class="sub">· per publisher</span></span><span class="sub" id="ts-strip">—</span></div>
+  <!-- THE TABLE — page primary content. -->
+  <div class="ts-strip" id="ts-strip">—</div>
   <div class="slot-table-wrap">
   <table class="slot-table">
     <thead>
       <tr>
         <th title="Slot index (0..12). Stable across cycles. Slot 0 = kraken, slot 12 = htx.">#</th>
-        <th title="The CEX this slot fetches its price from. The 13-char short pkh is the publisher's wallet pkh; click 'copy' to grab the full address for top-ups.">Source</th>
-        <th class="r" title="The notary (0..6) the publisher picked for the most recent attest. Publishers round-robin across all 7. Skewed distribution = some notary is slow.">Notary</th>
-        <th class="r" title="Wall-clock age of the slot's most recent attest. For an active publisher this should stay below ~60s (the cycle stride).">Last attest</th>
+        <th title="The CEX this slot fetches its price from. Click 'copy' to grab the publisher's full P2PKH address for top-ups.">Source</th>
+        <th class="r" title="The notary (0..6) the publisher picked for the most recent attest. Publishers round-robin across all 7.">Notary</th>
+        <th class="r" title="Wall-clock age of the slot's most recent attest. For an active publisher this should stay below ~60s.">Last attest</th>
         <th class="r" title="Cycles behind oracle.seq. 0 = caught up. 1-3 = lagging. >3 = stalled.">Behind</th>
         <th class="r" title="Estimated time until wallet depletes at ~3.8k sats/cycle.">Runway</th>
-        <th class="r" title="Current publisher wallet balance in sats. Send chipnet BCH to the address shown in the Source column to top up.">Balance</th>
-        <th class="r" title="ok = caught up + funded. lagging = 1-3 cycles behind. stalled = >3 cycles behind. unfunded = <5 cycles of runway.">Status</th>
-        <th class="r" title="Self-reported by the slot's operator (if they opted into TICKER_OPERATOR_STATS_URLS). Muted styling because it's self-reported, not chain-derived.">Operator-reported</th>
+        <th class="r" title="Current publisher wallet balance in sats. Top up via the copy button next to Source.">Balance</th>
+        <th class="r" title="ok = caught up + funded. lagging = 1-3 cycles behind. unfunded = <5 cycles of runway. stalled = >3 cycles behind.">Status</th>
+        <th class="r" title="Self-reported by the slot's operator (opt-in via TICKER_OPERATOR_STATS_URLS). Muted styling = self-reported, not chain-derived.">Operator</th>
       </tr>
     </thead>
     <tbody id="slot-rows">
@@ -159,8 +213,31 @@
   </table>
   </div>
 
-  <!-- Errors (hidden when empty). -->
-  <div id="errors" class="errors" hidden><b>Fetch errors</b><ul id="errors-list"></ul></div>
+  <!-- Foldouts. -->
+  <details class="foldout" id="fold-trends">
+    <summary>Trends <span class="ct">last 50 cycles</span></summary>
+    <div class="foldout-body">
+      <div class="sparks">
+        <div class="spark"><div class="h"><span>Cycle seq</span><span class="v" id="spark-seq-v">—</span></div><svg id="spark-seq"></svg></div>
+        <div class="spark"><div class="h"><span>Slots current / 13</span><span class="v" id="spark-quorum-v">—</span></div><svg id="spark-quorum"></svg></div>
+        <div class="spark"><div class="h"><span>Stride (s)</span><span class="v" id="spark-stride-v">—</span></div><svg id="spark-stride"></svg></div>
+      </div>
+    </div>
+  </details>
+
+  <details class="foldout" id="fold-notaries">
+    <summary>Notary participation <span class="ct" id="notary-coverage">—</span></summary>
+    <div class="foldout-body">
+      <div class="notary-bars" id="notary-bars"></div>
+    </div>
+  </details>
+
+  <details class="foldout" id="fold-errors" hidden>
+    <summary>Errors <span class="ct" id="fold-errors-count">0</span></summary>
+    <div class="foldout-body">
+      <ul class="errors-list" id="errors-list"></ul>
+    </div>
+  </details>
 
 </div>
 <div class="foot" style="max-width:1180px;margin:3rem auto 0;padding:0.8rem 1.75rem 1.5rem">
@@ -193,15 +270,48 @@ function fmtPkh(hex){
   return hex.slice(0,8) + '…' + hex.slice(-8);
 }
 
-function setStat(id, value, klass){
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.textContent = value;
-  if (klass) el.className = 'v ' + klass;
+// ─── status stripe + banner ─────────────────────────────────────────────
+
+function updateStatusStripe(d){
+  const o = d.oracle;
+  const q = d.aggregate;
+  const healthy = d.health.healthy && q.quorumOk && q.slotsStalled === 0 && q.slotsUnfunded === 0;
+  const stripe = document.getElementById('status-stripe');
+  stripe.className = 'status-stripe ' + (healthy ? 'ok' : 'warn');
+  document.getElementById('ss-status').textContent =
+    healthy ? 'HEALTHY' : (d.health.healthy ? 'DEGRADED' : 'UNHEALTHY');
+  document.getElementById('ss-seq').textContent    = o ? '#' + o.seq.toLocaleString('en-US') : '—';
+  document.getElementById('ss-age').textContent    = o ? fmtAge(o.ageSec) : '—';
+  document.getElementById('ss-quorum').textContent = q.slotsCurrent + ' / 13';
+  document.getElementById('ss-stride').textContent = d.cycleStrideSec + 's';
+  document.getElementById('ss-notaries').textContent =
+    (q.notaryHistogram || []).join(' ') || '—';
+
+  // Per-metric warn coloring (within an otherwise-OK stripe, surface the
+  // specific bad number).
+  const ageMetric = document.getElementById('ss-age-metric');
+  ageMetric.classList.toggle('warn',
+    !!o && o.ageSec >= (d.health.stalenessThresholdSec || 300));
+  const quorumMetric = document.getElementById('ss-quorum-metric');
+  quorumMetric.classList.toggle('warn', !q.quorumOk);
 }
 
-// All cell builders use textContent — no innerHTML — so any value from
-// the API is treated as data, never markup.
+function updateStalledBanner(d){
+  const banner = document.getElementById('stalled-banner');
+  if (!banner || !d.oracle) { if (banner) banner.hidden = true; return; }
+  const stride = d.cycleStrideSec || 60;
+  if (d.oracle.ageSec >= 5 * stride) {
+    document.getElementById('stalled-detail').textContent =
+      'no cycle for ' + fmtAge(d.oracle.ageSec) +
+      ' (last cycle #' + d.oracle.seq.toLocaleString('en-US') + ')';
+    document.getElementById('stalled-stride').textContent = stride + 's';
+    banner.hidden = false;
+  } else {
+    banner.hidden = true;
+  }
+}
+
+// ─── slot table ─────────────────────────────────────────────────────────
 
 function makeTd(text, opts){
   const td = document.createElement('td');
@@ -219,8 +329,6 @@ function makeCopyButton(text){
   btn.title = 'Copy ' + text;
   btn.addEventListener('click', async () => {
     try {
-      // navigator.clipboard requires a secure context (HTTPS or localhost),
-      // which stats.ticker.cash satisfies. No legacy fallback needed.
       await navigator.clipboard.writeText(text);
       btn.textContent = 'copied';
       btn.classList.add('copied');
@@ -237,7 +345,9 @@ function makeSourceCell(sourceName, pkhShort, fullAddress){
   const td = document.createElement('td');
   const src = document.createElement('div');
   src.className = 'src';
-  src.textContent = sourceName;
+  const name = document.createElement('span');
+  name.textContent = sourceName;
+  src.appendChild(name);
   if (fullAddress) src.appendChild(makeCopyButton(fullAddress));
   const pkh = document.createElement('div');
   pkh.className = 'pkh';
@@ -286,10 +396,7 @@ function makeStatusCell(status){
 function makeOperatorCell(op){
   const td = document.createElement('td');
   td.classList.add('r', 'op-cell');
-  if (!op) {
-    td.textContent = '—';
-    return td;
-  }
+  if (!op) { td.textContent = '—'; return td; }
   td.appendChild(document.createTextNode('up ' + fmtAge(op.uptimeSec)));
   if (op.errorsSinceStart > 0) {
     const err = document.createElement('span');
@@ -297,7 +404,6 @@ function makeOperatorCell(op){
     err.textContent = '· ' + op.errorsSinceStart + ' err';
     td.appendChild(err);
   }
-  // Lag indicator — if the operator's self-report is stale, show how stale.
   if (op.fetchedAt) {
     const lag = Math.max(0, Math.floor(Date.now() / 1000) - op.fetchedAt);
     if (lag > 15) {
@@ -313,9 +419,6 @@ function makeOperatorCell(op){
 
 function makeRow(s, slotErrorSet){
   const tr = document.createElement('tr');
-  // ageAttest is "how long since the slot was last rewritten on chain",
-  // computed against current wall-clock — not oracle.lastTs (which is the
-  // MEDIAN of all 13 slot timestamps, so half the slots would round to 0).
   const nowSec = Math.floor(Date.now() / 1000);
   const ageAttest = Math.max(0, nowSec - s.lastAttestTs);
   tr.dataset.slot = String(s.slot);
@@ -340,14 +443,14 @@ function makeRow(s, slotErrorSet){
   return tr;
 }
 
-// ─── sparkline + notary panel helpers ────────────────────────────────────
+// ─── foldout content: sparklines + notary panel + errors ───────────────
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
-function drawSparkline(svg, values, opts){
+function drawSparkline(svg, values){
   while (svg.firstChild) svg.removeChild(svg.firstChild);
   if (!values || values.length < 2) return;
-  const W = 100, H = 30;
+  const W = 100, H = 34;
   svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
   svg.setAttribute('preserveAspectRatio', 'none');
   const min = Math.min(...values);
@@ -360,7 +463,7 @@ function drawSparkline(svg, values, opts){
   const poly = document.createElementNS(SVG_NS, 'polyline');
   poly.setAttribute('points', pts);
   poly.setAttribute('fill', 'none');
-  poly.setAttribute('stroke', (opts && opts.stroke) || '#1a1a18');
+  poly.setAttribute('stroke', '#1a1a18');
   poly.setAttribute('stroke-width', '1.2');
   poly.setAttribute('vector-effect', 'non-scaling-stroke');
   svg.appendChild(poly);
@@ -374,12 +477,9 @@ function renderSparklines(recent){
     });
     return;
   }
-  const seqs    = recent.map((e) => e.seq);
-  const quorums = recent.map((e) => e.slotsCurrent);
-  const strides = recent.map((e) => e.cycleStrideSec);
-  drawSparkline(document.getElementById('spark-seq'),    seqs);
-  drawSparkline(document.getElementById('spark-quorum'), quorums);
-  drawSparkline(document.getElementById('spark-stride'), strides);
+  drawSparkline(document.getElementById('spark-seq'),    recent.map((e) => e.seq));
+  drawSparkline(document.getElementById('spark-quorum'), recent.map((e) => e.slotsCurrent));
+  drawSparkline(document.getElementById('spark-stride'), recent.map((e) => e.cycleStrideSec));
   const last = recent[recent.length - 1];
   document.getElementById('spark-seq-v').textContent    = '#' + last.seq.toLocaleString('en-US');
   document.getElementById('spark-quorum-v').textContent = last.slotsCurrent + ' / 13';
@@ -412,12 +512,32 @@ function renderNotaryPanel(histogram, coverage){
     wrap.appendChild(bar);
   });
   const cov = document.getElementById('notary-coverage');
-  if (cov) {
-    cov.textContent = coverage != null ? coverage + ' / 13 slots reporting' : '—';
-  }
+  if (cov) cov.textContent = coverage != null ? coverage + ' / 13 reporting' : '—';
 }
 
-// Errors that mention "slot N" — collect indices for per-row highlight.
+function renderErrors(errors){
+  const fold = document.getElementById('fold-errors');
+  const list = document.getElementById('errors-list');
+  const ct   = document.getElementById('fold-errors-count');
+  while (list.firstChild) list.removeChild(list.firstChild);
+  if (!errors || errors.length === 0) {
+    fold.hidden = true;
+    fold.classList.remove('alert');
+    fold.removeAttribute('open');
+    ct.textContent = '0';
+    return;
+  }
+  for (const e of errors) {
+    const li = document.createElement('li');
+    li.textContent = String(e);
+    list.appendChild(li);
+  }
+  fold.hidden = false;
+  fold.classList.add('alert');
+  fold.setAttribute('open', '');  // auto-expand when errors present
+  ct.textContent = String(errors.length);
+}
+
 function extractErrorSlots(errors){
   const set = new Set();
   if (!errors) return set;
@@ -428,49 +548,18 @@ function extractErrorSlots(errors){
   return set;
 }
 
-function updateStalledBanner(d){
-  const banner = document.getElementById('stalled-banner');
-  if (!banner || !d.oracle) { if (banner) banner.hidden = true; return; }
-  const stride = d.cycleStrideSec || 60;
-  if (d.oracle.ageSec >= 5 * stride) {
-    document.getElementById('stalled-detail').textContent =
-      'no cycle for ' + fmtAge(d.oracle.ageSec) +
-      ' (last cycle #' + d.oracle.seq.toLocaleString('en-US') + ')';
-    document.getElementById('stalled-stride').textContent = stride + 's';
-    banner.hidden = false;
-  } else {
-    banner.hidden = true;
-  }
-}
+// ─── main render ────────────────────────────────────────────────────────
 
 function render(d){
-  const o = d.oracle;
-  setStat('agg-seq', o ? o.seq.toLocaleString('en-US') : '—');
-  setStat('agg-age',
-    o ? fmtAge(o.ageSec) : '—',
-    o && o.ageSec < d.health.stalenessThresholdSec ? 'ok' : 'warn');
-
-  const q = d.aggregate;
-  setStat('agg-quorum', q.slotsCurrent + ' / 13 ' + (q.quorumOk ? 'OK' : 'LOW'),
-    q.quorumOk ? 'ok' : 'warn');
-
-  const overallOk = d.health.healthy && q.quorumOk && q.slotsStalled === 0 && q.slotsUnfunded === 0;
-  setStat('agg-status',
-    overallOk ? 'HEALTHY' : (d.health.healthy ? 'DEGRADED' : 'UNHEALTHY'),
-    overallOk ? 'ok' : 'warn');
+  updateStatusStripe(d);
+  updateStalledBanner(d);
 
   document.getElementById('foot-net').textContent = d.network;
   document.getElementById('ts-strip').textContent =
     'cycle stride ~' + d.cycleStrideSec + 's · refreshed ' +
     new Date(d.fetchedAt * 1000).toISOString().replace('T', ' ').slice(0, 19);
 
-  updateStalledBanner(d);
-  renderSparklines(d.recent || []);
-  renderNotaryPanel(q.notaryHistogram, q.slotsWithNotaryIdx);
-
   const slotErrorSet = extractErrorSlots(d.errors);
-
-  // Replace tbody contents atomically — no innerHTML at any user-data layer.
   const tbody = document.getElementById('slot-rows');
   while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
   if (!d.slots || d.slots.length === 0) {
@@ -484,25 +573,12 @@ function render(d){
     tr.appendChild(td);
     tbody.appendChild(tr);
   } else {
-    for (const s of d.slots) {
-      tbody.appendChild(makeRow(s, slotErrorSet));
-    }
+    for (const s of d.slots) tbody.appendChild(makeRow(s, slotErrorSet));
   }
 
-  // Errors block — replace via textContent per <li>.
-  const errEl   = document.getElementById('errors');
-  const errList = document.getElementById('errors-list');
-  while (errList.firstChild) errList.removeChild(errList.firstChild);
-  if (d.errors && d.errors.length) {
-    for (const e of d.errors) {
-      const li = document.createElement('li');
-      li.textContent = String(e);
-      errList.appendChild(li);
-    }
-    errEl.hidden = false;
-  } else {
-    errEl.hidden = true;
-  }
+  renderSparklines(d.recent || []);
+  renderNotaryPanel(d.aggregate.notaryHistogram, d.aggregate.slotsWithNotaryIdx);
+  renderErrors(d.errors);
 }
 
 async function poll(){
@@ -513,14 +589,17 @@ async function poll(){
     lastFetch = d;
     render(d);
   } catch (e) {
-    // Keep the last good view; surface the fetch error.
-    const errEl   = document.getElementById('errors');
-    const errList = document.getElementById('errors-list');
-    while (errList.firstChild) errList.removeChild(errList.firstChild);
+    const fold = document.getElementById('fold-errors');
+    const list = document.getElementById('errors-list');
+    const ct   = document.getElementById('fold-errors-count');
+    while (list.firstChild) list.removeChild(list.firstChild);
     const li = document.createElement('li');
     li.textContent = 'fetch /api/v1/stats: ' + (e && e.message ? e.message : String(e));
-    errList.appendChild(li);
-    errEl.hidden = false;
+    list.appendChild(li);
+    fold.hidden = false;
+    fold.classList.add('alert');
+    fold.setAttribute('open', '');
+    ct.textContent = '1';
   }
 }
 
@@ -528,18 +607,17 @@ function tick(){
   if (!lastFetch) return;
   const nowSec = Math.floor(Date.now() / 1000);
 
-  // Header age
+  // Status-stripe age ticks each second.
   if (lastFetch.oracle) {
     const ageSec = Math.max(0, nowSec - lastFetch.oracle.lastTs);
-    const el = document.getElementById('agg-age');
-    if (el) {
-      el.textContent = fmtAge(ageSec);
-      el.className = 'v ' + (ageSec < lastFetch.health.stalenessThresholdSec ? 'ok' : 'warn');
-    }
+    const el = document.getElementById('ss-age');
+    if (el) el.textContent = fmtAge(ageSec);
+    const ageMetric = document.getElementById('ss-age-metric');
+    if (ageMetric) ageMetric.classList.toggle('warn',
+      ageSec >= (lastFetch.health.stalenessThresholdSec || 300));
   }
 
-  // Per-slot lastAttest age — recompute from dataset.lastAttestTs so it
-  // ticks each second without re-rendering the table.
+  // Per-slot lastAttest cells.
   const rows = document.querySelectorAll('#slot-rows tr[data-last-attest-ts]');
   rows.forEach((tr) => {
     const ts = Number(tr.dataset.lastAttestTs);
@@ -547,7 +625,6 @@ function tick(){
     const cell = tr.querySelector('td.age-attest');
     if (!cell) return;
     const age = Math.max(0, nowSec - ts);
-    // Preserve the trailing "ago" subscript span.
     const sub = cell.querySelector('span.sub');
     while (cell.firstChild) cell.removeChild(cell.firstChild);
     cell.appendChild(document.createTextNode(fmtAge(age) + ' '));
