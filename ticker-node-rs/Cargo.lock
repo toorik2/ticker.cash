@@ -329,7 +329,11 @@ dependencies = [
 name = "ticker-node"
 version = "0.1.0"
 dependencies = [
+ "hex",
  "pico-args",
+ "serde",
+ "serde_json",
+ "thiserror",
  "ticker-core",
 ]
 
