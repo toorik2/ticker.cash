@@ -10,6 +10,7 @@
     "dev": "tsx watch server/server.ts"
   },
   "dependencies": {
+    "@bitauth/libauth": "3.1.0-next.8",
     "@electrum-cash/network": "^4.0.0",
     "@electrum-cash/tcp-socket": "^1.0.0",
     "express": "^4.21.2"

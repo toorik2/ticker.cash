@@ -1,0 +1,338 @@
+/**
+ * Chain-derived observability snapshot for stats.ticker.cash.
+ *
+ * Reads three Fulcrum surfaces:
+ *   - the Oracle UTXO (current cycle: seq, lastTs, medianUsd, activeCount)
+ *   - the 13 slot UTXOs (per-publisher freshness: lastAttestTs, lastCycleSeq,
+ *     and the publisher pkh extracted from commit bytes [3..23])
+ *   - each publisher's P2PKH wallet UTXOs (current balance for runway calc)
+ *
+ * No config drift: the 13 publisher pkhs are extracted directly from the
+ * live slot commits, so adding/swapping slots doesn't require a config
+ * file update. The same fact means if a slot UTXO ever goes missing the
+ * reader degrades gracefully (fewer rows in the slots[] array).
+ *
+ * Snapshot cached for STATS_TTL_MS (default 2 s) to dedupe concurrent
+ * viewers, mirroring oracle-state.ts's cache shape.
+ *
+ * Phase B (operator-stats-poll.ts) attaches `operatorReported` to each
+ * slot for opted-in operators; this module always emits `null` for that
+ * field — composition happens in server.ts before the JSON is sent.
+ */
+import {
+  encodeCashAddress,
+  CashAddressNetworkPrefix,
+  CashAddressType,
+  binToHex,
+  hexToBin,
+} from '@bitauth/libauth';
+
+import { electrumRequest, electrumPing } from './electrum.js';
+import { decodeOracleCommitment } from './oracle-state.js';
+import { decodeSlotCommit } from '../../daemon/src/slot-commit.js';
+import { SOURCES } from '../../daemon/src/helpers.js';
+import contracts from './contracts.json';
+
+// ─── tunables ────────────────────────────────────────────────────────────
+
+const STATS_TTL_MS = Number(process.env.TICKER_STATS_TTL_MS ?? 2000);
+const STALENESS_THRESHOLD_SEC = 300;
+const DEFAULT_CYCLE_STRIDE_SEC = 60;
+
+// Cost model: each publisher pays the attest fee every cycle; only the
+// race-winner pays the Oracle.update fee + ticker dust. Amortize the
+// update cost across the publisher count to get the per-publisher
+// expected drain per cycle.
+const TX_FEE_BUFFER_ATTEST  = 2_000n;
+const TX_FEE_BUFFER_UPDATE  = 20_000n;
+const TICKER_DUST           = 1_500n;
+const TICKER_HEAD_COUNT     = 2n;
+const PUBLISHER_COUNT       = 13n;
+const EXPECTED_SATS_PER_CYCLE =
+  TX_FEE_BUFFER_ATTEST + (TX_FEE_BUFFER_UPDATE + TICKER_HEAD_COUNT * TICKER_DUST) / PUBLISHER_COUNT;
+// = 2000 + (20000 + 3000)/13 ≈ 3769 sats/cycle expected drain per publisher.
+
+// ─── Fulcrum query shapes (mirror oracle-state.ts) ───────────────────────
+
+interface ScripthashUtxo {
+  tx_hash: string;
+  tx_pos: number;
+  value: number;          // sats
+  height: number;
+  token_data?: {
+    category: string;
+    amount: string;
+    nft?: { capability: string; commitment: string };
+  };
+}
+
+async function getAddressUtxos(address: string): Promise<ScripthashUtxo[]> {
+  return electrumRequest<ScripthashUtxo[]>(
+    'blockchain.address.listunspent', address, 'include_tokens',
+  );
+}
+
+// ─── exported types (frontend + aggregator consume) ──────────────────────
+
+export type SlotStatus = 'ok' | 'lagging' | 'stalled' | 'unfunded';
+
+export interface OperatorReported {
+  uptimeSec: number;
+  errorsSinceStart: number;
+  lastAttestTxid: string | null;
+  lastUpdateTxid: string | null;
+  fetchedAt: number;
+}
+
+export interface SlotRow {
+  slot: number;                  // 0..12 — index in the SOURCES order
+  sourceId: number;
+  sourceName: string;
+  publisherPkh: string;          // 40 hex
+  publisherAddress: string;      // P2PKH chipnet/mainnet
+  lastAttestTs: number;          // unix sec (from slot UTXO commit)
+  lastCycleSeq: number;
+  cyclesBehind: number;
+  walletBalanceSats: string;     // bigint stringified
+  cyclesOfRunway: number;
+  runwayDurationSec: number;
+  status: SlotStatus;
+  operatorReported: OperatorReported | null;
+}
+
+export interface Stats {
+  fetchedAt: number;
+  network: string;
+  deployedAt: string;
+  cycleStrideSec: number;
+  oracle: {
+    seq: number;
+    lastTs: number;
+    medianUsd: number;
+    scaledValueLeU64: string;
+    activeCount: number;
+    ageSec: number;
+  } | null;
+  health: {
+    healthy: boolean;
+    fulcrum: { ok: boolean; tipHeight: number | null };
+    stalenessThresholdSec: number;
+  };
+  slots: SlotRow[];
+  aggregate: {
+    slotsCurrent: number;
+    slotsLagging: number;
+    slotsStalled: number;
+    slotsUnfunded: number;
+    quorumOk: boolean;
+    medianRunwayCycles: number;
+  };
+  errors: string[];
+}
+
+// ─── helpers ─────────────────────────────────────────────────────────────
+
+const networkPrefix = (network: string): CashAddressNetworkPrefix =>
+  network === 'mainnet'
+    ? CashAddressNetworkPrefix.mainnet
+    : CashAddressNetworkPrefix.testnet;
+
+const pkhToP2PKH = (pkh: Uint8Array, network: string): string =>
+  encodeCashAddress({
+    payload: pkh,
+    prefix: networkPrefix(network),
+    type: CashAddressType.p2pkh,
+  }).address;
+
+const sumNonTokenSats = (utxos: ScripthashUtxo[]): bigint =>
+  utxos.filter((u) => !u.token_data).reduce((s, u) => s + BigInt(u.value), 0n);
+
+const classify = (cyclesBehind: number, cyclesOfRunway: number): SlotStatus => {
+  // Underfunded operators stop being useful long before their wallet hits
+  // zero (the attest tx fee buffer requires ≥ 2000 sats per cycle), so
+  // flag at < 5 cycles of runway — even if they're caught up right now.
+  if (cyclesOfRunway < 5) return 'unfunded';
+  if (cyclesBehind > 3) return 'stalled';
+  if (cyclesBehind > 0) return 'lagging';
+  return 'ok';
+};
+
+const median = (xs: number[]): number => {
+  if (xs.length === 0) return 0;
+  const sorted = [...xs].sort((a, b) => a - b);
+  return sorted[Math.floor((sorted.length - 1) / 2)]!;
+};
+
+// ─── snapshot builder ────────────────────────────────────────────────────
+
+const DEPLOYED_AT_SEC = Math.floor(new Date(contracts.deployedAt).getTime() / 1000);
+
+async function buildSnapshot(): Promise<Stats> {
+  const errors: string[] = [];
+  const fetchedAt = Math.floor(Date.now() / 1000);
+
+  // Run independent queries in parallel; collect errors per-section so a
+  // single Fulcrum hiccup never blanks the whole page.
+  const [oracleResult, slotResult, pingResult] = await Promise.allSettled([
+    getAddressUtxos(contracts.oracle.address),
+    getAddressUtxos(contracts.slot.address),
+    electrumPing(),
+  ]);
+
+  // ─── oracle ─────────────────────────────────────────────────────────
+  let oracleState: Stats['oracle'] = null;
+  if (oracleResult.status === 'fulfilled') {
+    const o = oracleResult.value.find(
+      (u) => u.token_data?.category === contracts.oracle.category && u.token_data?.nft?.commitment,
+    );
+    if (o?.token_data?.nft?.commitment) {
+      try {
+        const decoded = decodeOracleCommitment(o.token_data.nft.commitment);
+        oracleState = {
+          seq: decoded.seq,
+          lastTs: decoded.lastLocktime,
+          medianUsd: decoded.medianUsd,
+          scaledValueLeU64: decoded.medianPriceScaled.toString(),
+          activeCount: decoded.activeCount,
+          ageSec: Math.max(0, fetchedAt - decoded.lastLocktime),
+        };
+      } catch (e) {
+        errors.push(`oracle decode: ${(e as Error).message}`);
+      }
+    } else {
+      errors.push('oracle UTXO not found');
+    }
+  } else {
+    errors.push(`oracle fetch: ${(oracleResult.reason as Error)?.message ?? 'unknown'}`);
+  }
+
+  // ─── slots ──────────────────────────────────────────────────────────
+  // Decode all 13 commits; pkh is in bytes [3..23] of the commit.
+  interface DecodedSlot {
+    sourceId: number; pkh: Uint8Array;
+    timestamp: number; cycleSeq: number;
+  }
+  const decodedSlots: DecodedSlot[] = [];
+  if (slotResult.status === 'fulfilled') {
+    for (const u of slotResult.value) {
+      if (u.token_data?.category !== contracts.slot.category) continue;
+      if (!u.token_data.nft?.commitment) continue;
+      if (u.token_data.nft.capability !== 'mutable') continue;
+      const c = decodeSlotCommit(hexToBin(u.token_data.nft.commitment));
+      if (c) decodedSlots.push({
+        sourceId: c.sourceId, pkh: c.pkh,
+        timestamp: c.timestamp, cycleSeq: c.cycleSeq,
+      });
+    }
+  } else {
+    errors.push(`slots fetch: ${(slotResult.reason as Error)?.message ?? 'unknown'}`);
+  }
+
+  // ─── publisher wallet balances ──────────────────────────────────────
+  // Issue all 13 in parallel; tolerate per-wallet failures.
+  const balanceResults = await Promise.allSettled(
+    decodedSlots.map((s) => getAddressUtxos(pkhToP2PKH(s.pkh, contracts.network))),
+  );
+
+  // ─── compose ────────────────────────────────────────────────────────
+  // Cycle stride: prefer the measured average; fall back to 60 s.
+  let cycleStrideSec = DEFAULT_CYCLE_STRIDE_SEC;
+  if (oracleState && oracleState.seq > 0 && oracleState.lastTs > DEPLOYED_AT_SEC) {
+    cycleStrideSec = Math.max(30, Math.round((oracleState.lastTs - DEPLOYED_AT_SEC) / oracleState.seq));
+  }
+
+  const oracleSeq = oracleState?.seq ?? 0;
+  const slots: SlotRow[] = decodedSlots.map((d, i) => {
+    const balanceRes = balanceResults[i];
+    let walletBalanceSats: bigint;
+    if (balanceRes && balanceRes.status === 'fulfilled') {
+      walletBalanceSats = sumNonTokenSats(balanceRes.value);
+    } else {
+      walletBalanceSats = 0n;
+      errors.push(`wallet ${i} fetch: ${(balanceRes?.reason as Error)?.message ?? 'unknown'}`);
+    }
+    const cyclesOfRunway = Number(walletBalanceSats / EXPECTED_SATS_PER_CYCLE);
+    const cyclesBehind = Math.max(0, oracleSeq - d.cycleSeq);
+    const source = SOURCES.find((s) => s.id === d.sourceId);
+    const publisherPkh = binToHex(d.pkh);
+    return {
+      slot: i,
+      sourceId: d.sourceId,
+      sourceName: source?.name ?? `source-${d.sourceId}`,
+      publisherPkh,
+      publisherAddress: pkhToP2PKH(d.pkh, contracts.network),
+      lastAttestTs: d.timestamp,
+      lastCycleSeq: d.cycleSeq,
+      cyclesBehind,
+      walletBalanceSats: walletBalanceSats.toString(),
+      cyclesOfRunway,
+      runwayDurationSec: cyclesOfRunway * cycleStrideSec,
+      status: classify(cyclesBehind, cyclesOfRunway),
+      operatorReported: null,  // populated by operator-stats-poll.ts in PR8f
+    };
+  });
+
+  // Sort by slot index for stable UI order (slot 0 first).
+  slots.sort((a, b) => a.slot - b.slot);
+
+  // ─── aggregate + health ─────────────────────────────────────────────
+  const slotsCurrent  = slots.filter((s) => s.cyclesBehind === 0).length;
+  const slotsLagging  = slots.filter((s) => s.cyclesBehind > 0 && s.cyclesBehind <= 3).length;
+  const slotsStalled  = slots.filter((s) => s.cyclesBehind > 3).length;
+  const slotsUnfunded = slots.filter((s) => s.status === 'unfunded').length;
+  const quorumOk = slotsCurrent >= 7;
+
+  const fulcrum =
+    pingResult.status === 'fulfilled'
+      ? { ok: pingResult.value.tip !== null, tipHeight: pingResult.value.tip }
+      : { ok: false, tipHeight: null };
+  const healthy =
+    fulcrum.ok &&
+    oracleState !== null &&
+    oracleState.ageSec < STALENESS_THRESHOLD_SEC &&
+    quorumOk;
+
+  return {
+    fetchedAt,
+    network: contracts.network,
+    deployedAt: contracts.deployedAt,
+    cycleStrideSec,
+    oracle: oracleState,
+    health: {
+      healthy,
+      fulcrum,
+      stalenessThresholdSec: STALENESS_THRESHOLD_SEC,
+    },
+    slots,
+    aggregate: {
+      slotsCurrent,
+      slotsLagging,
+      slotsStalled,
+      slotsUnfunded,
+      quorumOk,
+      medianRunwayCycles: median(slots.map((s) => s.cyclesOfRunway)),
+    },
+    errors,
+  };
+}
+
+// ─── public entry — cached snapshot ──────────────────────────────────────
+
+let cached: { snapshot: Stats; at: number } | null = null;
+let inFlight: Promise<Stats> | null = null;
+
+export async function getStats(): Promise<Stats> {
+  const now = Date.now();
+  if (cached && now - cached.at < STATS_TTL_MS) return cached.snapshot;
+  if (inFlight) return inFlight;
+  inFlight = (async () => {
+    try {
+      const snapshot = await buildSnapshot();
+      cached = { snapshot, at: Date.now() };
+      return snapshot;
+    } finally {
+      inFlight = null;
+    }
+  })();
+  return inFlight;
+}
