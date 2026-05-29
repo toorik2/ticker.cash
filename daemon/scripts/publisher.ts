@@ -77,7 +77,6 @@ import {
   PublisherSlotArtifact,
   TickerArtifact,
   ORACLE_COMMIT_LEN,
-  SLOT_COMMIT_LEN,
   TICKER_HEAD_COUNT,
 } from '../src/load-artifacts.js';
 import { deriveWallets, NOTARY_COUNT, PUBLISHER_COUNT } from '../src/keys.js';
@@ -91,7 +90,6 @@ import {
   TICKER_DUST,
   THR_FLOOR,
   publisherSigDigest,
-  u16LE,
   u32LE,
   u64LE,
   reverseHex,
@@ -102,6 +100,7 @@ import {
   encodeTickerCommit,
   type OracleState,
 } from '../src/oracle-update.js';
+import { decodeSlotCommit, encodeSlotCommit } from '../src/slot-commit.js';
 
 const sha256Hash = (data: Uint8Array): Uint8Array => (sha256 as Sha256).hash(data);
 
@@ -227,42 +226,6 @@ const requestNotarySign = async (
 
 const u32LE_read = (b: Uint8Array, offset: number): number =>
   new DataView(b.buffer, b.byteOffset + offset, 4).getUint32(0, true);
-
-interface SlotCommit {
-  sourceId: number;
-  pkh: Uint8Array;
-  price: bigint;
-  timestamp: number;
-  cycleSeq: number;
-}
-const decodeSlotCommit = (commit: Uint8Array): SlotCommit | undefined => {
-  if (commit.length !== SLOT_COMMIT_LEN || commit[0] !== 0x72) return undefined;
-  return {
-    sourceId: new DataView(commit.buffer, commit.byteOffset + 1, 2).getUint16(0, true),
-    pkh: commit.slice(3, 23),
-    price: new DataView(commit.buffer, commit.byteOffset + 23, 8).getBigUint64(0, true),
-    timestamp: u32LE_read(commit, 31),
-    cycleSeq: u32LE_read(commit, 35),
-  };
-};
-
-const encodeSlotCommit = (
-  sourceId: number,
-  pkh: Uint8Array,
-  price: bigint,
-  timestamp: number,
-  cycleSeq: number,
-): Uint8Array => {
-  if (pkh.length !== 20) throw new Error(`pkh ${pkh.length} != 20`);
-  const c = new Uint8Array(39);
-  c[0] = 0x72;
-  c.set(u16LE(sourceId), 1);
-  c.set(pkh, 3);
-  c.set(u64LE(price), 23);
-  c.set(u32LE(timestamp), 31);
-  c.set(u32LE(cycleSeq), 35);
-  return c;
-};
 
 type Mode = 'operator-key' | 'seed-derived';
 interface PublisherIdentity {
