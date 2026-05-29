@@ -26,7 +26,7 @@ import {
 
 const sha256Hash = (data: Uint8Array): Uint8Array => (sha256 as Sha256).hash(data);
 
-const DEFAULT_SEED_PATH = '.ticker/seed.hex';
+export const DEFAULT_SEED_PATH = '.ticker/seed.hex';
 
 export interface Wallet {
   readonly label: string;

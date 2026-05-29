@@ -50,7 +50,7 @@ export interface Manifest {
   readonly electrum: ElectrumDefault;
 }
 
-const DEFAULT_MANIFEST_PATH = '.ticker/manifest.json';
+export const DEFAULT_MANIFEST_PATH = '.ticker/manifest.json';
 const NOTARY_COUNT = 7;
 const PUBLISHER_COUNT = 13;
 const HEX66 = /^[0-9a-f]{66}$/;

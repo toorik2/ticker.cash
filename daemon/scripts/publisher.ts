@@ -74,7 +74,6 @@ import {
   OracleArtifact,
   PublisherSlotArtifact,
   TickerArtifact,
-  ORACLE_COMMIT_LEN,
   TICKER_HEAD_COUNT,
 } from '../src/load-artifacts.js';
 import { NOTARY_COUNT, PUBLISHER_COUNT } from '../src/keys.js';
@@ -89,6 +88,7 @@ import {
   publisherSigDigest,
   u32LE,
   u64LE,
+  concatBytes,
   reverseHex,
 } from '../src/helpers.js';
 import {
@@ -99,6 +99,8 @@ import {
 } from '../src/oracle-update.js';
 import { decodeSlotCommit, encodeSlotCommit } from '../src/slot-commit.js';
 import { incrementCycleError } from '../src/error-counter.js';
+
+const TEXT_ENCODER = new TextEncoder();
 
 const SCRUB_PATTERNS: ReadonlyArray<RegExp> = [
   /\bWARNING: it is unsafe to use this Bitauth URI[\s\S]*$/,
@@ -220,9 +222,6 @@ const requestNotarySign = async (
   return (await res.json()) as NotarySignResponse;
 };
 
-const u32LE_read = (b: Uint8Array, offset: number): number =>
-  new DataView(b.buffer, b.byteOffset + offset, 4).getUint32(0, true);
-
 interface PublisherIdentity {
   readonly slot: number;
   readonly publisher: Wallet;
@@ -237,7 +236,7 @@ const resolveIdentity = (slotFlag: string | undefined): PublisherIdentity => {
   let notaryPubkeysHex: ReadonlyArray<string>;
   let deploy: DeployState;
   if (base.mode === 'operator-key') {
-    const m = base.manifest!;
+    const m = base.manifest;
     notaryPubkeysHex = m.notaryPubkeys;
     deploy = {
       tickerAddress: m.contracts.ticker.address,
@@ -250,7 +249,7 @@ const resolveIdentity = (slotFlag: string | undefined): PublisherIdentity => {
       oracleLockingBytecodeHex: m.contracts.oracle.lockingBytecodeHex,
     };
   } else {
-    notaryPubkeysHex = base.wallets!.notaries.map((n) => binToHex(n.publicKey));
+    notaryPubkeysHex = base.wallets.notaries.map((n) => binToHex(n.publicKey));
     deploy = loadDeployState();
   }
   return { slot: base.slot, publisher: base.wallet, notaryPubkeysHex, deploy, mode: base.mode };
@@ -319,7 +318,7 @@ export const runPublisher = async (argv: ReadonlyArray<string>): Promise<void> =
     readonly prevTs: number;
     readonly newSeq: number;
     readonly mySlot: Utxo;
-    readonly alreadyAttested: boolean;
+    readonly mySlotCycleSeq: number;
   }
   const fetchCurrentCycle = async (): Promise<CycleSnapshot | null> => {
     const [oracleUtxos, allSlots] = await Promise.all([
@@ -331,8 +330,7 @@ export const runPublisher = async (argv: ReadonlyArray<string>): Promise<void> =
     );
     if (!oracleUtxo) { await sleep(POLL_INTERVAL_MS); return null; }
     const oracleCommitment = hexToBin(oracleUtxo.token!.nft!.commitment);
-    const prevSeq = u32LE_read(oracleCommitment, 1);
-    const prevTs = u32LE_read(oracleCommitment, 5);
+    const { seq: prevSeq, lastTs: prevTs } = decodeOracleCommit(oracleCommitment);
     const newSeq = prevSeq + 1;
     const now = Math.floor(Date.now() / 1000);
     console.log(`  prevSeq=${prevSeq} → newSeq=${newSeq}  prevTs=${prevTs}`);
@@ -366,7 +364,7 @@ export const runPublisher = async (argv: ReadonlyArray<string>): Promise<void> =
       prevTs,
       newSeq,
       mySlot,
-      alreadyAttested: mySlotCommit.cycleSeq === newSeq,
+      mySlotCycleSeq: mySlotCommit.cycleSeq,
     };
   };
 
@@ -378,8 +376,12 @@ export const runPublisher = async (argv: ReadonlyArray<string>): Promise<void> =
     const notaryUrl = notaryUrls[cycleCounter % notaryUrls.length]!;
     const notaryIdx = cycleCounter % NOTARY_COUNT;
     let attestation: NotarySignResponse;
+    let allFunder: Utxo[];
     try {
-      attestation = await requestNotarySign(notaryUrl, source.id, newSeq, binToHex(myPkh));
+      [attestation, allFunder] = await Promise.all([
+        requestNotarySign(notaryUrl, source.id, newSeq, binToHex(myPkh)),
+        provider.getUtxos(publisher.address),
+      ]);
     } catch (err) {
       console.log(`  notary failed: ${scrubSecrets(err instanceof Error ? err.message : String(err))}`);
       await sleep(POLL_INTERVAL_MS);
@@ -388,13 +390,13 @@ export const runPublisher = async (argv: ReadonlyArray<string>): Promise<void> =
     const price = BigInt(attestation.price);
     console.log(`  notary ok: price=${price} ts=${attestation.timestamp}`);
 
-    const serverNameBytes = new TextEncoder().encode(attestation.serverName);
+    const serverNameBytes = TEXT_ENCODER.encode(attestation.serverName);
     const cnHash20 = hash160(serverNameBytes);
     const digest = publisherSigDigest(source.id, price, attestation.timestamp, myPkh, newSeq, cnHash20);
     const publisherSchnorr = (secp256k1 as Secp256k1).signMessageHashSchnorr(publisher.privateKey, digest);
     if (typeof publisherSchnorr === 'string') throw new Error(`sign: ${publisherSchnorr}`);
 
-    const funderUtxos = (await provider.getUtxos(publisher.address)).filter((u) => !u.token);
+    const funderUtxos = allFunder.filter((u) => !u.token);
     const funderBalance = funderUtxos.reduce((s, u) => s + u.satoshis, 0n);
     if (funderBalance < TX_FEE_BUFFER_ATTEST) {
       console.log(`  insufficient funds ${funderBalance}`);
@@ -474,23 +476,27 @@ export const runPublisher = async (argv: ReadonlyArray<string>): Promise<void> =
     console.log(`  cycleSlots.length=${cycleSlots.length}`);
     if (cycleSlots.length < THR_FLOOR) return null;
 
-    // Covenant invariants: inputs must be sorted by pkh ascending,
-    // and each pkh distinct.
-    cycleSlots.sort((a, b) => {
-      const ca = hexToBin(a.token!.nft!.commitment);
-      const cb = hexToBin(b.token!.nft!.commitment);
-      for (let i = 22; i >= 3; i -= 1) {
-        if (ca[i]! !== cb[i]!) return ca[i]! - cb[i]!;
+    // Covenant invariants: inputs must be sorted by pkh ascending
+    // (script-LE numeric — least-significant byte is pkh[19]), distinct pkh.
+    const decorated = cycleSlots.map((utxo) => ({
+      utxo,
+      pkh: decodeSlotCommit(hexToBin(utxo.token!.nft!.commitment))!.pkh,
+    }));
+    decorated.sort((a, b) => {
+      for (let i = a.pkh.length - 1; i >= 0; i -= 1) {
+        if (a.pkh[i]! !== b.pkh[i]!) return a.pkh[i]! - b.pkh[i]!;
       }
       return 0;
     });
     const seenPkh = new Set<string>();
-    return cycleSlots.filter((u) => {
-      const k = binToHex(hexToBin(u.token!.nft!.commitment).slice(3, 23));
-      if (seenPkh.has(k)) return false;
+    const deduped: Utxo[] = [];
+    for (const d of decorated) {
+      const k = binToHex(d.pkh);
+      if (seenPkh.has(k)) continue;
       seenPkh.add(k);
-      return true;
-    });
+      deduped.push(d.utxo);
+    }
+    return deduped;
   };
 
   // ─── phase 4 ─── compose Oracle.update, race-broadcast.
@@ -503,24 +509,16 @@ export const runPublisher = async (argv: ReadonlyArray<string>): Promise<void> =
       console.log(`  funder too low ${updateFunderBal}`);
       return;
     }
-    if (oracleCommitment.length !== ORACLE_COMMIT_LEN) {
-      throw new Error(`bad oracle commit length`);
-    }
     const prevState: OracleState = decodeOracleCommit(oracleCommitment);
 
-    const tsValues = cycleSlots.map((u) => u32LE_read(hexToBin(u.token!.nft!.commitment), 31)).sort((a, b) => a - b);
+    const slotCommits = cycleSlots.map((u) => decodeSlotCommit(hexToBin(u.token!.nft!.commitment))!);
+    const tsValues = slotCommits.map((c) => c.timestamp).sort((a, b) => a - b);
     const claimedNewTs = tsValues[Math.floor(tsValues.length / 2)]!;
     if (claimedNewTs <= prevTs || claimedNewTs - prevTs < 30) return;
 
-    const pricesBlobParts = cycleSlots.map((u) => hexToBin(u.token!.nft!.commitment).slice(23, 31));
-    const pricesBlob = new Uint8Array(pricesBlobParts.reduce((s, p) => s + p.length, 0));
-    let off = 0;
-    for (const p of pricesBlobParts) { pricesBlob.set(p, off); off += p.length; }
+    const pricesBlob = concatBytes(...slotCommits.map((c) => u64LE(c.price)));
 
-    const priceValues = cycleSlots.map((u) => {
-      const c = hexToBin(u.token!.nft!.commitment);
-      return new DataView(c.buffer, c.byteOffset + 23, 8).getBigUint64(0, true);
-    }).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    const priceValues = slotCommits.map((c) => c.price).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
     const claimedMedian = priceValues[Math.floor((priceValues.length - 1) / 2)]!;
 
     const decayed = Number((BigInt(prevState.activeCount) * 9n) / 10n);
@@ -610,7 +608,7 @@ export const runPublisher = async (argv: ReadonlyArray<string>): Promise<void> =
       const snap = await fetchCurrentCycle();
       if (!snap) continue;
 
-      if (!snap.alreadyAttested) {
+      if (snap.mySlotCycleSeq !== snap.newSeq) {
         const ok = await tryAttest(snap);
         if (!ok) continue;
       }
