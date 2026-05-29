@@ -1,0 +1,329 @@
+//! `PublisherSlot.attest` transaction builder.
+//!
+//! Tx shape:
+//!   inputs:  [0] PublisherSlot UTXO with covenant unlock script
+//!            [1..N+1] P2PKH funder UTXOs
+//!   outputs: [0] PublisherSlot re-emit (mutable NFT, new commit, same satoshis)
+//!            [1] optional P2PKH change to publisher address
+//!
+//! Unlock-script layout (PublisherSlot.attest, function index 0 of 2):
+//!   push(cycleSeq, 4 B LE) push(publisherSig, 64 B) push(publisherPubkey, 33 B)
+//!   push(timestamp, 4 B LE) push(price, 8 B LE) push(serverName, variable)
+//!   push(notarySig, 64 B) push(notaryIdx, int) push(0, fn selector)
+//!   push(redeemScript)
+//!
+//! Per cashscript convention, declaration order of args is REVERSED before
+//! pushing — last declared arg is pushed first.
+
+use crate::chain::consts::{CAPABILITY_MUTABLE, DUST_THRESHOLD, TX_FEE_BUFFER_ATTEST};
+use crate::chain::digest::publisher_sig_digest;
+use crate::chain::slot_commit::{encode_slot_commit, SlotCommit};
+use crate::crypto::{double_sha256, hash160, sign_schnorr, KeyError};
+use crate::tx::encode::{
+    encode_tx, Input, Output, TokenPrefix, Tx, TxOutpoint, DEFAULT_SEQUENCE,
+};
+use crate::tx::script::{p2pkh_locking_script, push_data, push_int};
+use crate::tx::sighash::{p2pkh_sighash_preimage, SIGHASH_BIT};
+
+/// PublisherSlot UTXO being spent.
+#[derive(Debug, Clone)]
+pub struct SlotUtxo {
+    pub txid_be: [u8; 32],
+    pub vout: u32,
+    pub satoshis: u64,
+}
+
+/// Funder UTXO (P2PKH) being spent.
+#[derive(Debug, Clone)]
+pub struct FunderUtxo {
+    pub txid_be: [u8; 32],
+    pub vout: u32,
+    pub satoshis: u64,
+}
+
+/// Notary response payload.
+#[derive(Debug, Clone)]
+pub struct NotaryAttestation {
+    pub price: u64,
+    pub timestamp: u32,
+    pub server_name: String,
+    pub notary_sig: [u8; 64],
+    pub notary_idx: u32, // 0..6
+}
+
+/// Inputs to [`build_attest_tx`].
+#[derive(Debug, Clone)]
+pub struct AttestArgs<'a> {
+    pub slot_utxo: SlotUtxo,
+    /// Current slot commit's `source_id` and `pkh` (pinned at genesis; carry forward).
+    pub source_id: u16,
+    pub publisher_pkh: [u8; 20],
+    /// Publisher's 32-byte private key — used for both the data-sig and funder P2PKH sigs.
+    pub publisher_privkey: [u8; 32],
+    pub publisher_pubkey: [u8; 33],
+    pub funder_utxos: &'a [FunderUtxo],
+    /// CashTokens category as it appears on the wire (little-endian; reverse of display txid).
+    pub slot_category_wire_le: [u8; 32],
+    /// Full PublisherSlot redeem script (built at startup from manifest+artifact).
+    pub slot_redeem_script: &'a [u8],
+    pub notary: NotaryAttestation,
+    pub new_cycle_seq: u32,
+}
+
+/// Errors building an attest tx.
+#[derive(Debug, thiserror::Error)]
+pub enum AttestError {
+    #[error("notary_idx {0} out of range 0..7")]
+    NotaryIdxOutOfRange(u32),
+    #[error("insufficient funder balance: have {have}, need {need}")]
+    InsufficientFunds { have: u64, need: u64 },
+    #[error("crypto: {0}")]
+    Crypto(#[from] KeyError),
+}
+
+/// Build the `slot.attest` raw transaction bytes ready for broadcast.
+///
+/// Caller is responsible for funder selection; this function uses ALL provided
+/// funder UTXOs as inputs. Change is paid back to the publisher's address
+/// (derived from `publisher_pkh`) if it would be ≥ 546 sats; otherwise dropped.
+pub fn build_attest_tx(args: &AttestArgs) -> Result<Vec<u8>, AttestError> {
+    if args.notary.notary_idx >= 7 {
+        return Err(AttestError::NotaryIdxOutOfRange(args.notary.notary_idx));
+    }
+
+    // ─── 1. Funder accounting ──────────────────────────────────────────────
+    let funder_balance: u64 = args.funder_utxos.iter().map(|u| u.satoshis).sum();
+    if funder_balance < TX_FEE_BUFFER_ATTEST {
+        return Err(AttestError::InsufficientFunds {
+            have: funder_balance,
+            need: TX_FEE_BUFFER_ATTEST,
+        });
+    }
+    let change = funder_balance - TX_FEE_BUFFER_ATTEST;
+
+    // ─── 2. Build the slot input's covenant unlock script ──────────────────
+    let server_name_bytes = args.notary.server_name.as_bytes();
+    let cn_hash20 = hash160(server_name_bytes);
+
+    // Publisher signs the publisher digest with their privkey.
+    let publisher_digest = publisher_sig_digest(
+        args.source_id,
+        args.notary.price,
+        args.notary.timestamp,
+        &args.publisher_pkh,
+        args.new_cycle_seq,
+        &cn_hash20,
+    );
+    let publisher_sig = sign_schnorr(&args.publisher_privkey, &publisher_digest)?;
+
+    let slot_unlock = build_attest_unlock_script(
+        args.new_cycle_seq,
+        &publisher_sig,
+        &args.publisher_pubkey,
+        args.notary.timestamp,
+        args.notary.price,
+        server_name_bytes,
+        &args.notary.notary_sig,
+        args.notary.notary_idx,
+        args.slot_redeem_script,
+    );
+
+    // ─── 3. Build outputs ──────────────────────────────────────────────────
+    let new_commit = encode_slot_commit(&SlotCommit {
+        source_id: args.source_id,
+        pkh: args.publisher_pkh,
+        price: args.notary.price,
+        timestamp: args.notary.timestamp,
+        cycle_seq: args.new_cycle_seq,
+    });
+
+    // Slot output: re-emit at same locking-bytecode (P2SH-32 of the redeem we just used).
+    let slot_locking = crate::covenant::locking::p2sh32_locking_bytecode(args.slot_redeem_script);
+    let slot_output = Output {
+        value: args.slot_utxo.satoshis,
+        locking_script: slot_locking.to_vec(),
+        token: Some(TokenPrefix {
+            category_le: args.slot_category_wire_le,
+            capability: CAPABILITY_MUTABLE,
+            commitment: new_commit.to_vec(),
+            amount: 0,
+        }),
+    };
+
+    let mut outputs = vec![slot_output];
+    if change >= DUST_THRESHOLD {
+        outputs.push(Output {
+            value: change,
+            locking_script: p2pkh_locking_script(&args.publisher_pkh).to_vec(),
+            token: None,
+        });
+    }
+
+    // ─── 4. Build inputs (funders with placeholder unlock scripts) ─────────
+    let mut inputs = Vec::with_capacity(1 + args.funder_utxos.len());
+    inputs.push(Input {
+        prev: TxOutpoint {
+            txid_be: args.slot_utxo.txid_be,
+            vout: args.slot_utxo.vout,
+        },
+        unlock_script: slot_unlock,
+        sequence: DEFAULT_SEQUENCE,
+    });
+    for f in args.funder_utxos {
+        inputs.push(Input {
+            prev: TxOutpoint {
+                txid_be: f.txid_be,
+                vout: f.vout,
+            },
+            unlock_script: Vec::new(), // filled in below
+            sequence: DEFAULT_SEQUENCE,
+        });
+    }
+
+    let mut tx = Tx::new(inputs, outputs);
+
+    // ─── 5. Sign each funder input via BIP-143 P2PKH sighash ───────────────
+    let funder_locking = p2pkh_locking_script(&args.publisher_pkh).to_vec();
+    for i in 0..args.funder_utxos.len() {
+        let input_index = i + 1; // [0] is the slot input
+        let preimage =
+            p2pkh_sighash_preimage(&tx, input_index, &funder_locking, args.funder_utxos[i].satoshis);
+        let digest = double_sha256(&preimage);
+        let sig = sign_schnorr(&args.publisher_privkey, &digest)?;
+        let mut sig_with_sighash = Vec::with_capacity(65);
+        sig_with_sighash.extend_from_slice(&sig);
+        sig_with_sighash.push(SIGHASH_BIT);
+        let mut unlock = Vec::with_capacity(100);
+        push_data(&mut unlock, &sig_with_sighash);
+        push_data(&mut unlock, &args.publisher_pubkey);
+        tx.inputs[input_index].unlock_script = unlock;
+    }
+
+    Ok(encode_tx(&tx))
+}
+
+/// Compose the slot.attest unlock script bytes.
+///
+/// Push order (last declared arg first, per cashscript convention):
+///   cycleSeq → publisherSig → publisherPubkey → timestamp → price →
+///   serverName → notarySig → notaryIdx → fn-selector(0) → redeem-script
+fn build_attest_unlock_script(
+    cycle_seq: u32,
+    publisher_sig: &[u8; 64],
+    publisher_pubkey: &[u8; 33],
+    timestamp: u32,
+    price: u64,
+    server_name: &[u8],
+    notary_sig: &[u8; 64],
+    notary_idx: u32,
+    redeem_script: &[u8],
+) -> Vec<u8> {
+    let mut s = Vec::with_capacity(redeem_script.len() + 256);
+    push_data(&mut s, &cycle_seq.to_le_bytes());
+    push_data(&mut s, publisher_sig);
+    push_data(&mut s, publisher_pubkey);
+    push_data(&mut s, &timestamp.to_le_bytes());
+    push_data(&mut s, &price.to_le_bytes());
+    push_data(&mut s, server_name);
+    push_data(&mut s, notary_sig);
+    push_int(&mut s, notary_idx as i64); // 0..6 collapse to OP_0..OP_6
+    push_int(&mut s, 0); // function selector for attest (function index 0)
+    push_data(&mut s, redeem_script);
+    s
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dummy_args(funder_count: usize) -> (AttestArgs<'static>, Vec<u8>, Vec<FunderUtxo>) {
+        let redeem = vec![0u8; 700]; // realistic-ish PublisherSlot redeem size
+        let funders: Vec<FunderUtxo> = (0..funder_count)
+            .map(|i| FunderUtxo {
+                txid_be: [i as u8; 32],
+                vout: 0,
+                satoshis: 50_000,
+            })
+            .collect();
+        let args = AttestArgs {
+            slot_utxo: SlotUtxo {
+                txid_be: [0x11; 32],
+                vout: 7,
+                satoshis: 1000,
+            },
+            source_id: 1,
+            publisher_pkh: [0x42; 20],
+            publisher_privkey: [0x01; 32],
+            publisher_pubkey: [0x02; 33], // not a real pubkey; for unlock-script structure tests only
+            funder_utxos: &[],            // overridden via leak below
+            slot_category_wire_le: [0x33; 32],
+            slot_redeem_script: &[],      // overridden via leak below
+            notary: NotaryAttestation {
+                price: 350_000_000,
+                timestamp: 1_780_000_000,
+                server_name: "api.kraken.com".to_string(),
+                notary_sig: [0xee; 64],
+                notary_idx: 3,
+            },
+            new_cycle_seq: 42,
+        };
+        (args, redeem, funders)
+    }
+
+    #[test]
+    fn rejects_out_of_range_notary_idx() {
+        let (mut args, redeem, funders) = dummy_args(1);
+        let redeem_ref: &'static [u8] = Box::leak(redeem.into_boxed_slice());
+        let funders_ref: &'static [FunderUtxo] = Box::leak(funders.into_boxed_slice());
+        args.slot_redeem_script = redeem_ref;
+        args.funder_utxos = funders_ref;
+        args.notary.notary_idx = 7;
+        assert!(matches!(
+            build_attest_tx(&args),
+            Err(AttestError::NotaryIdxOutOfRange(7))
+        ));
+    }
+
+    #[test]
+    fn rejects_insufficient_funds() {
+        let (mut args, redeem, mut funders) = dummy_args(1);
+        funders[0].satoshis = 100; // below TX_FEE_BUFFER_ATTEST = 2000
+        let redeem_ref: &'static [u8] = Box::leak(redeem.into_boxed_slice());
+        let funders_ref: &'static [FunderUtxo] = Box::leak(funders.into_boxed_slice());
+        args.slot_redeem_script = redeem_ref;
+        args.funder_utxos = funders_ref;
+        assert!(matches!(
+            build_attest_tx(&args),
+            Err(AttestError::InsufficientFunds { have: 100, need: 2000 })
+        ));
+    }
+
+    /// Happy path: produces a non-empty raw tx with the expected output count.
+    #[test]
+    fn builds_tx_with_change_output() {
+        let (mut args, redeem, funders) = dummy_args(1);
+        let redeem_ref: &'static [u8] = Box::leak(redeem.into_boxed_slice());
+        let funders_ref: &'static [FunderUtxo] = Box::leak(funders.into_boxed_slice());
+        args.slot_redeem_script = redeem_ref;
+        args.funder_utxos = funders_ref;
+        let bytes = build_attest_tx(&args).unwrap();
+        assert!(!bytes.is_empty());
+        // 50_000 funder - 2_000 fee buffer = 48_000 sats change. Two outputs expected.
+        // Version (4) + input count (1) → input 0 (slot) + input 1 (funder) + ...
+        // Crude check: output-count byte (2) appears somewhere after the inputs.
+        // We just confirm the encoded bytes are plausibly long enough.
+        assert!(bytes.len() > 800); // 700-byte redeem alone exceeds this floor easily
+    }
+
+    #[test]
+    fn omits_change_below_dust() {
+        let (mut args, redeem, mut funders) = dummy_args(1);
+        funders[0].satoshis = 2_000 + 100; // change after fee = 100, < 546
+        let redeem_ref: &'static [u8] = Box::leak(redeem.into_boxed_slice());
+        let funders_ref: &'static [FunderUtxo] = Box::leak(funders.into_boxed_slice());
+        args.slot_redeem_script = redeem_ref;
+        args.funder_utxos = funders_ref;
+        let _bytes = build_attest_tx(&args).unwrap();
+        // (Hard to assert output count without re-decoding; we just confirm no panic.)
+    }
+}

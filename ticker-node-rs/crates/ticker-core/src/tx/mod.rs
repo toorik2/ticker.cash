@@ -4,11 +4,19 @@
 //! the wire spec. Output is bit-exact compatible with the current TypeScript
 //! daemon's `cashscript` `TransactionBuilder` output.
 
+pub mod attest;
 pub mod cashaddr;
 pub mod encode;
 pub mod script;
 pub mod sighash;
+pub mod update;
 
+pub use attest::{
+    build_attest_tx, AttestArgs, AttestError, FunderUtxo, NotaryAttestation, SlotUtxo,
+};
+pub use update::{
+    build_oracle_update_tx, CycleSlotUtxo, OracleUtxo, UpdateArgs, UpdateError,
+};
 pub use cashaddr::{encode_p2pkh_cashaddr, AddressPrefix};
 pub use encode::{
     encode_tx, encode_varint, Input, Output, TokenPrefix, Tx, TxOutpoint, MUTABLE_CAPABILITY,
