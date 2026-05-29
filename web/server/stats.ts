@@ -130,29 +130,55 @@ async function getAddressUtxos(address: string): Promise<ScripthashUtxo[]> {
   );
 }
 
-// ─── tx-by-txid cache for notaryIdx extraction ───────────────────────────
-// Each slot UTXO's birthing tx is the slot.attest tx (or Oracle.update if the
-// cycle just closed). Parsing input[0]'s unlocking script yields the notaryIdx
-// the publisher picked for this cycle. We cache results by txid; once a tx is
-// confirmed it never changes.
+// ─── notaryIdx extraction with walk-back through consume → attest ────────
+//
+// A slot's birthing tx is either:
+//   - slot.attest:  input[0] = slot input with `attest(notaryIdx, ...)`,
+//                   vout 0 = slot output. Parse input[0] directly.
+//   - Oracle.update: input[K] = slot input with `consume()` for slot at
+//                   vout K (K >= 1). The notaryIdx for THIS cycle was set
+//                   in the *previous* tx — the slot.attest that produced
+//                   the slot UTXO consumed at input[K]. We walk back via
+//                   that input's outpoint.
+//
+// Cache keys are `${txid}:${vout}` because the result depends on which
+// input we're inspecting. At most one recursion step: in steady state the
+// chain is attest → consume → attest → consume → … so any consume() walks
+// back exactly one step to land on the previous attest.
 const txNotaryCache = new Map<string, number | null>();
 const TX_NOTARY_CACHE_CAP = 500;
+const TX_NOTARY_MAX_DEPTH = 3;
 
-const fetchNotaryIdxForTxid = async (txid: string): Promise<number | null> => {
-  const cached = txNotaryCache.get(txid);
+const fetchNotaryIdxForSlot = async (
+  txid: string,
+  vout: number,
+  depth = 0,
+): Promise<number | null> => {
+  const key = `${txid}:${vout}`;
+  const cached = txNotaryCache.get(key);
   if (cached !== undefined) return cached;
+  if (depth >= TX_NOTARY_MAX_DEPTH) return null;
   let result: number | null = null;
   try {
     const hex = await electrumRequest<string>('blockchain.transaction.get', txid);
     const tx = decodeTransaction(hexToBin(hex));
-    if (typeof tx !== 'string' && tx.inputs.length > 0) {
-      result = notaryIdxFromSlotInputScript(tx.inputs[0]!.unlockingBytecode);
+    if (typeof tx !== 'string' && tx.inputs.length > vout) {
+      const slotInput = tx.inputs[vout]!;
+      const direct = notaryIdxFromSlotInputScript(slotInput.unlockingBytecode);
+      if (direct !== null) {
+        result = direct;
+      } else {
+        // Likely a consume() with only 2 PUSHes — walk back one step to the
+        // slot.attest that produced the UTXO this consume just consumed.
+        const prevTxid = binToHex(slotInput.outpointTransactionHash);
+        const prevVout = slotInput.outpointIndex;
+        result = await fetchNotaryIdxForSlot(prevTxid, prevVout, depth + 1);
+      }
     }
   } catch {
-    return null;  // don't cache transient fetch errors
+    return null;  // transient fetch errors aren't cached
   }
-  txNotaryCache.set(txid, result);
-  // Soft FIFO cap — old txids are no longer the birthing tx of any live slot.
+  txNotaryCache.set(key, result);
   if (txNotaryCache.size > TX_NOTARY_CACHE_CAP) {
     const oldestKey = txNotaryCache.keys().next().value;
     if (oldestKey !== undefined) txNotaryCache.delete(oldestKey);
@@ -328,7 +354,7 @@ async function buildSnapshot(): Promise<Stats> {
   interface DecodedSlot {
     sourceId: number; pkh: Uint8Array;
     timestamp: number; cycleSeq: number;
-    txHash: string;
+    txHash: string; txVout: number;
   }
   const decodedSlots: DecodedSlot[] = [];
   if (slotResult.status === 'fulfilled') {
@@ -340,7 +366,7 @@ async function buildSnapshot(): Promise<Stats> {
       if (c) decodedSlots.push({
         sourceId: c.sourceId, pkh: c.pkh,
         timestamp: c.timestamp, cycleSeq: c.cycleSeq,
-        txHash: u.tx_hash,
+        txHash: u.tx_hash, txVout: u.tx_pos,
       });
     }
   } else {
@@ -351,7 +377,7 @@ async function buildSnapshot(): Promise<Stats> {
   // Both are per-slot Fulcrum reads; fan-out together.
   const [balanceResults, notaryIdxResults] = await Promise.all([
     Promise.allSettled(decodedSlots.map((s) => getAddressUtxos(pkhToP2PKH(s.pkh, contracts.network)))),
-    Promise.allSettled(decodedSlots.map((s) => fetchNotaryIdxForTxid(s.txHash))),
+    Promise.allSettled(decodedSlots.map((s) => fetchNotaryIdxForSlot(s.txHash, s.txVout))),
   ]);
 
   // ─── compose ────────────────────────────────────────────────────────
