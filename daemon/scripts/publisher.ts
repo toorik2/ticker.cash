@@ -99,6 +99,7 @@ import {
 } from '../src/oracle-update.js';
 import { decodeSlotCommit, encodeSlotCommit } from '../src/slot-commit.js';
 import { incrementCycleError } from '../src/error-counter.js';
+import { isCaptureEnabled, recordCycle } from '../src/capture.js';
 
 const TEXT_ENCODER = new TextEncoder();
 
@@ -358,6 +359,14 @@ export const runPublisher = async (argv: ReadonlyArray<string>): Promise<void> =
       await sleep(POLL_INTERVAL_MS);
       return null;
     }
+    if (isCaptureEnabled()) {
+      recordCycle(newSeq, 'input', {
+        oracleUtxo: { txid: oracleUtxo.txid, vout: oracleUtxo.vout, satoshis: oracleUtxo.satoshis.toString(), commitment: oracleUtxo.token?.nft?.commitment },
+        prevSeq, prevTs, newSeq,
+        mySlot: { txid: mySlot.txid, vout: mySlot.vout, satoshis: mySlot.satoshis.toString(), commitment: mySlot.token?.nft?.commitment },
+        mySlotCycleSeq: mySlotCommit.cycleSeq,
+      });
+    }
     return {
       oracleUtxo,
       oracleCommitment,
@@ -439,6 +448,17 @@ export const runPublisher = async (argv: ReadonlyArray<string>): Promise<void> =
     let attestTxid: string;
     try {
       const raw = attestTx.build();
+      if (isCaptureEnabled()) {
+        recordCycle(newSeq, 'attest', {
+          raw,
+          notaryIdx,
+          notaryUrl,
+          attestation,
+          mySlot: { txid: mySlot.txid, vout: mySlot.vout, satoshis: mySlot.satoshis.toString(), commitment: mySlot.token?.nft?.commitment },
+          funderUtxos: funderUtxos.map((u) => ({ txid: u.txid, vout: u.vout, satoshis: u.satoshis.toString() })),
+          newCommit: binToHex(newCommit),
+        });
+      }
       attestTxid = await provider.sendRawTransaction(raw);
     } catch (err) {
       const msg = scrubSecrets(err instanceof Error ? err.message : String(err));
@@ -586,6 +606,19 @@ export const runPublisher = async (argv: ReadonlyArray<string>): Promise<void> =
 
     try {
       const raw = builder.build();
+      if (isCaptureEnabled()) {
+        recordCycle(newSeq, 'update', {
+          raw,
+          oracleUtxo: { txid: oracleUtxo.txid, vout: oracleUtxo.vout, satoshis: oracleUtxo.satoshis.toString(), commitment: oracleUtxo.token?.nft?.commitment },
+          cycleSlots: cycleSlots.map((u) => ({ txid: u.txid, vout: u.vout, satoshis: u.satoshis.toString(), commitment: u.token?.nft?.commitment })),
+          updateFunder: updateFunder.map((u) => ({ txid: u.txid, vout: u.vout, satoshis: u.satoshis.toString() })),
+          claimedNewTs,
+          claimedMedian: claimedMedian.toString(),
+          newActive,
+          newOracleCommit: binToHex(newOracleCommit),
+          newTickerCommit: binToHex(newTickerCommit),
+        });
+      }
       const updateTxid = await provider.sendRawTransaction(raw);
       updateState({ lastUpdateTxid: updateTxid });
       console.log(`  ✓ Oracle.update: ${updateTxid}`);
