@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="theme-color" content="#f3efe4" />
+<meta name="description" content="ticker.cash observability dashboard — per-slot freshness, publisher wallet runway, federation quorum." />
+<meta property="og:title" content="Ticker · Stats" />
+<meta property="og:description" content="Per-slot observability for the ticker.cash chipnet deploy: freshness, runway, quorum." />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://stats.ticker.cash/" />
+<title>Ticker · Stats</title>
+<style>
+  @font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:300;font-display:swap;src:url('/fonts/ibm-plex-mono-latin-300-normal.woff2') format('woff2')}
+  @font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:400;font-display:swap;src:url('/fonts/ibm-plex-mono-latin-400-normal.woff2') format('woff2')}
+  @font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:500;font-display:swap;src:url('/fonts/ibm-plex-mono-latin-500-normal.woff2') format('woff2')}
+  @font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:700;font-display:swap;src:url('/fonts/ibm-plex-mono-latin-700-normal.woff2') format('woff2')}
+  *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+  html{scrollbar-gutter:stable}
+  html,body{min-height:100vh;background:#f3efe4;color:#1a1a18;font-family:'IBM Plex Mono',monospace;font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased}
+  a{color:#1a1a18;text-decoration:underline;text-underline-offset:3px;text-decoration-thickness:1px;text-decoration-color:#b6b1a3}
+  a:hover{text-decoration-color:#1a1a18}
+  .head{padding:1rem 1.75rem;display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:0.5rem;border-bottom:1px solid #c8c2b3}
+  .head .l{font-weight:700;letter-spacing:0.22em;text-transform:uppercase;font-size:13px;display:flex;align-items:baseline;gap:0.6rem}
+  .head .l .pair{color:#6a6457;font-weight:400;letter-spacing:0.08em;font-size:11px;text-transform:none}
+  .head .r{font-size:11px;color:#6a6457;display:flex;gap:1.25rem;align-items:center}
+  .head .r a{color:#6a6457;text-decoration:none;border-bottom:1px solid transparent}
+  .head .r a:hover{color:#1a1a18;border-bottom-color:#6a6457}
+  .doc{max-width:1180px;margin:0 auto;padding:2.5rem 1.75rem 5rem}
+  .specs{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid #1a1a18;background:#fffcf0;margin-bottom:2.5rem}
+  @media(max-width:680px){.specs{grid-template-columns:repeat(2,1fr)}}
+  .spec{padding:1.1rem 1.25rem;border-right:1px solid #c8c2b3}
+  .spec:last-child{border-right:none}
+  .spec .h{font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:#6a6457;margin-bottom:0.4rem;font-weight:500}
+  .spec .v{font-size:1.5rem;font-weight:300;line-height:1.05;letter-spacing:-0.025em;font-variant-numeric:tabular-nums}
+  .spec .v.ok{color:#1a7b3b}
+  .spec .v.warn{color:#a02010}
+  .section-head{font-size:10.5px;letter-spacing:0.22em;text-transform:uppercase;font-weight:600;color:#1a1a18;border-bottom:1px solid #c8c2b3;padding-bottom:0.45rem;margin-bottom:1rem;display:flex;justify-content:space-between;gap:0.5rem}
+  .section-head .sub{color:#6a6457;font-weight:400;letter-spacing:0.1em}
+  .slot-table{width:100%;border-collapse:collapse;font-size:12.5px;background:#fffcf0;border:1px solid #1a1a18;font-variant-numeric:tabular-nums}
+  .slot-table thead th{text-align:left;padding:0.65rem 0.9rem;border-bottom:1px solid #1a1a18;font-size:10px;letter-spacing:0.16em;text-transform:uppercase;color:#6a6457;font-weight:600;background:#f3efe4}
+  .slot-table thead th.r{text-align:right}
+  .slot-table tbody td{padding:0.55rem 0.9rem;border-bottom:1px solid #ecebe0;vertical-align:baseline}
+  .slot-table tbody tr:last-child td{border-bottom:none}
+  .slot-table tbody td.r{text-align:right}
+  .slot-table tbody td .src{color:#1a1a18;font-weight:600}
+  .slot-table tbody td .pkh{color:#8a8472;font-size:10.5px;letter-spacing:0.05em;margin-top:0.1rem;font-weight:400}
+  .slot-table tbody td .sub{color:#6a6457;font-size:10.5px;letter-spacing:0;margin-left:0.4em;font-weight:400}
+  .slot-table tbody td.status{font-weight:600;text-transform:uppercase;letter-spacing:0.1em;font-size:10.5px}
+  .status-ok       {color:#1a7b3b}
+  .status-lagging  {color:#a07000}
+  .status-stalled  {color:#a02010}
+  .status-unfunded {color:#a02010}
+  .op-cell{color:#8a8472;font-style:italic;font-size:11px}
+  .op-cell .err{color:#a02010;font-style:normal;margin-left:0.4em}
+  .foot{margin-top:3rem;padding-top:0.8rem;border-top:1px solid #c8c2b3;font-size:10.5px;color:#6a6457;letter-spacing:0.1em;text-transform:uppercase;display:flex;justify-content:space-between;gap:0.5rem;flex-wrap:wrap;font-weight:500}
+  .foot a{color:#6a6457;text-decoration:none;border-bottom:1px solid transparent}
+  .foot a:hover{color:#1a1a18;border-bottom-color:#6a6457}
+  .errors{margin-top:1.5rem;padding:0.8rem 1rem;border:1px solid #a02010;background:#fffcf0;color:#a02010;font-size:11.5px}
+  .errors b{font-weight:700;text-transform:uppercase;letter-spacing:0.12em;font-size:10px}
+  .errors ul{margin:0.4rem 0 0 1.25rem;padding:0;font-style:normal;list-style:disc}
+</style>
+</head>
+<body>
+<header class="head">
+  <div class="l">▌ TICKER <span class="pair">stats · chipnet</span></div>
+  <div class="r"><a href="https://usd.ticker.cash/">price</a><a href="https://usd.ticker.cash/docs">docs</a><a href="/api/v1/stats">api</a><a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github</a></div>
+</header>
+<div class="doc">
+
+  <!-- Top strip — 4 federation-wide signals. -->
+  <div class="specs">
+    <div class="spec"><div class="h">Cycle</div><div class="v"><span id="agg-seq-prefix">#</span><span id="agg-seq">—</span></div></div>
+    <div class="spec"><div class="h">Updated</div><div class="v" id="agg-age">—</div></div>
+    <div class="spec"><div class="h">Quorum</div><div class="v ok" id="agg-quorum">—</div></div>
+    <div class="spec"><div class="h">Status</div><div class="v ok" id="agg-status">—</div></div>
+  </div>
+
+  <!-- Slot table — one row per publisher. -->
+  <div class="section-head"><span>Slots <span class="sub">· per publisher</span></span><span class="sub" id="ts-strip">—</span></div>
+  <table class="slot-table">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Source</th>
+        <th class="r">Last attest</th>
+        <th class="r">Behind</th>
+        <th class="r">Runway</th>
+        <th class="r">Balance</th>
+        <th class="r">Status</th>
+        <th class="r">Operator-reported</th>
+      </tr>
+    </thead>
+    <tbody id="slot-rows">
+      <tr><td colspan="8" style="text-align:center;padding:1.5rem;color:#6a6457">loading…</td></tr>
+    </tbody>
+  </table>
+
+  <!-- Errors (hidden when empty). -->
+  <div id="errors" class="errors" hidden><b>Fetch errors</b><ul id="errors-list"></ul></div>
+
+</div>
+<div class="foot" style="max-width:1180px;margin:3rem auto 0;padding:0.8rem 1.75rem 1.5rem">
+  <div>stats.ticker.cash · <span id="foot-net">chipnet</span></div>
+  <div><a href="/api/v1/stats">/api/v1/stats</a> · <a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github</a></div>
+</div>
+<script>
+const REFRESH_MS = 5000;
+const TICK_MS    = 1000;
+
+let lastFetch = null;
+
+function fmtAge(s){
+  if (s == null) return '—';
+  if (s < 60)    return s + 's';
+  if (s < 3600)  return Math.floor(s/60) + 'm ' + (s%60).toString().padStart(2,'0') + 's';
+  if (s < 86400) return Math.floor(s/3600) + 'h ' + Math.floor((s%3600)/60).toString().padStart(2,'0') + 'm';
+  return Math.floor(s/86400) + 'd ' + Math.floor((s%86400)/3600).toString().padStart(2,'0') + 'h';
+}
+
+function fmtSats(s){
+  if (s == null) return '—';
+  const n = typeof s === 'string' ? Number(s) : s;
+  if (!isFinite(n)) return '—';
+  return n.toLocaleString('en-US') + ' sats';
+}
+
+function fmtPkh(hex){
+  if (!hex) return '—';
+  return hex.slice(0,8) + '…' + hex.slice(-8);
+}
+
+function setStat(id, value, klass){
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = value;
+  if (klass) el.className = 'v ' + klass;
+}
+
+// All cell builders use textContent — no innerHTML — so any value from
+// the API is treated as data, never markup.
+
+function makeTd(text, opts){
+  const td = document.createElement('td');
+  if (opts && opts.right) td.classList.add('r');
+  if (opts && opts.cls)   td.classList.add(opts.cls);
+  if (text != null) td.textContent = String(text);
+  return td;
+}
+
+function makeSourceCell(sourceName, pkhShort){
+  const td = document.createElement('td');
+  const src = document.createElement('div');
+  src.className = 'src';
+  src.textContent = sourceName;
+  const pkh = document.createElement('div');
+  pkh.className = 'pkh';
+  pkh.textContent = pkhShort;
+  td.appendChild(src);
+  td.appendChild(pkh);
+  return td;
+}
+
+function makeRunwayCell(runwaySec, cyclesOfRunway){
+  const td = document.createElement('td');
+  td.classList.add('r');
+  if (!runwaySec || cyclesOfRunway < 1) {
+    td.textContent = 'no runway';
+    td.style.color = '#a02010';
+    return td;
+  }
+  td.appendChild(document.createTextNode(fmtAge(runwaySec)));
+  const sub = document.createElement('span');
+  sub.className = 'sub';
+  sub.textContent = '(' + cyclesOfRunway.toLocaleString('en-US') + ' cycles)';
+  td.appendChild(document.createTextNode(' '));
+  td.appendChild(sub);
+  return td;
+}
+
+function makeStatusCell(status){
+  const td = document.createElement('td');
+  td.classList.add('r', 'status', 'status-' + status);
+  td.textContent = status;
+  return td;
+}
+
+function makeOperatorCell(op){
+  const td = document.createElement('td');
+  td.classList.add('r', 'op-cell');
+  if (!op) {
+    td.textContent = '—';
+    return td;
+  }
+  td.appendChild(document.createTextNode('up ' + fmtAge(op.uptimeSec)));
+  if (op.errorsSinceStart > 0) {
+    const err = document.createElement('span');
+    err.className = 'err';
+    err.textContent = '· ' + op.errorsSinceStart + ' err';
+    td.appendChild(err);
+  }
+  return td;
+}
+
+function makeRow(s, oracleLastTs){
+  const tr = document.createElement('tr');
+  const ageAttest = oracleLastTs ? Math.max(0, oracleLastTs - s.lastAttestTs) : 0;
+  tr.appendChild(makeTd(String(s.slot)));
+  tr.appendChild(makeSourceCell(s.sourceName, fmtPkh(s.publisherPkh)));
+  // "ago" subscript
+  const ageTd = document.createElement('td');
+  ageTd.classList.add('r');
+  ageTd.appendChild(document.createTextNode(fmtAge(ageAttest) + ' '));
+  const ago = document.createElement('span');
+  ago.className = 'sub';
+  ago.textContent = 'ago';
+  ageTd.appendChild(ago);
+  tr.appendChild(ageTd);
+  tr.appendChild(makeTd(s.cyclesBehind === 0 ? '—' : '−' + s.cyclesBehind, { right: true }));
+  tr.appendChild(makeRunwayCell(s.runwayDurationSec, s.cyclesOfRunway));
+  tr.appendChild(makeTd(fmtSats(s.walletBalanceSats), { right: true }));
+  tr.appendChild(makeStatusCell(s.status));
+  tr.appendChild(makeOperatorCell(s.operatorReported));
+  return tr;
+}
+
+function render(d){
+  const o = d.oracle;
+  setStat('agg-seq', o ? o.seq.toLocaleString('en-US') : '—');
+  setStat('agg-age',
+    o ? fmtAge(o.ageSec) : '—',
+    o && o.ageSec < d.health.stalenessThresholdSec ? 'ok' : 'warn');
+
+  const q = d.aggregate;
+  setStat('agg-quorum', q.slotsCurrent + ' / 13 ' + (q.quorumOk ? 'OK' : 'LOW'),
+    q.quorumOk ? 'ok' : 'warn');
+
+  const overallOk = d.health.healthy && q.quorumOk && q.slotsStalled === 0 && q.slotsUnfunded === 0;
+  setStat('agg-status',
+    overallOk ? 'HEALTHY' : (d.health.healthy ? 'DEGRADED' : 'UNHEALTHY'),
+    overallOk ? 'ok' : 'warn');
+
+  document.getElementById('foot-net').textContent = d.network;
+  document.getElementById('ts-strip').textContent =
+    'cycle stride ~' + d.cycleStrideSec + 's · refreshed ' +
+    new Date(d.fetchedAt * 1000).toISOString().replace('T', ' ').slice(0, 19);
+
+  // Replace tbody contents atomically — no innerHTML at any user-data layer.
+  const tbody = document.getElementById('slot-rows');
+  while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
+  if (!d.slots || d.slots.length === 0) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 8;
+    td.style.textAlign = 'center';
+    td.style.padding  = '1.5rem';
+    td.style.color    = '#a02010';
+    td.textContent = 'no slot UTXOs found';
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  } else {
+    for (const s of d.slots) {
+      tbody.appendChild(makeRow(s, o ? o.lastTs : null));
+    }
+  }
+
+  // Errors block — replace via textContent per <li>.
+  const errEl   = document.getElementById('errors');
+  const errList = document.getElementById('errors-list');
+  while (errList.firstChild) errList.removeChild(errList.firstChild);
+  if (d.errors && d.errors.length) {
+    for (const e of d.errors) {
+      const li = document.createElement('li');
+      li.textContent = String(e);
+      errList.appendChild(li);
+    }
+    errEl.hidden = false;
+  } else {
+    errEl.hidden = true;
+  }
+}
+
+async function poll(){
+  try {
+    const r = await fetch('/api/v1/stats', { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    lastFetch = d;
+    render(d);
+  } catch (e) {
+    // Keep the last good view; surface the fetch error.
+    const errEl   = document.getElementById('errors');
+    const errList = document.getElementById('errors-list');
+    while (errList.firstChild) errList.removeChild(errList.firstChild);
+    const li = document.createElement('li');
+    li.textContent = 'fetch /api/v1/stats: ' + (e && e.message ? e.message : String(e));
+    errList.appendChild(li);
+    errEl.hidden = false;
+  }
+}
+
+function tick(){
+  if (!lastFetch || !lastFetch.oracle) return;
+  const nowSec = Math.floor(Date.now() / 1000);
+  const ageSec = Math.max(0, nowSec - lastFetch.oracle.lastTs);
+  const el = document.getElementById('agg-age');
+  if (el) {
+    el.textContent = fmtAge(ageSec);
+    el.className = 'v ' + (ageSec < lastFetch.health.stalenessThresholdSec ? 'ok' : 'warn');
+  }
+}
+
+poll();
+setInterval(poll, REFRESH_MS);
+setInterval(tick, TICK_MS);
+</script>
+</body>
+</html>

@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Standalone HTML pages + Express JSON API for the ticker.cash BCH/USD oracle.",
   "scripts": {
-    "build": "rm -rf dist && mkdir -p dist && cp index.html docs.html dist/ && cp -r public/. dist/ 2>/dev/null || true",
+    "build": "rm -rf dist && mkdir -p dist && cp index.html docs.html stats.html dist/ && cp -r public/. dist/ 2>/dev/null || true",
     "start": "tsx server/server.ts",
     "dev": "tsx watch server/server.ts"
   },
