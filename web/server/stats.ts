@@ -25,6 +25,7 @@ import {
   CashAddressType,
   binToHex,
   hexToBin,
+  decodeTransaction,
 } from '@bitauth/libauth';
 
 import { electrumRequest, electrumPing } from './electrum.js';
@@ -33,6 +34,62 @@ import { fetchAllOperatorStats } from './operator-stats-poll.js';
 import { decodeSlotCommit } from '../../daemon/src/slot-commit.js';
 import { SOURCES } from '../../daemon/src/helpers.js';
 import contracts from './contracts.json';
+
+// ─── inline script parser — extract notaryIdx from a slot.attest unlock ──
+//
+// A push-only Bitcoin Cash script (which is what every unlocking script is).
+// Walks PUSH opcodes, returns the args. Returns `ok: false` and a partial
+// list if it hits a non-push opcode mid-stream.
+const parsePushOnlyScript = (script: Uint8Array): { pushes: Uint8Array[]; ok: boolean } => {
+  const pushes: Uint8Array[] = [];
+  let i = 0;
+  while (i < script.length) {
+    const op = script[i]!;
+    if (op === 0x00) { pushes.push(new Uint8Array(0)); i += 1; }
+    else if (op >= 0x51 && op <= 0x60) { pushes.push(Uint8Array.of(op - 0x50)); i += 1; }
+    else if (op >= 0x01 && op <= 0x4b) {
+      if (i + 1 + op > script.length) return { pushes, ok: false };
+      pushes.push(script.subarray(i + 1, i + 1 + op));
+      i += 1 + op;
+    } else if (op === 0x4c) {
+      if (i + 1 >= script.length) return { pushes, ok: false };
+      const len = script[i + 1]!;
+      if (i + 2 + len > script.length) return { pushes, ok: false };
+      pushes.push(script.subarray(i + 2, i + 2 + len));
+      i += 2 + len;
+    } else if (op === 0x4d) {
+      if (i + 2 >= script.length) return { pushes, ok: false };
+      const len = script[i + 1]! | (script[i + 2]! << 8);
+      if (i + 3 + len > script.length) return { pushes, ok: false };
+      pushes.push(script.subarray(i + 3, i + 3 + len));
+      i += 3 + len;
+    } else {
+      return { pushes, ok: false };
+    }
+  }
+  return { pushes, ok: true };
+};
+
+const decodePushAsSmallInt = (b: Uint8Array): number | null => {
+  if (b.length === 0) return 0;
+  if (b.length > 4) return null;
+  let v = 0;
+  for (let i = 0; i < b.length; i += 1) v |= b[i]! << (i * 8);
+  return v;
+};
+
+// Slot.attest unlocking layout (PUSHes, bottom of stack first):
+//   notaryIdx, notarySig, serverName, price, timestamp, publisherPubkey,
+//   publisherSchnorr, newSeq, funcSelector, redeemScript     = 10 pushes
+// Slot.consume unlocking layout: funcSelector, redeemScript  = 2 pushes
+const ATTEST_PUSH_COUNT = 10;
+const notaryIdxFromSlotInputScript = (script: Uint8Array): number | null => {
+  const { pushes, ok } = parsePushOnlyScript(script);
+  if (!ok || pushes.length !== ATTEST_PUSH_COUNT) return null;
+  const v = decodePushAsSmallInt(pushes[0]!);
+  if (v === null || v < 0 || v >= 7) return null;
+  return v;
+};
 
 // ─── tunables ────────────────────────────────────────────────────────────
 
@@ -73,6 +130,52 @@ async function getAddressUtxos(address: string): Promise<ScripthashUtxo[]> {
   );
 }
 
+// ─── tx-by-txid cache for notaryIdx extraction ───────────────────────────
+// Each slot UTXO's birthing tx is the slot.attest tx (or Oracle.update if the
+// cycle just closed). Parsing input[0]'s unlocking script yields the notaryIdx
+// the publisher picked for this cycle. We cache results by txid; once a tx is
+// confirmed it never changes.
+const txNotaryCache = new Map<string, number | null>();
+const TX_NOTARY_CACHE_CAP = 500;
+
+const fetchNotaryIdxForTxid = async (txid: string): Promise<number | null> => {
+  const cached = txNotaryCache.get(txid);
+  if (cached !== undefined) return cached;
+  let result: number | null = null;
+  try {
+    const hex = await electrumRequest<string>('blockchain.transaction.get', txid);
+    const tx = decodeTransaction(hexToBin(hex));
+    if (typeof tx !== 'string' && tx.inputs.length > 0) {
+      result = notaryIdxFromSlotInputScript(tx.inputs[0]!.unlockingBytecode);
+    }
+  } catch {
+    return null;  // don't cache transient fetch errors
+  }
+  txNotaryCache.set(txid, result);
+  // Soft FIFO cap — old txids are no longer the birthing tx of any live slot.
+  if (txNotaryCache.size > TX_NOTARY_CACHE_CAP) {
+    const oldestKey = txNotaryCache.keys().next().value;
+    if (oldestKey !== undefined) txNotaryCache.delete(oldestKey);
+  }
+  return result;
+};
+
+// ─── per-cycle history ring buffer ───────────────────────────────────────
+// One entry per cycle (deduped on seq). Capped; oldest evicted FIFO.
+export interface HistoryEntry {
+  seq: number;
+  lastTs: number;
+  slotsCurrent: number;
+  cycleStrideSec: number;
+}
+const history: HistoryEntry[] = [];
+const HISTORY_MAX = 100;
+const recordHistory = (entry: HistoryEntry): void => {
+  if (history.length > 0 && history[history.length - 1]!.seq === entry.seq) return;
+  history.push(entry);
+  if (history.length > HISTORY_MAX) history.shift();
+};
+
 // ─── exported types (frontend + aggregator consume) ──────────────────────
 
 export type SlotStatus = 'ok' | 'lagging' | 'stalled' | 'unfunded';
@@ -86,18 +189,22 @@ export interface OperatorReported {
 }
 
 export interface SlotRow {
-  slot: number;                  // 0..12 — index in the SOURCES order
+  slot: number;                          // 0..12 — index in the SOURCES order
   sourceId: number;
   sourceName: string;
-  publisherPkh: string;          // 40 hex
-  publisherAddress: string;      // P2PKH chipnet/mainnet
-  lastAttestTs: number;          // unix sec (from slot UTXO commit)
+  publisherPkh: string;                  // 40 hex
+  publisherAddress: string;              // P2PKH chipnet/mainnet
+  lastAttestTs: number;                  // unix sec (from slot UTXO commit)
   lastCycleSeq: number;
   cyclesBehind: number;
-  walletBalanceSats: string;     // bigint stringified
+  walletBalanceSats: string;             // bigint stringified
   cyclesOfRunway: number;
   runwayDurationSec: number;
   status: SlotStatus;
+  /** notary index (0..6) that signed this slot's most recent attest;
+   *  null when the slot UTXO's birthing tx is an Oracle.update consume
+   *  (cycle just closed) or we couldn't parse the script. */
+  currentCycleNotaryIdx: number | null;
   operatorReported: OperatorReported | null;
 }
 
@@ -127,7 +234,14 @@ export interface Stats {
     slotsUnfunded: number;
     quorumOk: boolean;
     medianRunwayCycles: number;
+    /** picks per notary (index 0..6) summed across the 13 slots' currentCycleNotaryIdx
+     *  values. Slots whose currentCycleNotaryIdx is null contribute nothing. */
+    notaryHistogram: number[];
+    /** Slots whose birthing tx revealed a notaryIdx — out of 13. */
+    slotsWithNotaryIdx: number;
   };
+  /** Last N cycles (capped at 100). Frontend uses for sparklines + drift. */
+  recent: HistoryEntry[];
   errors: string[];
 }
 
@@ -209,10 +323,12 @@ async function buildSnapshot(): Promise<Stats> {
   }
 
   // ─── slots ──────────────────────────────────────────────────────────
-  // Decode all 13 commits; pkh is in bytes [3..23] of the commit.
+  // Decode all 13 commits; pkh is in bytes [3..23] of the commit. tx_hash is
+  // the slot UTXO's birthing tx, used downstream to extract notaryIdx.
   interface DecodedSlot {
     sourceId: number; pkh: Uint8Array;
     timestamp: number; cycleSeq: number;
+    txHash: string;
   }
   const decodedSlots: DecodedSlot[] = [];
   if (slotResult.status === 'fulfilled') {
@@ -224,17 +340,19 @@ async function buildSnapshot(): Promise<Stats> {
       if (c) decodedSlots.push({
         sourceId: c.sourceId, pkh: c.pkh,
         timestamp: c.timestamp, cycleSeq: c.cycleSeq,
+        txHash: u.tx_hash,
       });
     }
   } else {
     errors.push(`slots fetch: ${(slotResult.reason as Error)?.message ?? 'unknown'}`);
   }
 
-  // ─── publisher wallet balances ──────────────────────────────────────
-  // Issue all 13 in parallel; tolerate per-wallet failures.
-  const balanceResults = await Promise.allSettled(
-    decodedSlots.map((s) => getAddressUtxos(pkhToP2PKH(s.pkh, contracts.network))),
-  );
+  // ─── publisher wallet balances + notary-idx parses in parallel ──────
+  // Both are per-slot Fulcrum reads; fan-out together.
+  const [balanceResults, notaryIdxResults] = await Promise.all([
+    Promise.allSettled(decodedSlots.map((s) => getAddressUtxos(pkhToP2PKH(s.pkh, contracts.network)))),
+    Promise.allSettled(decodedSlots.map((s) => fetchNotaryIdxForTxid(s.txHash))),
+  ]);
 
   // ─── compose ────────────────────────────────────────────────────────
   // Cycle stride: prefer the measured average; fall back to 60 s.
@@ -276,6 +394,9 @@ async function buildSnapshot(): Promise<Stats> {
       walletBalanceSats = 0n;
       errors.push(`wallet slot ${slot} fetch: ${(balanceRes?.reason as Error)?.message ?? 'unknown'}`);
     }
+    const notaryIdxRes = notaryIdxResults[i];
+    const currentCycleNotaryIdx =
+      notaryIdxRes && notaryIdxRes.status === 'fulfilled' ? notaryIdxRes.value : null;
     const cyclesOfRunway = Number(walletBalanceSats / EXPECTED_SATS_PER_CYCLE);
     const cyclesBehind = Math.max(0, oracleSeq - d.cycleSeq);
     const source = SOURCES[slot]!;
@@ -292,6 +413,7 @@ async function buildSnapshot(): Promise<Stats> {
       cyclesOfRunway,
       runwayDurationSec: cyclesOfRunway * cycleStrideSec,
       status: classify(cyclesBehind, cyclesOfRunway),
+      currentCycleNotaryIdx,
       operatorReported: operatorMap.get(slot) ?? null,
     });
   }
@@ -305,6 +427,14 @@ async function buildSnapshot(): Promise<Stats> {
   const slotsStalled  = slots.filter((s) => s.cyclesBehind > 3).length;
   const slotsUnfunded = slots.filter((s) => s.status === 'unfunded').length;
   const quorumOk = slotsCurrent >= 7;
+  const notaryHistogram = [0, 0, 0, 0, 0, 0, 0];
+  let slotsWithNotaryIdx = 0;
+  for (const s of slots) {
+    if (s.currentCycleNotaryIdx !== null && s.currentCycleNotaryIdx >= 0 && s.currentCycleNotaryIdx < 7) {
+      notaryHistogram[s.currentCycleNotaryIdx]! += 1;
+      slotsWithNotaryIdx += 1;
+    }
+  }
 
   const fulcrum =
     pingResult.status === 'fulfilled'
@@ -315,6 +445,15 @@ async function buildSnapshot(): Promise<Stats> {
     oracleState !== null &&
     oracleState.ageSec < STALENESS_THRESHOLD_SEC &&
     quorumOk;
+
+  if (oracleState) {
+    recordHistory({
+      seq: oracleState.seq,
+      lastTs: oracleState.lastTs,
+      slotsCurrent,
+      cycleStrideSec,
+    });
+  }
 
   return {
     fetchedAt,
@@ -328,12 +467,15 @@ async function buildSnapshot(): Promise<Stats> {
       stalenessThresholdSec: STALENESS_THRESHOLD_SEC,
     },
     slots,
+    recent: history.slice(-50),
     aggregate: {
       slotsCurrent,
       slotsLagging,
       slotsStalled,
       slotsUnfunded,
       quorumOk,
+      notaryHistogram,
+      slotsWithNotaryIdx,
       medianRunwayCycles: median(slots.map((s) => s.cyclesOfRunway)),
     },
     errors,
