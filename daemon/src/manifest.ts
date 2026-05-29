@@ -17,7 +17,7 @@
 //
 // Path convention: `.ticker/manifest.json` (sibling of operator.key).
 
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import type { Network } from './operator-key.js';
 
 export interface ContractInfo {
@@ -104,16 +104,22 @@ const validateElectrum = (e: unknown): ElectrumDefault => {
  *         installer or re-fetch the bundle).
  */
 export const loadManifest = (path: string = DEFAULT_MANIFEST_PATH): Manifest => {
-  if (!existsSync(path)) {
-    throw new Error(
-      `no manifest at ${path}.\n` +
-      `your installer should have placed this file — re-run the installer ` +
-      `or fetch the current manifest from the coordinator.`,
-    );
+  let body: string;
+  try {
+    body = readFileSync(path, 'utf8');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new Error(
+        `no manifest at ${path}.\n` +
+        `your installer should have placed this file — re-run the installer ` +
+        `or fetch the current manifest from the coordinator.`,
+      );
+    }
+    throw e;
   }
   let raw: unknown;
   try {
-    raw = JSON.parse(readFileSync(path, 'utf8'));
+    raw = JSON.parse(body);
   } catch (e) {
     throw new Error(`manifest at ${path} is not valid JSON: ${(e as Error).message}`);
   }

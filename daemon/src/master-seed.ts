@@ -12,7 +12,7 @@
 //   head -c 32 /dev/urandom | xxd -p -c 64 > .ticker/seed.hex
 //   chmod 600 .ticker/seed.hex
 
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import {
   hexToBin,
   encodeCashAddress,
@@ -50,14 +50,19 @@ const p2pkhAddrFromPubkey = (pubKey: Uint8Array): string =>
 
 /** Load the 32-byte seed from disk. Throws if missing. */
 export const loadSeed = (path: string = DEFAULT_SEED_PATH): Uint8Array => {
-  if (!existsSync(path)) {
-    throw new Error(
-      `no seed at ${path}. generate one with:\n` +
-      `  head -c 32 /dev/urandom | xxd -p -c 64 > ${path}\n` +
-      `  chmod 600 ${path}`,
-    );
+  let hex: string;
+  try {
+    hex = readFileSync(path, 'utf8').trim();
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new Error(
+        `no seed at ${path}. generate one with:\n` +
+        `  head -c 32 /dev/urandom | xxd -p -c 64 > ${path}\n` +
+        `  chmod 600 ${path}`,
+      );
+    }
+    throw e;
   }
-  const hex = readFileSync(path, 'utf8').trim();
   if (hex.length !== 64) throw new Error(`seed at ${path} is not 32 bytes (got ${hex.length / 2})`);
   if (!/^[0-9a-fA-F]{64}$/.test(hex)) {
     // hexToBin silently coerces non-hex characters to 0x00 — a 64-char passphrase

@@ -43,24 +43,13 @@ import { runNotary } from './notary.js';
 import { runPublisher } from './publisher.js';
 import { getCycleErrorCount } from '../src/error-counter.js';
 import { getNotaryIdentity, getNotarySignRequestCount } from '../src/notary-stats.js';
+import { flagPresent as flagPresentArgv, flagValue as flagValueArgv, flagAll as flagAllArgv } from '../src/argv.js';
 
 const argv = process.argv.slice(2);
 
-const flagPresent = (name: string): boolean => argv.includes(name);
-const flagValue = (...names: string[]): string | undefined => {
-  for (const n of names) {
-    const i = argv.indexOf(n);
-    if (i >= 0 && argv[i + 1] !== undefined) return argv[i + 1];
-  }
-  return undefined;
-};
-const flagAll = (name: string): string[] => {
-  const out: string[] = [];
-  for (let i = 0; i < argv.length; i += 1) {
-    if (argv[i] === name && argv[i + 1] !== undefined) out.push(argv[i + 1]!);
-  }
-  return out;
-};
+const flagPresent = (name: string): boolean => flagPresentArgv(argv, name);
+const flagValue = (...names: string[]): string | undefined => flagValueArgv(argv, ...names);
+const flagAll = (name: string): string[] => flagAllArgv(argv, name);
 
 const wantNotary = flagPresent('--notary');
 const wantPublisher = flagPresent('--publisher');

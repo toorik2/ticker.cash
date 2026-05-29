@@ -29,32 +29,13 @@
  */
 import { createServer } from 'node:http';
 import { existsSync } from 'node:fs';
-import { secp256k1, sha256, binToHex, hexToBin, type Sha256, type Secp256k1 } from '@bitauth/libauth';
-import { ElectrumNetworkProvider, Network } from 'cashscript';
-import { ElectrumClient } from '@electrum-cash/network';
-import { ElectrumTcpSocket } from '@electrum-cash/tcp-socket';
+import { secp256k1, binToHex, hexToBin, type Secp256k1 } from '@bitauth/libauth';
 import { deriveWallets, loadSeed, NOTARY_COUNT } from '../src/keys.js';
-import { loadOperatorKey, type Wallet } from '../src/operator-key.js';
+import { loadOperatorKey, type Wallet, type Mode } from '../src/operator-key.js';
 import { loadManifest } from '../src/manifest.js';
 import { SOURCES, notarySigDigest } from '../src/helpers.js';
 import { setNotaryIdentity, incrementNotarySignRequest } from '../src/notary-stats.js';
-
-// Point at a Fulcrum you control. Public chipnet Fulcrums drop idle
-// connections without warning, which the electrum-cash client does not
-// retry — running against a self-hosted Fulcrum is strongly recommended.
-const ELECTRUM_HOST = process.env.TICKER_ELECTRUM_HOST ?? '127.0.0.1';
-const ELECTRUM_PORT = Number(process.env.TICKER_ELECTRUM_PORT ?? 50001);
-const ELECTRUM_TLS = (process.env.TICKER_ELECTRUM_TLS ?? 'false') === 'true';
-const buildLocalProvider = (): ElectrumNetworkProvider => {
-  const socket = new ElectrumTcpSocket(ELECTRUM_HOST, ELECTRUM_PORT, ELECTRUM_TLS, 8000);
-  const client = new ElectrumClient('ticker-notary', '1.4.1', socket, {
-    sendKeepAliveIntervalInMilliSeconds: 30_000,
-    reconnectAfterMilliSeconds: 5000,
-  });
-  return new ElectrumNetworkProvider(Network.CHIPNET, { electrum: client });
-};
-
-const sha256Hash = (data: Uint8Array): Uint8Array => (sha256 as Sha256).hash(data);
+import { flagValue } from '../src/argv.js';
 
 // The notary stamps wall-clock time. The Oracle covenant enforces
 // `newTs > prevTs` AND `newTs - prevTs >= 30` on the median of these
@@ -63,17 +44,11 @@ const sha256Hash = (data: Uint8Array): Uint8Array => (sha256 as Sha256).hash(dat
 // trust path anywhere — this lets cycles run at notary cadence (~60 s)
 // without being gated by chipnet block production.
 
-type Mode = 'operator-key' | 'seed-derived';
 interface Identity {
   readonly slot: number;
   readonly notary: Wallet;
   readonly mode: Mode;
 }
-
-const flagValue = (argv: ReadonlyArray<string>, name: string): string | undefined => {
-  const i = argv.indexOf(name);
-  return i >= 0 ? argv[i + 1] : undefined;
-};
 
 const resolveIdentity = (argv: ReadonlyArray<string>): Identity => {
   const hasManifest = existsSync('.ticker/manifest.json');
@@ -257,7 +232,6 @@ export const runNotary = (argv: ReadonlyArray<string>): Promise<void> => {
   console.log(`ticker-notary slot=${slot} mode=${mode}`);
   console.log(`  address=${notary.address}`);
   console.log(`  pubkey=${binToHex(notary.publicKey)}`);
-  console.log(`  electrum: ${ELECTRUM_HOST}:${ELECTRUM_PORT}${ELECTRUM_TLS ? ' (tls)' : ''} (fresh per /sign)`);
   console.log(`  serving on http://127.0.0.1:${port}`);
 
   setNotaryIdentity({

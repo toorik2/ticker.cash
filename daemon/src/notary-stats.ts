@@ -14,12 +14,14 @@
 //
 // Single producer per process, single consumer; no locking needed.
 
+import type { Mode } from './operator-key.js';
+
 export interface NotaryIdentity {
   readonly slot: number;
   readonly port: number;
   readonly address: string;
   readonly pubkeyHex: string;
-  readonly mode: 'operator-key' | 'seed-derived';
+  readonly mode: Mode;
 }
 
 let identity: NotaryIdentity | null = null;

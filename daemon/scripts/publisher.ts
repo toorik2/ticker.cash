@@ -45,8 +45,6 @@ import {
   hexToBin,
   hash160,
   secp256k1,
-  sha256,
-  type Sha256,
   type Secp256k1,
 } from '@bitauth/libauth';
 import {
@@ -81,7 +79,7 @@ import {
 } from '../src/load-artifacts.js';
 import { deriveWallets, NOTARY_COUNT, PUBLISHER_COUNT } from '../src/keys.js';
 import { loadSeed } from '../src/master-seed.js';
-import { loadOperatorKey, type Wallet } from '../src/operator-key.js';
+import { loadOperatorKey, type Wallet, type Mode } from '../src/operator-key.js';
 import { loadManifest } from '../src/manifest.js';
 import {
   SOURCES,
@@ -102,8 +100,6 @@ import {
 } from '../src/oracle-update.js';
 import { decodeSlotCommit, encodeSlotCommit } from '../src/slot-commit.js';
 import { incrementCycleError } from '../src/error-counter.js';
-
-const sha256Hash = (data: Uint8Array): Uint8Array => (sha256 as Sha256).hash(data);
 
 const SCRUB_PATTERNS: ReadonlyArray<RegExp> = [
   /\bWARNING: it is unsafe to use this Bitauth URI[\s\S]*$/,
@@ -228,7 +224,6 @@ const requestNotarySign = async (
 const u32LE_read = (b: Uint8Array, offset: number): number =>
   new DataView(b.buffer, b.byteOffset + offset, 4).getUint32(0, true);
 
-type Mode = 'operator-key' | 'seed-derived';
 interface PublisherIdentity {
   readonly slot: number;
   readonly publisher: Wallet;
@@ -368,7 +363,11 @@ export const runPublisher = async (argv: ReadonlyArray<string>): Promise<void> =
     cycleCounter += 1;
     console.log(`\n── cycle ${cycleCounter} ──`);
     try {
-      const oracleUtxos = await provider.getUtxos(oracle.tokenAddress);
+      // Oracle UTXO + slot UTXO listing are independent reads; fan them out.
+      const [oracleUtxos, allSlots] = await Promise.all([
+        provider.getUtxos(oracle.tokenAddress),
+        provider.getUtxos(deploy.slotAddress),
+      ]);
       const oracleUtxo = oracleUtxos.find(
         (u) => u.token?.category === deploy.oracleCategory && u.token.nft?.capability === 'minting',
       );
@@ -389,8 +388,6 @@ export const runPublisher = async (argv: ReadonlyArray<string>): Promise<void> =
         await sleep(waitSec * 1000);
         continue;
       }
-
-      const allSlots = await provider.getUtxos(deploy.slotAddress);
       const mySlot = allSlots.find((u) => {
         if (!u.token || u.token.category !== deploy.slotCategory) return false;
         if (u.token.nft?.capability !== 'mutable') return false;
@@ -425,7 +422,8 @@ export const runPublisher = async (argv: ReadonlyArray<string>): Promise<void> =
         const price = BigInt(attestation.price);
         console.log(`  notary ok: price=${price} ts=${attestation.timestamp}`);
 
-        const cnHash20 = hash160(new TextEncoder().encode(attestation.serverName));
+        const serverNameBytes = new TextEncoder().encode(attestation.serverName);
+        const cnHash20 = hash160(serverNameBytes);
         const digest = publisherSigDigest(source.id, price, attestation.timestamp, myPkh, newSeq, cnHash20);
         const publisherSchnorr = (secp256k1 as Secp256k1).signMessageHashSchnorr(publisher.privateKey, digest);
         if (typeof publisherSchnorr === 'string') throw new Error(`sign: ${publisherSchnorr}`);
@@ -445,8 +443,8 @@ export const runPublisher = async (argv: ReadonlyArray<string>): Promise<void> =
           mySlot,
           slotContract.unlock.attest(
             BigInt(notaryIdx),
-            binToHex(hexToBin(attestation.notarySig)),
-            binToHex(new TextEncoder().encode(attestation.serverName)),
+            attestation.notarySig,            // already hex; was binToHex(hexToBin(…))
+            binToHex(serverNameBytes),
             binToHex(u64LE(price)),
             binToHex(u32LE(attestation.timestamp)),
             binToHex(publisher.publicKey),
@@ -635,6 +633,7 @@ export const runPublisher = async (argv: ReadonlyArray<string>): Promise<void> =
           console.log(`  Oracle.update race lost — OK`);
         } else {
           console.log(`  Oracle.update failed: ${msg}`);
+          incrementCycleError();
         }
       }
       if (once) break;

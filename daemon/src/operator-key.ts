@@ -19,7 +19,7 @@
 // expect `wallets.notaries[slot]` or `wallets.publishers[slot]` can use it
 // interchangeably during the backwards-compat window.
 
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import {
   hexToBin,
   encodeCashAddress,
@@ -35,6 +35,11 @@ import type { Wallet } from './master-seed.js';
 export type { Wallet } from './master-seed.js';
 
 export type Network = 'chipnet' | 'mainnet';
+
+// The credential layout the runtime detected for this process. Exported once
+// here and imported by anything that needs to surface it (notary.ts,
+// publisher.ts, notary-stats.ts, ticker-node /stats).
+export type Mode = 'operator-key' | 'seed-derived';
 
 const networkPrefix = (network: Network): CashAddressNetworkPrefix =>
   network === 'mainnet'
@@ -55,14 +60,19 @@ export const loadOperatorKey = (
   label: string,
   network: Network,
 ): Wallet => {
-  if (!existsSync(path)) {
-    throw new Error(
-      `no operator key at ${path}.\n` +
-      `your installer should have placed this file — re-run the installer ` +
-      `or restore from backup.`,
-    );
+  let hex: string;
+  try {
+    hex = readFileSync(path, 'utf8').trim();
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new Error(
+        `no operator key at ${path}.\n` +
+        `your installer should have placed this file — re-run the installer ` +
+        `or restore from backup.`,
+      );
+    }
+    throw e;
   }
-  const hex = readFileSync(path, 'utf8').trim();
   if (hex.length !== 64) {
     throw new Error(
       `operator key at ${path} is not 32 bytes (got ${hex.length / 2})`,
