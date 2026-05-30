@@ -38,21 +38,6 @@ pub fn derive_pubkey(privkey: &[u8; 32]) -> Result<[u8; 33], KeyError> {
     Ok(pk.serialize())
 }
 
-/// BIP-340 Schnorr-sign a 32-byte digest with deterministic nonce.
-///
-/// **Compatibility note**: BCH does NOT use BIP-340 Schnorr — it uses the
-/// 2019 BCH-Schnorr scheme (`e = sha256(R || P || m)` plain, vs BIP-340's
-/// tagged-hash challenge). BCH's `OP_CHECKSIG` / `OP_CHECKDATASIG` therefore
-/// REJECT BIP-340 sigs. Use [`sign_ecdsa`] for anything that crosses the
-/// covenant or P2PKH boundary; this function is kept for completeness only.
-pub fn sign_schnorr(privkey: &[u8; 32], digest: &[u8; 32]) -> Result<[u8; 64], KeyError> {
-    let sk = SecretKey::from_slice(privkey)?;
-    let kp = Keypair::from_secret_key(SECP256K1, &sk);
-    let msg = secp256k1::Message::from_digest(*digest);
-    let sig = SECP256K1.sign_schnorr_no_aux_rand(&msg, &kp);
-    Ok(*sig.as_ref())
-}
-
 /// ECDSA-sign a 32-byte digest with deterministic nonce (RFC-6979 via libsecp256k1).
 ///
 /// Returns the DER-encoded signature (~70-72 bytes). BCH's `OP_CHECKSIG` and
@@ -110,14 +95,14 @@ mod tests {
         assert_eq!(pk.len(), 33);
     }
 
-    /// Determinism: same input → same Schnorr sig (no-aux-rand → BIP340 deterministic).
+    /// Determinism: same input → same ECDSA sig (RFC-6979 nonce).
     #[test]
-    fn sign_schnorr_deterministic() {
+    fn sign_ecdsa_deterministic() {
         let sk = [0x42u8; 32];
         let digest = [0x99u8; 32];
-        let a = sign_schnorr(&sk, &digest).unwrap();
-        let b = sign_schnorr(&sk, &digest).unwrap();
+        let a = sign_ecdsa(&sk, &digest).unwrap();
+        let b = sign_ecdsa(&sk, &digest).unwrap();
         assert_eq!(a, b);
-        assert_eq!(a.len(), 64);
+        assert!(a.len() >= 70 && a.len() <= 72);
     }
 }

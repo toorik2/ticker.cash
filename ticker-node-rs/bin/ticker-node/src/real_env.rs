@@ -256,13 +256,7 @@ impl Env for RealEnv {
         let parsed: serde_json::Value =
             serde_json::from_str(body_str).map_err(|e| CycleError::NotaryUnreachable {
                 url: url.to_string(),
-                reason: format!(
-                    "parse: {e} | body_start={} resp_len={} preview={:?}",
-                    body_start,
-                    resp.len(),
-                    std::str::from_utf8(&resp[..resp.len().min(80)])
-                        .unwrap_or("<non-utf8>")
-                ),
+                reason: format!("parse: {e}"),
             })?;
         let price: u64 = parsed
             .get("price")
