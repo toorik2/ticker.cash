@@ -40,10 +40,14 @@ use real_env::RealEnv;
 use stats_collector::{NotaryIdentity, RealStatsCollector};
 
 const NOTARY_BASE_PORT: u16 = 8081;
-const DEFAULT_MANIFEST_PATH: &str = ".ticker/manifest.json";
-const NOTARY_KEY_PATH: &str = ".ticker/notary.key";
-const PUBLISHER_KEY_PATH: &str = ".ticker/publisher.key";
-const STATE_DIR: &str = ".ticker";
+const TICKER_HOME_ENV: &str = "TICKER_HOME";
+const DEFAULT_TICKER_HOME: &str = ".ticker";
+
+/// Resolve a path inside `$TICKER_HOME/`, defaulting to `.ticker/` in the CWD.
+fn home_path(suffix: &str) -> PathBuf {
+    let base = std::env::var(TICKER_HOME_ENV).unwrap_or_else(|_| DEFAULT_TICKER_HOME.to_string());
+    PathBuf::from(base).join(suffix)
+}
 const ELECTRUM_TIMEOUT_SEC: u64 = 30;
 const NOTARY_HTTP_TIMEOUT_SEC: u64 = 10;
 const POLL_INTERVAL_SEC: u64 = 3;
@@ -75,7 +79,8 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(2);
     }
 
-    let manifest = load_manifest(DEFAULT_MANIFEST_PATH)?;
+    let manifest_path = home_path("manifest.json");
+    let manifest = load_manifest(&manifest_path)?;
     let proc_start = SystemTime::now();
 
     let shutdown = Arc::new(AtomicBool::new(false));
@@ -87,8 +92,8 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
     let notary_identity = if want_notary {
         Some(resolve_identity(
             Role::Notary,
-            DEFAULT_MANIFEST_PATH,
-            NOTARY_KEY_PATH,
+            &manifest_path,
+            home_path("notary.key"),
             slot_flag,
         )?)
     } else {
@@ -97,8 +102,8 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
     let publisher_identity = if want_publisher {
         Some(resolve_identity(
             Role::Publisher,
-            DEFAULT_MANIFEST_PATH,
-            PUBLISHER_KEY_PATH,
+            &manifest_path,
+            home_path("publisher.key"),
             slot_flag,
         )?)
     } else {
@@ -150,7 +155,7 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
         )?;
         let mut env = RealEnv {
             electrum: Mutex::new(electrum),
-            state_dir: PathBuf::from(STATE_DIR),
+            state_dir: home_path(""),
             notary_http_timeout: Duration::from_secs(NOTARY_HTTP_TIMEOUT_SEC),
         };
         let shutdown_c = shutdown.clone();
@@ -166,7 +171,7 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
     // ─── stats thread ───────────────────────────────────────────────────
     if let Some(bind) = stats_bind {
         let collector = Arc::new(RealStatsCollector {
-            state_dir: PathBuf::from(STATE_DIR),
+            state_dir: home_path(""),
             notary: notary_stats_identity.clone(),
         });
         let bind_c = bind.clone();

@@ -24,6 +24,7 @@ mod bake;
 mod deploy;
 mod dump;
 mod fund;
+mod setup;
 mod state;
 
 fn main() {
@@ -76,6 +77,36 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
                 .opt_value_from_str("--seed")?
                 .unwrap_or_else(|| ".ticker/seed.hex".to_string());
             deploy::deploy(&seed, broadcast)
+        }
+        "setup-all" => {
+            let seed: String = args
+                .opt_value_from_str("--seed")?
+                .unwrap_or_else(|| ".ticker/seed.hex".to_string());
+            let state: String = args
+                .opt_value_from_str("--state")?
+                .unwrap_or_else(|| ".ticker/deploy-state.json".to_string());
+            let out_base: String = args
+                .opt_value_from_str("--out-base")?
+                .unwrap_or_else(|| {
+                    std::env::var("HOME").unwrap_or_else(|_| ".".to_string())
+                });
+            let network: String = args
+                .opt_value_from_str("--network")?
+                .unwrap_or_else(|| "chipnet".to_string());
+            let electrum_host: String = args
+                .opt_value_from_str("--electrum-host")?
+                .unwrap_or_else(|| "fulcrum.layer1.cash".to_string());
+            let electrum_port: u16 = args.opt_value_from_str("--electrum-port")?.unwrap_or(50002);
+            let electrum_tls: bool = args.opt_value_from_str("--electrum-tls")?.unwrap_or(true);
+            setup::setup_all(
+                &seed,
+                &state,
+                &out_base,
+                &network,
+                &electrum_host,
+                electrum_port,
+                electrum_tls,
+            )
         }
         other => Err(format!("ticker-ops: unknown subcommand '{other}'").into()),
     }
