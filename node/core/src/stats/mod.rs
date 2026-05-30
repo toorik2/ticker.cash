@@ -12,8 +12,8 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::cycle::orchestrator::CYCLE_ERROR_COUNT;
-use crate::notary_server::http::{read_request, write_json, write_response};
-use crate::notary_server::server::SIGN_REQUEST_COUNT;
+use crate::notary::http::{read_request, write_json, write_response};
+use crate::notary::server::SIGN_REQUEST_COUNT;
 
 /// Notary identity portion of the stats response.
 #[derive(Debug, Clone, Serialize)]
@@ -49,7 +49,7 @@ pub trait StatsCollector: Send + Sync + 'static {
 }
 
 /// Start the /stats HTTP server. Blocks indefinitely.
-pub fn run_stats_server<C: StatsCollector + 'static>(
+pub fn run_stats<C: StatsCollector + 'static>(
     addr: &str,
     collector: Arc<C>,
     proc_start: SystemTime,

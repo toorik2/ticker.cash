@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/*", "bin/*"]
+members = ["core", "daemon", "ops"]
 resolver = "2"
 
 [workspace.package]
@@ -27,7 +27,7 @@ pico-args        = "0.5"
 thiserror        = "2"
 
 # Workspace crates
-ticker-core      = { path = "crates/ticker-core" }
+ticker-core      = { path = "core" }
 
 [profile.release]
 opt-level     = "z"

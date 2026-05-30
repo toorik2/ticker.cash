@@ -5,8 +5,8 @@ use std::path::PathBuf;
 
 use ticker_core::cycle::orchestrator::CYCLE_ERROR_COUNT;
 use ticker_core::cycle::state::PublisherState;
-use ticker_core::notary_server::server::SIGN_REQUEST_COUNT;
-use ticker_core::stats_server::{NotaryStats, PublisherStats, StatsCollector};
+use ticker_core::notary::server::SIGN_REQUEST_COUNT;
+use ticker_core::stats::{NotaryStats, PublisherStats, StatsCollector};
 
 pub struct RealStatsCollector {
     pub state_dir: PathBuf,

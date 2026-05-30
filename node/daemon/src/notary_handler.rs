@@ -6,7 +6,7 @@ use std::time::Duration;
 use ticker_core::chain::digest::notary_sig_digest;
 use ticker_core::chain::sources::SOURCES;
 use ticker_core::crypto::sign_ecdsa;
-use ticker_core::notary_server::{NotaryHandler, SignRequest, SignResponse};
+use ticker_core::notary::{NotaryHandler, SignRequest, SignResponse};
 use ticker_core::prover::{HttpsPlainProver, PriceProver};
 
 /// Real notary handler. Owns the notary private key + pubkey + a prover.

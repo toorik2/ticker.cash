@@ -11,5 +11,5 @@ pub mod http;
 pub mod server;
 pub mod wire;
 
-pub use server::{run_notary_server, NotaryHandler, NotaryServerError};
+pub use server::{run_notary, NotaryHandler, NotaryServerError};
 pub use wire::{SignRequest, SignResponse};

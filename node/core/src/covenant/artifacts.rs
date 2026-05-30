@@ -11,9 +11,9 @@
 use serde_json::Value;
 use std::sync::OnceLock;
 
-const ORACLE_JSON: &str = include_str!("../../../../../contracts/artifacts/Oracle.json");
-const PUBLISHER_SLOT_JSON: &str = include_str!("../../../../../contracts/artifacts/PublisherSlot.json");
-const TICKER_JSON: &str = include_str!("../../../../../contracts/artifacts/Ticker.json");
+const ORACLE_JSON: &str = include_str!("../../../../contracts/artifacts/Oracle.json");
+const PUBLISHER_SLOT_JSON: &str = include_str!("../../../../contracts/artifacts/PublisherSlot.json");
+const TICKER_JSON: &str = include_str!("../../../../contracts/artifacts/Ticker.json");
 
 /// Errors that can occur parsing an embedded artifact.
 #[derive(Debug, thiserror::Error)]

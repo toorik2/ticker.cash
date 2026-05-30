@@ -30,9 +30,9 @@ use ticker_core::identity::{
 };
 use ticker_core::log_error;
 use ticker_core::log_info;
-use ticker_core::notary_server::run_notary_server;
+use ticker_core::notary::run_notary;
 use ticker_core::prover::HttpsPlainProver;
-use ticker_core::stats_server::run_stats_server;
+use ticker_core::stats::run_stats;
 use ticker_core::tx::cashaddr::{encode_p2pkh_cashaddr, AddressPrefix};
 
 use notary_handler::{RealNotaryHandler, DEFAULT_PROVER_TIMEOUT};
@@ -146,7 +146,7 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
         });
         let addr_c = addr.clone();
         handles.push(std::thread::spawn(move || {
-            if let Err(e) = run_notary_server(&addr_c, handler) {
+            if let Err(e) = run_notary(&addr_c, handler) {
                 log_error!("notary server stopped", "msg" => e.to_string());
             }
         }));
@@ -183,7 +183,7 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
         });
         let bind_c = bind.clone();
         handles.push(std::thread::spawn(move || {
-            if let Err(e) = run_stats_server(&bind_c, collector, proc_start) {
+            if let Err(e) = run_stats(&bind_c, collector, proc_start) {
                 log_error!("stats server stopped", "msg" => e.to_string());
             }
         }));

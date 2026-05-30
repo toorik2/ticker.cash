@@ -1,6 +1,6 @@
 //! TCP listener + dispatch loop.
 //!
-//! `run_notary_server(addr, handler)` blocks until shutdown, accepting connections
+//! `run_notary(addr, handler)` blocks until shutdown, accepting connections
 //! and dispatching each to `handler` on a fresh thread. Per-conn lifetime is short:
 //! read request → invoke handler → write response → close.
 
@@ -36,7 +36,7 @@ pub enum NotaryServerError {
 
 /// Run the notary server. Blocks indefinitely. Each accepted connection runs
 /// on its own thread so a slow CEX upstream cannot stall other publishers.
-pub fn run_notary_server<H: NotaryHandler + 'static>(
+pub fn run_notary<H: NotaryHandler + 'static>(
     addr: &str,
     handler: Arc<H>,
 ) -> Result<(), NotaryServerError> {
