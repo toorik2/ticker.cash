@@ -4,19 +4,13 @@
 //
 // The authoritative copy now lives in the Rust crate at
 // `node/core/src/chain/`. Keep both in sync if the protocol ever evolves.
-//
-// v13 (PR13a): slot commit version byte is now 0x73 (was 0x72 in v12). The
-// notary tier was dropped — see PR13a/PR13b. During the v12→v13 cutover the
-// indexer accepts BOTH version bytes; remove 0x72 acceptance after the soak.
 
-// ─── PublisherSlot NFT commit (39 B; v0x72 or v0x73) ──────────────────────
+// ─── PublisherSlot NFT commit (39 B; version 0x73) ────────────────────────
 
 export const SLOT_COMMIT_LEN = 39;
-export const SLOT_VERSION_BYTE_V12 = 0x72;
-export const SLOT_VERSION_BYTE_V13 = 0x73;
+export const SLOT_VERSION_BYTE = 0x73;
 
 export interface SlotCommit {
-  readonly version: 0x72 | 0x73;
   readonly sourceId: number;
   readonly pkh: Uint8Array;        // 20 B
   readonly price: bigint;
@@ -27,11 +21,9 @@ export interface SlotCommit {
 /** Decode a 39-byte slot commit. Returns undefined for the wrong length/version. */
 export const decodeSlotCommit = (commit: Uint8Array): SlotCommit | undefined => {
   if (commit.length !== SLOT_COMMIT_LEN) return undefined;
-  const v = commit[0];
-  if (v !== SLOT_VERSION_BYTE_V12 && v !== SLOT_VERSION_BYTE_V13) return undefined;
+  if (commit[0] !== SLOT_VERSION_BYTE) return undefined;
   const dv = new DataView(commit.buffer, commit.byteOffset);
   return {
-    version: v as 0x72 | 0x73,
     sourceId: dv.getUint16(1, true),
     pkh: commit.slice(3, 23),
     price: dv.getBigUint64(23, true),

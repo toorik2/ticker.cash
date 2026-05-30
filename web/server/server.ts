@@ -26,8 +26,9 @@ import contracts from './contracts.json' with { type: 'json' };
 const PORT = Number(process.env.PORT ?? 3001);
 const HOST = process.env.HOST ?? '127.0.0.1';
 const TTL_MS = Number(process.env.TICKER_SNAPSHOT_TTL_MS ?? 5000);
-// v10: sub-minute cadence → 5 min is loose enough to handle brief jitter
-// but tight enough to catch real publisher/notary/chain outages.
+// Sub-minute cadence (30s minimum stride) → 5 min is loose enough to
+// handle brief jitter but tight enough to catch real publisher/chain
+// outages.
 const STALENESS_THRESHOLD_SEC = 300;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

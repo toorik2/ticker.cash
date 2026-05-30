@@ -32,6 +32,7 @@
   .head .r{font-size:11px;color:#6a6457;display:flex;gap:1.25rem;align-items:center}
   .head .r a{color:#6a6457;text-decoration:none;border-bottom:1px solid transparent}
   .head .r a:hover{color:#1a1a18;border-bottom-color:#6a6457}
+  .head .r a.active{color:#1a1a18;border-bottom-color:#1a1a18}
 
   .doc{max-width:1180px;margin:0 auto;padding:2rem 1.75rem 5rem}
 
@@ -57,7 +58,6 @@
   }
   .status-stripe .metric .v{font-weight:600}
   .status-stripe .metric.warn .v{color:#a02010}
-  .status-stripe .notaries .v{letter-spacing:0.22em}
   @media(max-width:680px){
     .status-stripe{font-size:12px;gap:0.4rem 0.6rem;padding:0.8rem 1rem}
     .status-stripe .sep{display:none}
@@ -104,6 +104,8 @@
   }
   .copy-btn:hover{color:#1a1a18;border-color:#1a1a18;background:#fffcf0}
   .copy-btn.copied{color:#1a7b3b;border-color:#1a7b3b}
+  .explore-btn{background:transparent;border:1px solid #c8c2b3;border-radius:2px;font-family:inherit;font-size:9.5px;letter-spacing:0.08em;text-transform:uppercase;color:#6a6457;padding:0.1rem 0.35rem;cursor:pointer;font-weight:500;text-decoration:none;line-height:1.3;flex:0 0 auto;transition:all 0.15s ease}
+  .explore-btn:hover{color:#1a1a18;border-color:#1a1a18;background:#fffcf0;text-decoration:none}
 
   /* ─── Foldouts (Trends / Errors). ──────────────────── */
   .foldout{
@@ -153,7 +155,7 @@
 <body>
 <header class="head">
   <div class="l">▌ TICKER <span class="pair">stats · chipnet</span></div>
-  <div class="r"><a href="https://usd.ticker.cash/">price</a><a href="https://usd.ticker.cash/docs">docs</a><a href="/api/v1/stats">api</a><a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github</a></div>
+  <div class="r"><a href="https://usd.ticker.cash/">price</a><a href="https://usd.ticker.cash/docs">docs</a><a href="https://stats.ticker.cash/" class="active">stats</a><a href="/api/v1/stats">api</a><a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github</a></div>
 </header>
 <div class="doc">
 
@@ -325,7 +327,17 @@ function makeSourceCell(sourceName, pkhShort, fullAddress){
   const name = document.createElement('span');
   name.textContent = sourceName;
   src.appendChild(name);
-  if (fullAddress) src.appendChild(makeCopyButton(fullAddress));
+  if (fullAddress) {
+    src.appendChild(makeCopyButton(fullAddress));
+    const explore = document.createElement('a');
+    explore.className = 'explore-btn';
+    explore.textContent = 'tx↗';
+    explore.href = 'https://chipnet.imaginary.cash/address/' + fullAddress;
+    explore.target = '_blank';
+    explore.rel = 'noopener';
+    explore.title = 'Open ' + fullAddress + ' in block explorer';
+    src.appendChild(explore);
+  }
   const pkh = document.createElement('div');
   pkh.className = 'pkh';
   pkh.textContent = pkhShort;

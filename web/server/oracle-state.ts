@@ -17,7 +17,7 @@ import contracts from './contracts.json';
 export interface DecodedOracle {
   version: number;
   seq: number;
-  lastLocktime: number;          // v9: now lastTs (notary-attested wall-clock); name kept for API stability
+  lastLocktime: number;          // median publisher-attested wall-clock of the cycle; field name preserved for API stability
   medianPriceScaled: bigint;
   medianUsd: number;
   activeCount: number;
