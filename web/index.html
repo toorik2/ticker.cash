@@ -49,58 +49,13 @@
   .lead p:last-child{margin-bottom:0}
   .lead b{color:#1a1a18;font-weight:600}
   .lead a{font-weight:500}
-  .specs{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid #1a1a18;background:#fffcf0;margin-top:2rem}
-  @media(max-width:680px){.specs{grid-template-columns:repeat(2,1fr)}}
+  .specs{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid #1a1a18;background:#fffcf0;margin-top:2rem}
+  @media(max-width:680px){.specs{grid-template-columns:repeat(3,1fr)}}
   .spec{padding:1.1rem 1.25rem;border-right:1px solid #c8c2b3}
   .spec:last-child{border-right:none}
   .spec .h{font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:#6a6457;margin-bottom:0.4rem;font-weight:500}
   .spec .v{font-size:1.5rem;font-weight:300;line-height:1.05;letter-spacing:-0.025em}
   .spec .v small{font-size:0.5em;font-weight:400;color:#6a6457;letter-spacing:0}
-
-  /* ─── Federation heartbeat (13-dot strip) ─────────────────────────────── */
-  .heartbeat{border:1px solid #1a1a18;background:#fffcf0;margin-top:1.5rem;padding:1rem 1.25rem}
-  .hb-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:0.75rem}
-  .hb-label{font-size:10.5px;letter-spacing:0.18em;text-transform:uppercase;color:#6a6457;font-weight:600}
-  .hb-count{font-size:14px;font-weight:600;font-variant-numeric:tabular-nums;color:#1a1a18}
-  .hb-dots{display:grid;grid-template-columns:repeat(13,1fr);gap:0.4rem;margin-bottom:0.65rem}
-  @media(max-width:680px){.hb-dots{grid-template-columns:repeat(7,1fr)}}
-  .hb-dot{
-    height:1.85rem;border:1px solid #c8c2b3;background:#ecebe0;
-    display:flex;flex-direction:column;align-items:center;justify-content:center;
-    font-size:9px;letter-spacing:0.04em;color:#6a6457;font-variant-numeric:tabular-nums;
-    transition:background 0.2s ease,border-color 0.2s ease,color 0.2s ease;
-    overflow:hidden
-  }
-  .hb-dot.ok{background:#e6f4eb;border-color:#1a7b3b;color:#1a7b3b}
-  .hb-dot.warn{background:#fff5dc;border-color:#b88800;color:#b88800}
-  .hb-dot.stalled{background:#fce4dc;border-color:#a02010;color:#a02010}
-  .hb-dot .ix{font-weight:600;font-size:10px;line-height:1}
-  .hb-dot .age{font-size:8.5px;color:inherit;opacity:0.75;margin-top:0.1rem;line-height:1}
-  .hb-foot{font-size:10.5px;color:#6a6457;letter-spacing:0.03em;display:flex;justify-content:space-between;gap:0.5rem;flex-wrap:wrap}
-  .hb-foot a{color:#6a6457;text-decoration:none;border-bottom:1px solid #b6b1a3}
-  .hb-foot a:hover{color:#1a1a18;border-bottom-color:#1a1a18}
-
-  /* ─── Integration teaser block ──────────────────────────────────────── */
-  .integrate{margin-top:2.5rem;border-top:1px solid #c8c2b3;padding-top:1.5rem}
-  .int-head{font-size:10.5px;letter-spacing:0.22em;text-transform:uppercase;font-weight:600;color:#1a1a18;margin-bottom:1rem}
-  .int-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
-  @media(max-width:680px){.int-grid{grid-template-columns:1fr}}
-  .int-card{border:1px solid #c8c2b3;background:#fffcf0;padding:1rem 1.1rem}
-  .int-h{font-size:11px;font-weight:600;color:#1a1a18;letter-spacing:0.06em;margin-bottom:0.55rem;text-transform:uppercase}
-  .int-card pre{background:#1a1a18;color:#f3efe4;font-family:inherit;font-size:11.5px;line-height:1.6;padding:0.7rem 0.85rem;border-radius:2px;overflow-x:auto;margin:0 0 0.55rem}
-  .int-card pre code{background:transparent;padding:0;color:inherit;font-size:inherit}
-  .int-note{font-size:11px;color:#6a6457;letter-spacing:0.02em}
-  .int-note a{color:#1a1a18;text-decoration:underline;text-underline-offset:2px;text-decoration-color:#b6b1a3}
-
-  /* ─── Recent cycles strip in side panel ─────────────────────────────── */
-  .ver{font-size:9px;font-weight:500;color:#8a8472;letter-spacing:0.05em;text-transform:none;margin-left:0.4rem}
-  .recent{font-size:11.5px;display:flex;flex-direction:column}
-  .recent .rc-loading{color:#8a8472;font-style:italic;padding:0.3rem 0}
-  .recent .rc-row{display:grid;grid-template-columns:auto 1fr auto;gap:0.5rem;padding:0.42rem 0;border-bottom:1px solid #ecebe0;align-items:baseline;font-variant-numeric:tabular-nums}
-  .recent .rc-row:last-child{border-bottom:none}
-  .recent .rc-seq{color:#8a8472;font-size:10.5px}
-  .recent .rc-price{color:#1a1a18;font-weight:600;text-align:right;font-size:12px}
-  .recent .rc-age{color:#6a6457;font-size:10px;letter-spacing:0.04em}
   .side{position:sticky;top:1.5rem;display:flex;flex-direction:column;gap:1.85rem}
   .side h3{font-size:10.5px;letter-spacing:0.22em;text-transform:uppercase;font-weight:600;color:#1a1a18;border-bottom:1px solid #c8c2b3;padding-bottom:0.45rem;margin-bottom:0.85rem}
   .side .kv{font-size:12.5px;display:flex;flex-direction:column}
@@ -125,7 +80,7 @@
       <div class="vtag">Median</div>
       <div class="price-body">
         <div class="price-big"><span class="d">$</span><span id="price">———</span></div>
-        <div class="price-trust">Median across <b>13 publishers</b> · ≥ 7-of-13 quorum committed by covenant every ~30 s.</div>
+        <div class="price-trust">Median across <b>13 publishers</b>.</div>
         <div class="price-stats">
           <div class="row"><span class="k">Updated</span><span class="v" id="age">—</span></div>
           <div class="row"><span class="k">Status</span><span class="v ok" id="status">—</span></div>
@@ -133,20 +88,10 @@
       </div>
     </div>
 
-    <div class="heartbeat">
-      <div class="hb-head">
-        <span class="hb-label">Federation</span>
-        <span class="hb-count" id="hb-count">— / 13</span>
-      </div>
-      <div class="hb-dots" id="hb-dots"></div>
-      <div class="hb-foot"><span>Each dot = one publisher's most recent slot.attest. Green ≤ 60 s · amber ≤ 5 min · red &gt; 5 min.</span> <a href="/stats">Full operator view ↗</a></div>
-    </div>
-
     <div class="specs">
       <div class="spec"><div class="h">Publishers</div><div class="v">13</div></div>
       <div class="spec"><div class="h">Quorum</div><div class="v">≥7</div></div>
       <div class="spec"><div class="h">Cycle</div><div class="v">~30<small>s</small></div></div>
-      <div class="spec"><div class="h">Admin keys</div><div class="v">0</div></div>
     </div>
 
     <div class="lead">
@@ -155,37 +100,15 @@
       <p><b>Read the price.</b> On-chain: spend a Ticker NFT as an input, decode its 17-byte commit. Off-chain: <code>GET /api/v1/price</code>. Full integration guide, signature inventory, and operator playbook in the <a href="/docs">docs</a> · live federation state at <a href="/stats">stats</a>.</p>
     </div>
 
-    <div class="integrate">
-      <div class="int-head">Integrate</div>
-      <div class="int-grid">
-        <div class="int-card">
-          <div class="int-h">Off-chain · JSON</div>
-          <pre><code>curl -s https://usd.ticker.cash/api/v1/price</code></pre>
-          <div class="int-note">No auth, CORS open. Schema in <a href="/docs#reference">§08</a>.</div>
-        </div>
-        <div class="int-card">
-          <div class="int-h">On-chain · Ticker NFT</div>
-          <pre><code>// Spend a Ticker NFT in your tx:
-input[1]  = Ticker NFT (from Oracle category)
-output[1] = Ticker re-emit (covenant enforces)
-// Decode 17-byte commit:
-//   0x80 | seq(4) | lastTs(4) | medianPrice(8) LE</code></pre>
-          <div class="int-note">Atomic price gate via covenant. Guide: <a href="/docs#integrate">§06</a>.</div>
-        </div>
-      </div>
-    </div>
-
   </div>
 
   <aside class="side">
     <div>
-      <h3>Contracts <small class="ver">v13 · 2026-05-30</small></h3>
+      <h3>Contracts</h3>
       <div class="kv">
         <div class="row"><span class="k">Oracle</span><span class="v"><a href="https://chipnet.imaginary.cash/address/bchtest:pwjf7l2m6zaa0uk97vc733xrwhqm8dmrvtvfevpk0k8f8fd2nha6vluenzkqr" target="_blank" rel="noopener"><code>pwjf7l2m…luenzkqr ↗</code></a></span></div>
         <div class="row"><span class="k">Slot</span><span class="v"><a href="https://chipnet.imaginary.cash/address/bchtest:pwuzaq3p0qw2dwh63d3vdede65pxf4e3evugkvf0ck6vvsqw4u7rsnm4r8j76" target="_blank" rel="noopener"><code>pwuzaq3p…nm4r8j76 ↗</code></a></span></div>
         <div class="row"><span class="k">Ticker</span><span class="v"><a href="https://chipnet.imaginary.cash/address/bchtest:p0r403dhnnahycepwklerew4js0q6t2eme69ex3vvgkuk7jps8hdc3qhh23cu" target="_blank" rel="noopener"><code>p0r403dh…3qhh23cu ↗</code></a></span></div>
-        <div class="row"><span class="k">Oracle cat</span><span class="v"><code>47f9b06b…91ad43c</code></span></div>
-        <div class="row"><span class="k">Slot cat</span><span class="v"><code>d80f7742…efc8dca</code></span></div>
       </div>
     </div>
     <div>
@@ -196,10 +119,6 @@ output[1] = Ticker re-emit (covenant enforces)
         <div class="row"><span class="k">Stats</span><span class="v"><a href="/api/v1/stats"><code>/api/v1/stats</code></a></span></div>
         <div class="row"><span class="k">Seq</span><span class="v">#<span id="seq">—</span></span></div>
       </div>
-    </div>
-    <div>
-      <h3>Recent cycles</h3>
-      <div class="recent" id="recent"><div class="rc-loading">loading…</div></div>
     </div>
   </aside>
 </div>
@@ -223,78 +142,11 @@ function fmtAge(s) {
   return Math.floor(s / 86400) + 'd ' + Math.floor((s % 86400) / 3600) + 'h';
 }
 
-function nowSec() { return Math.floor(Date.now() / 1000); }
-
-let lastStats = null;
-
-function classifyDot(ageSec) {
-  if (ageSec <= 60)  return 'ok';
-  if (ageSec <= 300) return 'warn';
-  return 'stalled';
-}
-
-function renderHeartbeat() {
-  if (!lastStats) return;
-  const dots = document.getElementById('hb-dots');
-  while (dots.firstChild) dots.removeChild(dots.firstChild);
-  const slots = lastStats.slots || [];
-  let okCount = 0;
-  const now = nowSec();
-  for (let i = 0; i < 13; i += 1) {
-    const s = slots.find(x => x.slot === i);
-    const div = document.createElement('div');
-    div.className = 'hb-dot';
-    if (s && s.lastAttestTs) {
-      const age = Math.max(0, now - s.lastAttestTs);
-      const klass = classifyDot(age);
-      div.classList.add(klass);
-      if (klass === 'ok') okCount += 1;
-      const ix = document.createElement('span'); ix.className = 'ix'; ix.textContent = '#' + i;
-      const ag = document.createElement('span'); ag.className = 'age'; ag.textContent = fmtAge(age);
-      div.title = (s.sourceName || ('slot ' + i)) + ' · last attest ' + fmtAge(age) + ' ago';
-      div.appendChild(ix);
-      div.appendChild(ag);
-    } else {
-      const ix = document.createElement('span'); ix.className = 'ix'; ix.textContent = '#' + i;
-      const ag = document.createElement('span'); ag.className = 'age'; ag.textContent = '—';
-      div.title = 'slot ' + i + ' · no data';
-      div.appendChild(ix);
-      div.appendChild(ag);
-    }
-    dots.appendChild(div);
-  }
-  document.getElementById('hb-count').textContent = okCount + ' / 13 active';
-}
-
-function renderRecentCycles() {
-  if (!lastStats) return;
-  const container = document.getElementById('recent');
-  while (container.firstChild) container.removeChild(container.firstChild);
-  const recent = (lastStats.recent || []).slice(-6).reverse();
-  if (recent.length === 0) {
-    const div = document.createElement('div');
-    div.className = 'rc-loading';
-    div.textContent = 'no cycles yet';
-    container.appendChild(div);
-    return;
-  }
-  const now = nowSec();
-  for (const r of recent) {
-    const row = document.createElement('div');
-    row.className = 'rc-row';
-    const seq = document.createElement('span'); seq.className = 'rc-seq'; seq.textContent = '#' + r.seq;
-    const price = document.createElement('span'); price.className = 'rc-price';
-    price.textContent = (r.medianUsd != null && isFinite(r.medianUsd)) ? '$' + fmtUsd(r.medianUsd) : '—';
-    const age = document.createElement('span'); age.className = 'rc-age';
-    age.textContent = r.lastTs ? fmtAge(Math.max(0, now - r.lastTs)) + ' ago' : '—';
-    row.appendChild(seq); row.appendChild(price); row.appendChild(age);
-    container.appendChild(row);
-  }
-}
+let lastLockSec = null;
 
 function refreshAge() {
-  if (!lastStats || !lastStats.oracle) return;
-  const age = Math.max(0, nowSec() - lastStats.oracle.lastTs);
+  if (lastLockSec == null) return;
+  const age = Math.max(0, Math.floor(Date.now() / 1000) - lastLockSec);
   document.getElementById('age').textContent = fmtAge(age);
   const sv = document.getElementById('status');
   if (age > STALE_SEC) { sv.textContent = 'Stale'; sv.className = 'v warn'; }
@@ -303,14 +155,12 @@ function refreshAge() {
 
 async function poll() {
   try {
-    const r = await fetch('/api/v1/stats', { cache: 'no-store' });
+    const r = await fetch('/api/v1/price', { cache: 'no-store' });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const d = await r.json();
-    lastStats = d;
-    document.getElementById('price').textContent = fmtUsd(d.oracle && d.oracle.medianUsd);
-    document.getElementById('seq').textContent   = d.oracle ? d.oracle.seq : '—';
-    renderHeartbeat();
-    renderRecentCycles();
+    document.getElementById('price').textContent = fmtUsd(d.medianUsd);
+    document.getElementById('seq').textContent   = d.seq != null ? d.seq : '—';
+    if (typeof d.lastLocktime === 'number') lastLockSec = d.lastLocktime;
     refreshAge();
   } catch (e) {
     // Silently ignore — keep prior frame visible. The "Updated" age + Status
@@ -320,7 +170,7 @@ async function poll() {
 
 poll();
 setInterval(poll, 12000);
-setInterval(() => { refreshAge(); renderHeartbeat(); renderRecentCycles(); }, 1000);
+setInterval(refreshAge, 1000);
 </script>
 </body>
 </html>
