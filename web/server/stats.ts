@@ -77,7 +77,7 @@ const decodePushAsSmallInt = (b: Uint8Array): number | null => {
   return v;
 };
 
-// Slot.attest unlocking layout (PUSHes in script byte order).
+// v12 slot.attest unlocking layout (PUSHes in script byte order).
 // CashScript pushes args in *reverse* declaration order so the contract pops
 // them out in declaration order. So for attest(notaryIdx, …, newSeq):
 //   push[0] = newSeq (4 B)
@@ -90,11 +90,15 @@ const decodePushAsSmallInt = (b: Uint8Array): number | null => {
 //   push[7] = notaryIdx (0..6, OP_0 or OP_1..OP_6)
 //   push[8] = funcSelector (OP_0 for attest, OP_1 for consume)
 //   push[9] = redeemScript (~1 KB)
-// Slot.consume unlocking: push[0] = sig (65 B P2SH-32 placeholder),
-//   push[1] = funcSelector (OP_1), push[2] = redeemScript — 3 pushes? actually
-//   for the covenant pattern consume() has no args, so the unlocking is just
-//   funcSelector + redeemScript = 2 pushes. We discriminate by push count
-//   alone: 10 → attest, anything else → null (consume / unknown).
+//
+// v13 attest drops notarySig + notaryIdx — 10 pushes → 8 pushes. The strict
+// `pushes.length === 10` gate below returns `null` for v13 attests, which
+// is the correct behavior: there's no notary to attribute. The downstream
+// `notaryHistogram` will accumulate zeros for v13 cycles, signalling the
+// absence of a notary tier.
+//
+// Slot.consume unlocking: 2 pushes (funcSelector + redeemScript) — also
+// discriminated by count.
 const ATTEST_PUSH_COUNT = 10;
 const NOTARY_IDX_PUSH_INDEX = 7;
 const notaryIdxFromSlotInputScript = (script: Uint8Array): number | null => {
