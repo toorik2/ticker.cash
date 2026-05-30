@@ -2,7 +2,7 @@ pragma cashscript >= 0.13.0;
 
 // PriceGatedRelease — locks BCH; releases to the holder of recipientPubkey
 // once an atomically co-final Ticker NFT shows medianPrice >= strikePrice
-// (and the notary-attested lastTs is at or above minLastTs).
+// (and the publisher-attested lastTs is at or above minLastTs).
 //
 // Tx shape:
 //   input[0]   this covenant (the funded UTXO)
@@ -43,7 +43,7 @@ contract PriceGatedRelease(
         require(tickerCommit.length == 17);
         require(tickerCommit.slice(0, 1) == 0x80);
 
-        // Freshness — notary-attested wall-clock, not BIP-113-laggable
+        // Freshness — publisher-attested wall-clock, not BIP-113-laggable
         require(int(tickerCommit.slice(5, 9)) >= minLastTs);
 
         // Price gate — both sides are u64 LE, sat-scaled USD/BCH × 1e8

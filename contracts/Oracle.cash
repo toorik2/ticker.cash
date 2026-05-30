@@ -25,7 +25,7 @@ pragma cashscript >= 0.13.0;
 // Oracle (19 B, version 0x60) — UNCHANGED from v11:
 //   [0]       0x60                          1 B
 //   [1..5)    seq                          4 B   u32 LE  +1 per cycle
-//   [5..9)    lastTs                       4 B   u32 LE  notary-attested time
+//   [5..9)    lastTs                       4 B   u32 LE  publisher-attested median time
 //   [9..17)   medianPrice                  8 B   u64 LE  sat-scaled USD/BCH
 //   [17..19)  activeCount                  2 B   u16 LE  threshold ratchet
 //

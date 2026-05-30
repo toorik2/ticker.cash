@@ -128,7 +128,7 @@
     <section class="chapter" id="flow">
       <h2><span class="num">§03</span><span>Cycle flow</span></h2>
       <ol class="body">
-        <li>Publisher polls the Oracle UTXO for <code>prevTs</code> and <code>cycleSeq</code>.</li>
+        <li>Publisher polls the Oracle UTXO for <code>lastTs</code> and <code>seq</code> (the next cycle attests at <code>seq + 1</code>).</li>
         <li>Publisher fetches the price from its pinned CEX over TLS.</li>
         <li>Publisher broadcasts <code>PublisherSlot.attest</code>. The slot covenant verifies the publisher ECDSA-DER sig, the CN/SAN hash, and the monotonic cycleSeq advance, then rewrites the slot commit in place.</li>
         <li>Publisher waits ~25 s for peer slot refreshes to appear in mempool.</li>
@@ -164,22 +164,25 @@
         │                       │                  │
         │                       │       verifies sig 1,
         │                       │       cycleSeq strictly advances,
-        │                       │       hash160(SN) matches sourceId
+        │                       │       hash160(SN) matches slot's pinned CN hash
 </code></pre>
 
       <h3>Step 2 · Oracle.update (race winner)</h3>
-<pre><code>   ≥ 7 slots      Race-winner publisher          Oracle covenant
-   ─────────      ─────────────────────          ───────────────
+<pre><code>   ≥ 7 slots      Race-winner publisher       Oracle covenant + N × slot.consume
+   ─────────      ─────────────────────       ─────────────────────────────────
        │                  │                              │
        │                  │  Tx sig 3 (P2PKH)            │
        │                  │  (no off-chain sig needed)   │
        │                  ├────────────────────────────► │
        │                  │                              │
-       │                  │                  position-checks median,
-       │                  │                  verifies ≥ 7 distinct + sorted pkhs,
-       │                  │                  enforces newTs - prevTs ≥ 60,
-       │                  │                  re-emits slots unchanged,
-       │                  │                  mints 2 mutable Tickers
+       │                  │              Oracle.update enforces:
+       │                  │                position-checked median,
+       │                  │                ≥ 7 distinct + sorted pkhs,
+       │                  │                newTs - prevTs ≥ 60,
+       │                  │                2 mutable Ticker mints.
+       │                  │              Each slot.consume enforces
+       │                  │              identical slot re-emit at its
+       │                  │              own input/output index.
 </code></pre>
 
       <h3>Step 3 · Consumer</h3>
@@ -262,7 +265,7 @@ output[2]  optional change</code></pre>
 <pre><code>0x80 | seq(4) | lastTs(4) | medianPrice(8)</code></pre>
       <p>Little-endian throughout. <code>medianPrice / 10⁸</code> = USD. Pin the Oracle category (LE-reversed) as a covenant arg so an attacker can't feed you a Ticker from a different oracle.</p>
       <p>Reference covenant: <code>contracts/examples/PriceGatedRelease.cash</code> — locks BCH, releases on <code>price ≥ strike</code>. ~64 B script body.</p>
-      <div class="callout"><b>Barrier semantics caveat.</b> The reference example accepts any past Ticker that ever cleared the strike — once the gate has been historically reachable, it stays open. For "current price ≥ strike" semantics, the protocol needs a freshness witness (planned).</div>
+      <div class="callout"><b>Barrier semantics caveat.</b> The reference example takes a constructor-baked <code>minLastTs</code> floor and rejects any Ticker older than that — but the floor is fixed at deploy time, not a rolling "current price" window. Once the gate has been historically reachable (any Ticker at or after <code>minLastTs</code> cleared the strike), it stays open until spent. For sliding-window "tx.locktime − lastTs ≤ N" freshness, the consumer covenant has to add that check itself; a generic freshness witness for that use case is planned.</div>
 
       <h3>Off-chain (JSON)</h3>
 <pre><code>$ curl -s https://usd.ticker.cash/api/v1/price</code></pre>
@@ -382,10 +385,10 @@ output[2]  optional change</code></pre>
       <p>Yes, the binary is the same (<code>ticker-node --publisher --slot N</code>) — but slot identity is pinned at genesis to a specific pubkey hash, and adding a 14th slot is a hard cutover (new covenant, new genesis, slot fleet migration). For now there's no open process to join the federation; the structure exists for when there is.</p>
 
       <h3>How do consumers handle freshness?</h3>
-      <p>The Ticker NFT's commit carries <code>lastTs</code>. A consumer's covenant can require <code>tx.locktime - lastTs ≤ N</code> for any freshness window <i>N</i>. The reference example <code>contracts/examples/PriceGatedRelease.cash</code> doesn't do this — it accepts any past Ticker — which is fine for "anytime-after-strike" semantics but wrong for "current price ≥ strike". A freshness witness is planned.</p>
+      <p>The Ticker NFT's commit carries <code>lastTs</code>. A consumer's covenant can require <code>tx.locktime - lastTs ≤ N</code> for any freshness window <i>N</i>. The reference example <code>contracts/examples/PriceGatedRelease.cash</code> uses a simpler shape — a deploy-time <code>minLastTs</code> floor (<code>require(int(tickerCommit.slice(5, 9)) &gt;= minLastTs)</code>, line 47). That gives you "anytime after this fixed wall-clock", not "current price ≥ strike now". A generic sliding-window freshness witness is planned.</p>
 
       <h3>What does it cost to operate?</h3>
-      <p>About 3–4k sats per cycle per publisher: ~2.2 k for the <code>slot.attest</code> tx (1 sat/byte × ~2.2 KB) plus a 1/13 amortized share of the <code>Oracle.update</code> fee (~8 k for the race winner). At ~60 cycles/hour federation-wide that works out to roughly 5–6 M sats/day per slot in steady state. The protocol burns sats; it doesn't earn them.</p>
+      <p>About 2.8 k sats per cycle per publisher: ~2.2 k for the <code>slot.attest</code> tx (1 sat/byte × ~2.2 KB) plus a 1/13 amortized share of the <code>Oracle.update</code> fee (~8 k for the race winner → ~0.6 k each). At ~60 cycles/hour federation-wide that works out to roughly 4 M sats/day per slot in steady state. The protocol burns sats; it doesn't earn them.</p>
 
     </section>
 
