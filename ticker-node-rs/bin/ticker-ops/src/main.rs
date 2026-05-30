@@ -24,6 +24,7 @@ mod bake;
 mod deploy;
 mod dump;
 mod fund;
+mod send;
 mod setup;
 mod state;
 
@@ -85,6 +86,30 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
                 .opt_value_from_str("--seed")?
                 .unwrap_or_else(|| ".ticker/seed.hex".to_string());
             deploy::deploy(&seed, broadcast)
+        }
+        "send" => {
+            let seed: String = args.value_from_str("--seed")?;
+            let label: String = args.value_from_str("--label")?;
+            let to: String = args.value_from_str("--to")?;
+            let amount: u64 = args.value_from_str("--amount")?;
+            let electrum_host: String = args
+                .opt_value_from_str("--electrum-host")?
+                .unwrap_or_else(|| "chipnet.bch.ninja".to_string());
+            let electrum_port: u16 = args.opt_value_from_str("--electrum-port")?.unwrap_or(50002);
+            let network: String = args
+                .opt_value_from_str("--network")?
+                .unwrap_or_else(|| "chipnet".to_string());
+            let broadcast = args.contains("--broadcast");
+            send::send(
+                &seed,
+                &label,
+                &to,
+                amount,
+                &electrum_host,
+                electrum_port,
+                &network,
+                broadcast,
+            )
         }
         "setup-all" => {
             let seed: String = args
