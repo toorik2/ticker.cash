@@ -1,212 +1,77 @@
 {
   "contractName": "Oracle",
   "constructorInputs": [
-    {
-      "name": "tickerLockingBytecode",
-      "type": "bytes35"
-    },
-    {
-      "name": "slotCategoryReversed",
-      "type": "bytes32"
-    }
+    { "name": "tickerLockingBytecode", "type": "bytes35" },
+    { "name": "slotCategoryReversed", "type": "bytes32" }
   ],
   "abi": [
     {
       "name": "update",
       "inputs": [
-        {
-          "name": "pricesBlob",
-          "type": "bytes"
-        },
-        {
-          "name": "claimedMedian",
-          "type": "bytes"
-        },
-        {
-          "name": "claimedNewTs",
-          "type": "bytes"
-        },
-        {
-          "name": "budgetPad",
-          "type": "bytes"
-        }
+        { "name": "pricesBlob", "type": "bytes" },
+        { "name": "claimedMedian", "type": "bytes" },
+        { "name": "claimedNewTs", "type": "bytes" },
+        { "name": "budgetPad", "type": "bytes" }
       ]
     }
   ],
-  "bytecode": "OP_DUP OP_SIZE OP_NIP 23 OP_NUMEQUALVERIFY OP_3 OP_PICK OP_SIZE OP_NIP OP_8 OP_NUMEQUALVERIFY OP_4 OP_PICK OP_SIZE OP_NIP OP_4 OP_NUMEQUALVERIFY OP_5 OP_ROLL OP_SIZE OP_NIP OP_0 OP_GREATERTHANOREQUAL OP_VERIFY OP_INPUTINDEX OP_3 OP_PICK OP_SIZE OP_NIP OP_8 OP_DIV OP_DUP OP_7 OP_GREATERTHANOREQUAL OP_VERIFY OP_DUP OP_13 OP_LESSTHANOREQUAL OP_VERIFY OP_0 OP_OUTPUTBYTECODE OP_2 OP_PICK OP_UTXOBYTECODE OP_EQUALVERIFY OP_0 OP_OUTPUTTOKENCATEGORY OP_2 OP_PICK OP_UTXOTOKENCATEGORY OP_EQUALVERIFY OP_0 OP_OUTPUTVALUE d007 OP_NUMEQUALVERIFY OP_OVER OP_UTXOTOKENCOMMITMENT OP_DUP OP_SIZE OP_NIP 13 OP_NUMEQUALVERIFY OP_DUP OP_1 OP_SPLIT OP_DROP 60 OP_EQUALVERIFY OP_DUP OP_9 OP_SPLIT OP_DROP OP_5 OP_SPLIT OP_NIP OP_BIN2NUM OP_8 OP_PICK OP_BIN2NUM OP_2DUP OP_LESSTHAN OP_VERIFY OP_DUP OP_ROT OP_SUB 1e OP_GREATERTHANOREQUAL OP_VERIFY OP_OVER OP_5 OP_SPLIT OP_DROP OP_1 OP_SPLIT OP_NIP OP_BIN2NUM OP_1ADD OP_ROT 13 OP_SPLIT OP_DROP 11 OP_SPLIT OP_NIP OP_BIN2NUM OP_DUP OP_5 OP_MUL OP_9 OP_ADD OP_10 OP_DIV OP_DUP OP_7 OP_LESSTHAN OP_IF OP_DROP OP_7 OP_ENDIF OP_4 OP_PICK OP_LESSTHANOREQUAL OP_VERIFY 78 OP_0 OP_0 OP_0 OP_0 OP_BEGIN OP_DUP OP_9 OP_PICK OP_LESSTHAN OP_DUP OP_TOALTSTACK OP_IF OP_DUP OP_1ADD OP_DUP OP_UTXOTOKENCATEGORY 20 OP_SPLIT OP_DROP OP_13 OP_PICK OP_EQUALVERIFY OP_DUP OP_UTXOTOKENCATEGORY 21 OP_SPLIT OP_DROP 20 OP_SPLIT OP_NIP OP_1 OP_EQUALVERIFY OP_DUP OP_UTXOTOKENCOMMITMENT OP_DUP OP_SIZE OP_NIP 27 OP_NUMEQUALVERIFY OP_DUP OP_1 OP_SPLIT OP_DROP 72 OP_EQUALVERIFY OP_DUP 17 OP_SPLIT OP_DROP OP_3 OP_SPLIT OP_NIP OP_3 OP_PICK OP_0 OP_GREATERTHAN OP_IF OP_DUP 00 OP_CAT OP_BIN2NUM OP_5 OP_PICK 00 OP_CAT OP_BIN2NUM OP_GREATERTHAN OP_VERIFY OP_ENDIF OP_DUP OP_5 OP_ROLL OP_DROP OP_SWAP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK OP_SWAP OP_FROMALTSTACK OP_FROMALTSTACK OP_FROMALTSTACK OP_OVER 23 OP_SPLIT OP_DROP 1f OP_SPLIT OP_NIP OP_BIN2NUM OP_DUP OP_9 OP_PICK OP_ADD OP_12 OP_PICK OP_GREATERTHANOREQUAL OP_IF OP_7 OP_PICK OP_1ADD OP_8 OP_ROLL OP_DROP OP_SWAP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK OP_SWAP OP_FROMALTSTACK OP_FROMALTSTACK OP_FROMALTSTACK OP_FROMALTSTACK OP_FROMALTSTACK OP_FROMALTSTACK OP_ENDIF OP_DUP OP_12 OP_PICK OP_10 OP_PICK OP_ADD OP_LESSTHANOREQUAL OP_IF OP_6 OP_PICK OP_1ADD OP_7 OP_ROLL OP_DROP OP_SWAP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK OP_SWAP OP_FROMALTSTACK OP_FROMALTSTACK OP_FROMALTSTACK OP_FROMALTSTACK OP_FROMALTSTACK OP_ENDIF OP_2 OP_PICK 27 OP_SPLIT OP_DROP 23 OP_SPLIT OP_NIP OP_BIN2NUM OP_11 OP_PICK OP_NUMEQUALVERIFY OP_2 OP_PICK 1f OP_SPLIT OP_DROP 17 OP_SPLIT OP_NIP 11 OP_PICK OP_6 OP_PICK OP_8 OP_MUL OP_8 OP_ADD OP_SPLIT OP_DROP OP_6 OP_PICK OP_8 OP_MUL OP_SPLIT OP_NIP OP_EQUALVERIFY OP_4 OP_PICK OP_1ADD OP_5 OP_ROLL OP_DROP OP_SWAP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK OP_SWAP OP_FROMALTSTACK OP_FROMALTSTACK OP_FROMALTSTACK OP_2DROP OP_2DROP OP_ENDIF OP_FROMALTSTACK OP_NOT OP_UNTIL OP_DROP OP_ROT OP_2 OP_MUL OP_7 OP_PICK OP_GREATERTHAN OP_VERIFY OP_SWAP OP_2 OP_MUL OP_6 OP_PICK OP_GREATERTHAN OP_VERIFY OP_10 OP_PICK OP_BIN2NUM OP_0 OP_0 OP_0 OP_0 OP_BEGIN OP_DUP OP_11 OP_PICK OP_LESSTHAN OP_DUP OP_TOALTSTACK OP_IF OP_14 OP_PICK OP_OVER OP_8 OP_MUL OP_8 OP_ADD OP_SPLIT OP_DROP OP_OVER OP_8 OP_MUL OP_SPLIT OP_NIP OP_BIN2NUM OP_DUP OP_6 OP_PICK OP_LESSTHAN OP_IF OP_4 OP_PICK OP_1ADD OP_5 OP_ROLL OP_DROP OP_SWAP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK OP_SWAP OP_FROMALTSTACK OP_FROMALTSTACK OP_FROMALTSTACK OP_ELSE OP_DUP OP_6 OP_PICK OP_GREATERTHAN OP_IF OP_3 OP_PICK OP_1ADD OP_4 OP_ROLL OP_DROP OP_SWAP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK OP_SWAP OP_FROMALTSTACK OP_FROMALTSTACK OP_ELSE OP_1 OP_3 OP_ROLL OP_DROP OP_SWAP OP_TOALTSTACK OP_SWAP OP_FROMALTSTACK OP_ENDIF OP_ENDIF OP_OVER OP_1ADD OP_ROT OP_DROP OP_NIP OP_ENDIF OP_FROMALTSTACK OP_NOT OP_UNTIL OP_DROP OP_VERIFY OP_8 OP_PICK OP_1SUB OP_2 OP_DIV OP_2 OP_PICK OP_OVER OP_LESSTHANOREQUAL OP_VERIFY OP_2 OP_PICK OP_10 OP_PICK OP_4 OP_ROLL OP_SUB OP_3 OP_ROLL OP_SUB OP_ADD OP_LESSTHAN OP_VERIFY OP_3 OP_ROLL OP_9 OP_MUL OP_10 OP_DIV OP_6 OP_PICK OP_2DUP OP_GREATERTHAN OP_IF OP_OVER OP_NIP OP_ENDIF OP_DUP OP_7 OP_LESSTHAN OP_IF OP_DROP OP_7 OP_ENDIF OP_5 OP_ROLL OP_4 OP_NUM2BIN OP_SWAP OP_2 OP_NUM2BIN 60 OP_2 OP_PICK OP_CAT OP_14 OP_PICK OP_CAT OP_13 OP_PICK OP_CAT OP_SWAP OP_CAT OP_DUP OP_SIZE OP_NIP 13 OP_NUMEQUALVERIFY OP_0 OP_OUTPUTTOKENCOMMITMENT OP_EQUALVERIFY 80 OP_SWAP OP_CAT OP_12 OP_ROLL OP_CAT OP_11 OP_ROLL OP_CAT OP_DUP OP_SIZE OP_NIP 11 OP_NUMEQUALVERIFY OP_7 OP_ROLL OP_UTXOTOKENCATEGORY 20 OP_SPLIT OP_DROP OP_1 OP_CAT OP_DUP OP_SIZE OP_NIP 21 OP_NUMEQUALVERIFY OP_7 OP_PICK OP_1ADD OP_8 OP_PICK OP_2 OP_ADD OP_OVER OP_OUTPUTBYTECODE OP_11 OP_PICK OP_EQUALVERIFY OP_OVER OP_OUTPUTTOKENCATEGORY OP_3 OP_PICK OP_EQUALVERIFY OP_SWAP OP_OUTPUTTOKENCOMMITMENT OP_3 OP_PICK OP_EQUALVERIFY OP_DUP OP_OUTPUTBYTECODE OP_10 OP_ROLL OP_EQUALVERIFY OP_DUP OP_OUTPUTTOKENCATEGORY OP_ROT OP_EQUALVERIFY OP_OUTPUTTOKENCOMMITMENT OP_EQUALVERIFY OP_5 OP_PICK OP_3 OP_ADD OP_6 OP_PICK OP_4 OP_ADD OP_TXOUTPUTCOUNT OP_ROT OP_GREATERTHANOREQUAL OP_VERIFY OP_TXOUTPUTCOUNT OP_OVER OP_LESSTHANOREQUAL OP_VERIFY OP_TXOUTPUTCOUNT OP_NUMEQUAL OP_IF OP_5 OP_PICK OP_3 OP_ADD OP_OUTPUTTOKENCATEGORY OP_0 OP_EQUALVERIFY OP_ENDIF OP_2DROP OP_2DROP OP_2DROP OP_2DROP OP_1",
-  "source": "pragma cashscript >= 0.13.0;\n\n// Oracle v12 — RFC-013: PublisherSlot-based attestation aggregator.\n//\n// ── Diff from v11 ──────────────────────────────────────────────────────\n// v11 walked VA inputs and BURNED each one (consumed without re-emit). VAs\n// not selected for the cycle's quorum became permanent orphans (~8.6k/day\n// at the shared VA address).\n//\n// v12 walks PublisherSlot inputs and RE-EMITS each one unchanged at the\n// matching output index. Slots are persistent per-publisher mutable NFTs.\n// The set of attestation-category UTXOs is fixed at 13 forever.\n//\n// ── Other changes ──────────────────────────────────────────────────────\n//   - VA category check (32-byte equality) → slot category check + mutable\n//     capability byte (0x01) check\n//   - VA commitment layout (51 B at v11) → slot layout (39 B at v12);\n//     read positions shift accordingly\n//   - Ticker mint outputs move from [1, 2] → [numAttestations+1, +2] so\n//     they sit after the slot re-emits at [1..numAttestations+1)\n//   - K=2 Ticker count unchanged from v11\n//   - Median / ratchet / time-stride logic identical to v11\n//\n// ── Commitment layouts ─────────────────────────────────────────────────\n// Oracle (19 B, version 0x60) — UNCHANGED from v11:\n//   [0]       0x60                          1 B\n//   [1..5)    seq                          4 B   u32 LE  +1 per cycle\n//   [5..9)    lastTs                       4 B   u32 LE  notary-attested time\n//   [9..17)   medianPrice                  8 B   u64 LE  sat-scaled USD/BCH\n//   [17..19)  activeCount                  2 B   u16 LE  threshold ratchet\n//\n// Slot (39 B, version 0x72) — see PublisherSlot.cash for full layout.\n//\n// Ticker (17 B, version 0x80) — UNCHANGED from v11.\n\ncontract Oracle(\n    bytes35 tickerLockingBytecode,\n    bytes32 slotCategoryReversed\n) {\n    function update(\n        bytes pricesBlob,\n        bytes claimedMedian,\n        bytes claimedNewTs,\n        bytes budgetPad\n    ) {\n        require(tickerLockingBytecode.length == 35);\n        require(claimedMedian.length == 8);\n        require(claimedNewTs.length == 4);\n        require(budgetPad.length >= 0);\n\n        int idx = this.activeInputIndex;\n        int numAttestations = pricesBlob.length / 8;\n        require(numAttestations >= 7);\n        require(numAttestations <= 13);\n\n        // ── Self-replication (Oracle state NFT) ──────────────────────\n        require(tx.outputs[0].lockingBytecode == tx.inputs[idx].lockingBytecode);\n        require(tx.outputs[0].tokenCategory == tx.inputs[idx].tokenCategory);\n        require(tx.outputs[0].value == 2000);\n\n        // ── Read previous Oracle state ───────────────────────────────\n        bytes oldCommit = tx.inputs[idx].nftCommitment;\n        require(oldCommit.length == 19);\n        require(oldCommit.slice(0, 1) == 0x60);\n        int prevTs = int(oldCommit.slice(5, 9));\n        int newTs  = int(claimedNewTs);\n\n        // ── Time stride (notary-attested, monotonic) ─────────────────\n        // No upper bound on stride: upperVotes pins newTs to median(slotTs)\n        // + 120, honest notaries cap at ≈ wall_clock. Removing the upper\n        // ceiling lets the chain self-heal from any idle duration in a\n        // single catch-up cycle.\n        require(newTs > prevTs);\n        require(newTs - prevTs >= 30);\n\n        int newSeq    = int(oldCommit.slice(1, 5)) + 1;\n        int oldActive = int(oldCommit.slice(17, 19));\n\n        // ── Threshold gate (50% ratchet, T_floor = 7) ────────────────\n        // Sybil resistance is preserved by the distinct-publisherPkh check\n        // in the slot loop (load-bearing anti-Sybil), not by the ratchet.\n        int thr = (oldActive * 5 + 9) / 10;\n        if (thr < 7) {\n            thr = 7;\n        }\n        require(numAttestations >= thr);\n\n        // ── Walk PublisherSlot inputs ────────────────────────────────\n        // Two-loop structure (slot-walk + median-position) is intentional.\n        // Empirical: at N=13 the merged-loop variant runs 74.9% per-input\n        // op-cost vs 67.6% for two separate loops — the merge forces more\n        // locals onto the stack, deepening OP_PICK/OP_ROLL per iteration,\n        // AND inflates redeem-script bytecode (which counts against the\n        // input's op-cost budget). Keep them separate.\n        int jitter = 120;\n        int lowerVotes = 0;\n        int upperVotes = 0;\n        bytes prevPkh = 0x;\n        for (int i = 0; i < numAttestations; i = i + 1) {\n            int slotIdx = i + 1;\n\n            // Category: 32-byte slot category + mutable capability byte\n            require(tx.inputs[slotIdx].tokenCategory.slice(0, 32) == slotCategoryReversed);\n            require(tx.inputs[slotIdx].tokenCategory.slice(32, 33) == 0x01);\n\n            bytes slotCommit = tx.inputs[slotIdx].nftCommitment;\n            require(slotCommit.length == 39);\n            require(slotCommit.slice(0, 1) == 0x72);\n\n            // Distinct + monotonically-sorted pkh (anti-Sybil)\n            bytes pkh = slotCommit.slice(3, 23);\n            if (i > 0) {\n                require(int(pkh + 0x00) > int(prevPkh + 0x00));\n            }\n            prevPkh = pkh;\n\n            // Timestamp votes (median-of-medians, ±jitter window)\n            int slotTimestamp = int(slotCommit.slice(31, 35));\n            if (slotTimestamp + jitter >= newTs) {\n                lowerVotes = lowerVotes + 1;\n            }\n            if (slotTimestamp <= newTs + jitter) {\n                upperVotes = upperVotes + 1;\n            }\n\n            // Cycle freshness: slot must attest to THIS cycle\n            require(int(slotCommit.slice(35, 39)) == newSeq);\n\n            // Price matches caller-supplied blob\n            require(slotCommit.slice(23, 31) == pricesBlob.slice(i * 8, i * 8 + 8));\n        }\n        require(lowerVotes * 2 > numAttestations);\n        require(upperVotes * 2 > numAttestations);\n\n        // ── Median position check ────────────────────────────────────\n        int medianVal   = int(claimedMedian);\n        int actualLower = 0;\n        int actualUpper = 0;\n        bool foundMedian = false;\n        for (int i = 0; i < numAttestations; i = i + 1) {\n            int pVal = int(pricesBlob.slice(i * 8, i * 8 + 8));\n            if (pVal < medianVal) {\n                actualLower = actualLower + 1;\n            } else {\n                if (pVal > medianVal) {\n                    actualUpper = actualUpper + 1;\n                } else {\n                    foundMedian = true;\n                }\n            }\n        }\n        require(foundMedian);\n        int half = (numAttestations - 1) / 2;\n        require(actualLower <= half);\n        require(actualLower + (numAttestations - actualLower - actualUpper) > half);\n\n        // ── activeCount ratchet ──────────────────────────────────────\n        int decayed = oldActive * 9 / 10;\n        int newActive = numAttestations;\n        if (decayed > newActive) {\n            newActive = decayed;\n        }\n        if (newActive < 7) {\n            newActive = 7;\n        }\n\n        // ── New Oracle commitment (output[0]) ────────────────────────\n        bytes seqBytes         = toPaddedBytes(newSeq, 4);\n        bytes activeCountBytes = toPaddedBytes(newActive, 2);\n        bytes newOracleCommit  = 0x60 + seqBytes + claimedNewTs + claimedMedian + activeCountBytes;\n        require(newOracleCommit.length == 19);\n        require(tx.outputs[0].nftCommitment == newOracleCommit);\n\n        // ── K=2 Mutable Ticker mints ────────────────────────────────\n        // Output indices: [numAttestations+1] and [numAttestations+2], so\n        // they sit AFTER the slot re-emits at [1..numAttestations+1).\n        bytes newTickerCommit = 0x80 + seqBytes + claimedNewTs + claimedMedian;\n        require(newTickerCommit.length == 17);\n\n        // Ticker token category = bare 32-byte Oracle category + 0x01\n        bytes tickerCategory = tx.inputs[idx].tokenCategory.slice(0, 32) + 0x01;\n        require(tickerCategory.length == 33);\n\n        int tickerIdx0 = numAttestations + 1;\n        int tickerIdx1 = numAttestations + 2;\n\n        require(tx.outputs[tickerIdx0].lockingBytecode == tickerLockingBytecode);\n        require(tx.outputs[tickerIdx0].tokenCategory == tickerCategory);\n        require(tx.outputs[tickerIdx0].nftCommitment == newTickerCommit);\n\n        require(tx.outputs[tickerIdx1].lockingBytecode == tickerLockingBytecode);\n        require(tx.outputs[tickerIdx1].tokenCategory == tickerCategory);\n        require(tx.outputs[tickerIdx1].nftCommitment == newTickerCommit);\n\n        // ── Output-count constraint ──────────────────────────────────\n        // Layout: [0] Oracle re-emit, [1..numAttestations+1) slot re-emits,\n        // [numAttestations+1, +2] 2 Ticker heads, [+3] optional funder change.\n        // Total ∈ {numAttestations+3, numAttestations+4}.\n        int minOutputs = numAttestations + 3;\n        int maxOutputs = numAttestations + 4;\n        require(tx.outputs.length >= minOutputs);\n        require(tx.outputs.length <= maxOutputs);\n        if (tx.outputs.length == maxOutputs) {\n            require(tx.outputs[numAttestations + 3].tokenCategory == 0x);\n        }\n    }\n}\n",
+  "bytecode": "OP_DUP OP_SIZE OP_NIP 23 OP_NUMEQUALVERIFY OP_3 OP_PICK OP_SIZE OP_NIP OP_8 OP_NUMEQUALVERIFY OP_4 OP_PICK OP_SIZE OP_NIP OP_4 OP_NUMEQUALVERIFY OP_5 OP_ROLL OP_SIZE OP_NIP OP_0 OP_GREATERTHANOREQUAL OP_VERIFY OP_INPUTINDEX OP_3 OP_PICK OP_SIZE OP_NIP OP_8 OP_DIV OP_DUP OP_7 OP_GREATERTHANOREQUAL OP_VERIFY OP_DUP OP_13 OP_LESSTHANOREQUAL OP_VERIFY OP_0 OP_OUTPUTBYTECODE OP_2 OP_PICK OP_UTXOBYTECODE OP_EQUALVERIFY OP_0 OP_OUTPUTTOKENCATEGORY OP_2 OP_PICK OP_UTXOTOKENCATEGORY OP_EQUALVERIFY OP_0 OP_OUTPUTVALUE d007 OP_NUMEQUALVERIFY OP_OVER OP_UTXOTOKENCOMMITMENT OP_DUP OP_SIZE OP_NIP 13 OP_NUMEQUALVERIFY OP_DUP OP_1 OP_SPLIT OP_DROP 60 OP_EQUALVERIFY OP_DUP OP_9 OP_SPLIT OP_DROP OP_5 OP_SPLIT OP_NIP OP_BIN2NUM OP_8 OP_PICK OP_BIN2NUM OP_2DUP OP_LESSTHAN OP_VERIFY OP_DUP OP_ROT OP_SUB 1e OP_GREATERTHANOREQUAL OP_VERIFY OP_OVER OP_5 OP_SPLIT OP_DROP OP_1 OP_SPLIT OP_NIP OP_BIN2NUM OP_1ADD OP_ROT 13 OP_SPLIT OP_DROP 11 OP_SPLIT OP_NIP OP_BIN2NUM OP_DUP OP_5 OP_MUL OP_9 OP_ADD OP_10 OP_DIV OP_DUP OP_7 OP_LESSTHAN OP_IF OP_DROP OP_7 OP_ENDIF OP_4 OP_PICK OP_LESSTHANOREQUAL OP_VERIFY 78 OP_0 OP_0 OP_0 OP_0 OP_BEGIN OP_DUP OP_9 OP_PICK OP_LESSTHAN OP_DUP OP_TOALTSTACK OP_IF OP_DUP OP_1ADD OP_DUP OP_UTXOTOKENCATEGORY 20 OP_SPLIT OP_DROP OP_13 OP_PICK OP_EQUALVERIFY OP_DUP OP_UTXOTOKENCATEGORY 21 OP_SPLIT OP_DROP 20 OP_SPLIT OP_NIP OP_1 OP_EQUALVERIFY OP_DUP OP_UTXOTOKENCOMMITMENT OP_DUP OP_SIZE OP_NIP 27 OP_NUMEQUALVERIFY OP_DUP OP_1 OP_SPLIT OP_DROP 73 OP_EQUALVERIFY OP_DUP 17 OP_SPLIT OP_DROP OP_3 OP_SPLIT OP_NIP OP_3 OP_PICK OP_0 OP_GREATERTHAN OP_IF OP_DUP 00 OP_CAT OP_BIN2NUM OP_5 OP_PICK 00 OP_CAT OP_BIN2NUM OP_GREATERTHAN OP_VERIFY OP_ENDIF OP_DUP OP_5 OP_ROLL OP_DROP OP_SWAP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK OP_SWAP OP_FROMALTSTACK OP_FROMALTSTACK OP_FROMALTSTACK OP_OVER 23 OP_SPLIT OP_DROP 1f OP_SPLIT OP_NIP OP_BIN2NUM OP_DUP OP_9 OP_PICK OP_ADD OP_12 OP_PICK OP_GREATERTHANOREQUAL OP_IF OP_7 OP_PICK OP_1ADD OP_8 OP_ROLL OP_DROP OP_SWAP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK OP_SWAP OP_FROMALTSTACK OP_FROMALTSTACK OP_FROMALTSTACK OP_FROMALTSTACK OP_FROMALTSTACK OP_FROMALTSTACK OP_ENDIF OP_DUP OP_12 OP_PICK OP_10 OP_PICK OP_ADD OP_LESSTHANOREQUAL OP_IF OP_6 OP_PICK OP_1ADD OP_7 OP_ROLL OP_DROP OP_SWAP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK OP_SWAP OP_FROMALTSTACK OP_FROMALTSTACK OP_FROMALTSTACK OP_FROMALTSTACK OP_FROMALTSTACK OP_ENDIF OP_2 OP_PICK 27 OP_SPLIT OP_DROP 23 OP_SPLIT OP_NIP OP_BIN2NUM OP_11 OP_PICK OP_NUMEQUALVERIFY OP_2 OP_PICK 1f OP_SPLIT OP_DROP 17 OP_SPLIT OP_NIP 11 OP_PICK OP_6 OP_PICK OP_8 OP_MUL OP_8 OP_ADD OP_SPLIT OP_DROP OP_6 OP_PICK OP_8 OP_MUL OP_SPLIT OP_NIP OP_EQUALVERIFY OP_4 OP_PICK OP_1ADD OP_5 OP_ROLL OP_DROP OP_SWAP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK OP_SWAP OP_FROMALTSTACK OP_FROMALTSTACK OP_FROMALTSTACK OP_2DROP OP_2DROP OP_ENDIF OP_FROMALTSTACK OP_NOT OP_UNTIL OP_DROP OP_ROT OP_2 OP_MUL OP_7 OP_PICK OP_GREATERTHAN OP_VERIFY OP_SWAP OP_2 OP_MUL OP_6 OP_PICK OP_GREATERTHAN OP_VERIFY OP_10 OP_PICK OP_BIN2NUM OP_0 OP_0 OP_0 OP_0 OP_BEGIN OP_DUP OP_11 OP_PICK OP_LESSTHAN OP_DUP OP_TOALTSTACK OP_IF OP_14 OP_PICK OP_OVER OP_8 OP_MUL OP_8 OP_ADD OP_SPLIT OP_DROP OP_OVER OP_8 OP_MUL OP_SPLIT OP_NIP OP_BIN2NUM OP_DUP OP_6 OP_PICK OP_LESSTHAN OP_IF OP_4 OP_PICK OP_1ADD OP_5 OP_ROLL OP_DROP OP_SWAP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK OP_SWAP OP_FROMALTSTACK OP_FROMALTSTACK OP_FROMALTSTACK OP_ELSE OP_DUP OP_6 OP_PICK OP_GREATERTHAN OP_IF OP_3 OP_PICK OP_1ADD OP_4 OP_ROLL OP_DROP OP_SWAP OP_TOALTSTACK OP_SWAP OP_TOALTSTACK OP_SWAP OP_FROMALTSTACK OP_FROMALTSTACK OP_ELSE OP_1 OP_3 OP_ROLL OP_DROP OP_SWAP OP_TOALTSTACK OP_SWAP OP_FROMALTSTACK OP_ENDIF OP_ENDIF OP_OVER OP_1ADD OP_ROT OP_DROP OP_NIP OP_ENDIF OP_FROMALTSTACK OP_NOT OP_UNTIL OP_DROP OP_VERIFY OP_8 OP_PICK OP_1SUB OP_2 OP_DIV OP_2 OP_PICK OP_OVER OP_LESSTHANOREQUAL OP_VERIFY OP_2 OP_PICK OP_10 OP_PICK OP_4 OP_ROLL OP_SUB OP_3 OP_ROLL OP_SUB OP_ADD OP_LESSTHAN OP_VERIFY OP_3 OP_ROLL OP_9 OP_MUL OP_10 OP_DIV OP_6 OP_PICK OP_2DUP OP_GREATERTHAN OP_IF OP_OVER OP_NIP OP_ENDIF OP_DUP OP_7 OP_LESSTHAN OP_IF OP_DROP OP_7 OP_ENDIF OP_5 OP_ROLL OP_4 OP_NUM2BIN OP_SWAP OP_2 OP_NUM2BIN 60 OP_2 OP_PICK OP_CAT OP_14 OP_PICK OP_CAT OP_13 OP_PICK OP_CAT OP_SWAP OP_CAT OP_DUP OP_SIZE OP_NIP 13 OP_NUMEQUALVERIFY OP_0 OP_OUTPUTTOKENCOMMITMENT OP_EQUALVERIFY 80 OP_SWAP OP_CAT OP_12 OP_ROLL OP_CAT OP_11 OP_ROLL OP_CAT OP_DUP OP_SIZE OP_NIP 11 OP_NUMEQUALVERIFY OP_7 OP_ROLL OP_UTXOTOKENCATEGORY 20 OP_SPLIT OP_DROP OP_1 OP_CAT OP_DUP OP_SIZE OP_NIP 21 OP_NUMEQUALVERIFY OP_7 OP_PICK OP_1ADD OP_8 OP_PICK OP_2 OP_ADD OP_OVER OP_OUTPUTBYTECODE OP_11 OP_PICK OP_EQUALVERIFY OP_OVER OP_OUTPUTTOKENCATEGORY OP_3 OP_PICK OP_EQUALVERIFY OP_SWAP OP_OUTPUTTOKENCOMMITMENT OP_3 OP_PICK OP_EQUALVERIFY OP_DUP OP_OUTPUTBYTECODE OP_10 OP_ROLL OP_EQUALVERIFY OP_DUP OP_OUTPUTTOKENCATEGORY OP_ROT OP_EQUALVERIFY OP_OUTPUTTOKENCOMMITMENT OP_EQUALVERIFY OP_5 OP_PICK OP_3 OP_ADD OP_6 OP_PICK OP_4 OP_ADD OP_TXOUTPUTCOUNT OP_ROT OP_GREATERTHANOREQUAL OP_VERIFY OP_TXOUTPUTCOUNT OP_OVER OP_LESSTHANOREQUAL OP_VERIFY OP_TXOUTPUTCOUNT OP_NUMEQUAL OP_IF OP_5 OP_PICK OP_3 OP_ADD OP_OUTPUTTOKENCATEGORY OP_0 OP_EQUALVERIFY OP_ENDIF OP_2DROP OP_2DROP OP_2DROP OP_2DROP OP_1",
+  "source": "pragma cashscript >= 0.13.0;\n\n// Oracle v12 — RFC-013: PublisherSlot-based attestation aggregator.\n//\n// ── Diff from v11 ──────────────────────────────────────────────────────\n// v11 walked VA inputs and BURNED each one (consumed without re-emit). VAs\n// not selected for the cycle's quorum became permanent orphans (~8.6k/day\n// at the shared VA address).\n//\n// v12 walks PublisherSlot inputs and RE-EMITS each one unchanged at the\n// matching output index. Slots are persistent per-publisher mutable NFTs.\n// The set of attestation-category UTXOs is fixed at 13 forever.\n//\n// ── Other changes ──────────────────────────────────────────────────────\n//   - VA category check (32-byte equality) → slot category check + mutable\n//     capability byte (0x01) check\n//   - VA commitment layout (51 B at v11) → slot layout (39 B at v12);\n//     read positions shift accordingly\n//   - Ticker mint outputs move from [1, 2] → [numAttestations+1, +2] so\n//     they sit after the slot re-emits at [1..numAttestations+1)\n//   - K=2 Ticker count unchanged from v11\n//   - Median / ratchet / time-stride logic identical to v11\n//\n// ── Commitment layouts ─────────────────────────────────────────────────\n// Oracle (19 B, version 0x60) — UNCHANGED from v11:\n//   [0]       0x60                          1 B\n//   [1..5)    seq                          4 B   u32 LE  +1 per cycle\n//   [5..9)    lastTs                       4 B   u32 LE  notary-attested time\n//   [9..17)   medianPrice                  8 B   u64 LE  sat-scaled USD/BCH\n//   [17..19)  activeCount                  2 B   u16 LE  threshold ratchet\n//\n// Slot (39 B, version 0x73 in v13) — see PublisherSlot.cash for full layout.\n//\n// Ticker (17 B, version 0x80) — UNCHANGED from v11.\n\ncontract Oracle(\n    bytes35 tickerLockingBytecode,\n    bytes32 slotCategoryReversed\n) {\n    function update(\n        bytes pricesBlob,\n        bytes claimedMedian,\n        bytes claimedNewTs,\n        bytes budgetPad\n    ) {\n        require(tickerLockingBytecode.length == 35);\n        require(claimedMedian.length == 8);\n        require(claimedNewTs.length == 4);\n        require(budgetPad.length >= 0);\n\n        int idx = this.activeInputIndex;\n        int numAttestations = pricesBlob.length / 8;\n        require(numAttestations >= 7);\n        require(numAttestations <= 13);\n\n        // ── Self-replication (Oracle state NFT) ──────────────────────\n        require(tx.outputs[0].lockingBytecode == tx.inputs[idx].lockingBytecode);\n        require(tx.outputs[0].tokenCategory == tx.inputs[idx].tokenCategory);\n        require(tx.outputs[0].value == 2000);\n\n        // ── Read previous Oracle state ───────────────────────────────\n        bytes oldCommit = tx.inputs[idx].nftCommitment;\n        require(oldCommit.length == 19);\n        require(oldCommit.slice(0, 1) == 0x60);\n        int prevTs = int(oldCommit.slice(5, 9));\n        int newTs  = int(claimedNewTs);\n\n        // ── Time stride (notary-attested, monotonic) ─────────────────\n        // No upper bound on stride: upperVotes pins newTs to median(slotTs)\n        // + 120, honest notaries cap at ≈ wall_clock. Removing the upper\n        // ceiling lets the chain self-heal from any idle duration in a\n        // single catch-up cycle.\n        require(newTs > prevTs);\n        require(newTs - prevTs >= 30);\n\n        int newSeq    = int(oldCommit.slice(1, 5)) + 1;\n        int oldActive = int(oldCommit.slice(17, 19));\n\n        // ── Threshold gate (50% ratchet, T_floor = 7) ────────────────\n        // Sybil resistance is preserved by the distinct-publisherPkh check\n        // in the slot loop (load-bearing anti-Sybil), not by the ratchet.\n        int thr = (oldActive * 5 + 9) / 10;\n        if (thr < 7) {\n            thr = 7;\n        }\n        require(numAttestations >= thr);\n\n        // ── Walk PublisherSlot inputs ────────────────────────────────\n        // Two-loop structure (slot-walk + median-position) is intentional.\n        // Empirical: at N=13 the merged-loop variant runs 74.9% per-input\n        // op-cost vs 67.6% for two separate loops — the merge forces more\n        // locals onto the stack, deepening OP_PICK/OP_ROLL per iteration,\n        // AND inflates redeem-script bytecode (which counts against the\n        // input's op-cost budget). Keep them separate.\n        int jitter = 120;\n        int lowerVotes = 0;\n        int upperVotes = 0;\n        bytes prevPkh = 0x;\n        for (int i = 0; i < numAttestations; i = i + 1) {\n            int slotIdx = i + 1;\n\n            // Category: 32-byte slot category + mutable capability byte\n            require(tx.inputs[slotIdx].tokenCategory.slice(0, 32) == slotCategoryReversed);\n            require(tx.inputs[slotIdx].tokenCategory.slice(32, 33) == 0x01);\n\n            bytes slotCommit = tx.inputs[slotIdx].nftCommitment;\n            require(slotCommit.length == 39);\n            require(slotCommit.slice(0, 1) == 0x73);\n\n            // Distinct + monotonically-sorted pkh (anti-Sybil)\n            bytes pkh = slotCommit.slice(3, 23);\n            if (i > 0) {\n                require(int(pkh + 0x00) > int(prevPkh + 0x00));\n            }\n            prevPkh = pkh;\n\n            // Timestamp votes (median-of-medians, ±jitter window)\n            int slotTimestamp = int(slotCommit.slice(31, 35));\n            if (slotTimestamp + jitter >= newTs) {\n                lowerVotes = lowerVotes + 1;\n            }\n            if (slotTimestamp <= newTs + jitter) {\n                upperVotes = upperVotes + 1;\n            }\n\n            // Cycle freshness: slot must attest to THIS cycle\n            require(int(slotCommit.slice(35, 39)) == newSeq);\n\n            // Price matches caller-supplied blob\n            require(slotCommit.slice(23, 31) == pricesBlob.slice(i * 8, i * 8 + 8));\n        }\n        require(lowerVotes * 2 > numAttestations);\n        require(upperVotes * 2 > numAttestations);\n\n        // ── Median position check ────────────────────────────────────\n        int medianVal   = int(claimedMedian);\n        int actualLower = 0;\n        int actualUpper = 0;\n        bool foundMedian = false;\n        for (int i = 0; i < numAttestations; i = i + 1) {\n            int pVal = int(pricesBlob.slice(i * 8, i * 8 + 8));\n            if (pVal < medianVal) {\n                actualLower = actualLower + 1;\n            } else {\n                if (pVal > medianVal) {\n                    actualUpper = actualUpper + 1;\n                } else {\n                    foundMedian = true;\n                }\n            }\n        }\n        require(foundMedian);\n        int half = (numAttestations - 1) / 2;\n        require(actualLower <= half);\n        require(actualLower + (numAttestations - actualLower - actualUpper) > half);\n\n        // ── activeCount ratchet ──────────────────────────────────────\n        int decayed = oldActive * 9 / 10;\n        int newActive = numAttestations;\n        if (decayed > newActive) {\n            newActive = decayed;\n        }\n        if (newActive < 7) {\n            newActive = 7;\n        }\n\n        // ── New Oracle commitment (output[0]) ────────────────────────\n        bytes seqBytes         = toPaddedBytes(newSeq, 4);\n        bytes activeCountBytes = toPaddedBytes(newActive, 2);\n        bytes newOracleCommit  = 0x60 + seqBytes + claimedNewTs + claimedMedian + activeCountBytes;\n        require(newOracleCommit.length == 19);\n        require(tx.outputs[0].nftCommitment == newOracleCommit);\n\n        // ── K=2 Mutable Ticker mints ────────────────────────────────\n        // Output indices: [numAttestations+1] and [numAttestations+2], so\n        // they sit AFTER the slot re-emits at [1..numAttestations+1).\n        bytes newTickerCommit = 0x80 + seqBytes + claimedNewTs + claimedMedian;\n        require(newTickerCommit.length == 17);\n\n        // Ticker token category = bare 32-byte Oracle category + 0x01\n        bytes tickerCategory = tx.inputs[idx].tokenCategory.slice(0, 32) + 0x01;\n        require(tickerCategory.length == 33);\n\n        int tickerIdx0 = numAttestations + 1;\n        int tickerIdx1 = numAttestations + 2;\n\n        require(tx.outputs[tickerIdx0].lockingBytecode == tickerLockingBytecode);\n        require(tx.outputs[tickerIdx0].tokenCategory == tickerCategory);\n        require(tx.outputs[tickerIdx0].nftCommitment == newTickerCommit);\n\n        require(tx.outputs[tickerIdx1].lockingBytecode == tickerLockingBytecode);\n        require(tx.outputs[tickerIdx1].tokenCategory == tickerCategory);\n        require(tx.outputs[tickerIdx1].nftCommitment == newTickerCommit);\n\n        // ── Output-count constraint ──────────────────────────────────\n        // Layout: [0] Oracle re-emit, [1..numAttestations+1) slot re-emits,\n        // [numAttestations+1, +2] 2 Ticker heads, [+3] optional funder change.\n        // Total ∈ {numAttestations+3, numAttestations+4}.\n        int minOutputs = numAttestations + 3;\n        int maxOutputs = numAttestations + 4;\n        require(tx.outputs.length >= minOutputs);\n        require(tx.outputs.length <= maxOutputs);\n        if (tx.outputs.length == maxOutputs) {\n            require(tx.outputs[numAttestations + 3].tokenCategory == 0x);\n        }\n    }\n}\n",
+  "fingerprint": "990b63ac70437c2eb3b3bc4ebd554865c75002b96a2203785b77967a7af5a62a",
   "debug": {
-    "bytecode": "76827701239d53798277589d54798277549d557a827700a269c05379827758967657a269765da16900cd5279c78800d15279ce8800cc02d0079d78cf76827701139d76517f7501608876597f75557f77815879816e9f69767b94011ea26978557f75517f77818b7b01137f7501117f778176559559935a9676579f637557685479a169017800000000657659799f766b63768b76ce01207f755d798876ce01217f7501207f77518876cf76827701279d76517f750172887601177f75537f77537900a0637601007e81557901007e81a0696876557a757c6b7c6b7c6b7c6c6c6c7801237f75011f7f7781765979935c79a26357798b587a757c6b7c6b7c6b7c6b7c6b7c6b7c6c6c6c6c6c6c68765c795a7993a16356798b577a757c6b7c6b7c6b7c6b7c6b7c6c6c6c6c6c68527901277f7501237f77815b799d5279011f7f7501177f770111795679589558937f75567958957f778854798b557a757c6b7c6b7c6b7c6c6c6c6d6d686c9166757b52955779a0697c52955679a0695a79810000000065765b799f766b635e7978589558937f757858957f77817656799f6354798b557a757c6b7c6b7c6b7c6c6c6c67765679a06353798b547a757c6b7c6b7c6c6c6751537a757c6b7c6c6868788b7b7577686c9166756958798c5296527978a16952795a79547a94537a94939f69537a59955a9656796ea06378776876579f63755768557a54807c5280016052797e5e797e5d797e7c7e76827701139d00d28801807c7e5c7a7e5b7a7e76827701119d577ace01207f75517e76827701219d57798b5879529378cd5b798878d15379887cd253798876cd5a7a8876d17b88d2885579539356795493c47ba269c478a169c49c6355795393d10088686d6d6d6d51",
-    "sourceMap": "46:16:46:37;:::44:1;;:48::50:0;:8::52:1;47:16:47:29:0;;:::36:1;;:40::41:0;:8::43:1;48:16:48:28:0;;:::35:1;;:39::40:0;:8::42:1;49:16:49:25:0;;:::32:1;;:36::37:0;:16:::1;:8::39;51:18:51::0;52:30:52:40;;:::47:1;;:50::51:0;:30:::1;53:16:53:31:0;:35::36;:16:::1;:8::38;54:16:54:31:0;:35::37;:16:::1;:8::39;57:27:57:28:0;:16::45:1;:59::62:0;;:49::79:1;:8::81;58:27:58:28:0;:16::43:1;:57::60:0;;:47::75:1;:8::77;59:27:59:28:0;:16::35:1;:39::43:0;:8::45:1;62:36:62:39:0;:26::54:1;63:16:63:25:0;:::32:1;;:36::38:0;:8::40:1;64:16:64:25:0;:35::36;:16::37:1;;:41::45:0;:8::47:1;65:25:65:34:0;:44::45;:25::46:1;;:41::42:0;:25::46:1;;:21::47;66:25:66:37:0;;:21::38:1;73:16:73:30:0;::::1;:8::32;74:16:74:21:0;:24::30;:16:::1;:34::36:0;:16:::1;:8::38;76:28:76:37:0;:47::48;:28::49:1;;:44::45:0;:28::49:1;;:24::50;:::54;77:28:77:37:0;:48::50;:28::51:1;;:44::46:0;:28::51:1;;:24::52;82:19:82:28:0;:31::32;:19:::1;:35::36:0;:19:::1;:40::42:0;:18:::1;83:12:83:15:0;:18::19;:12:::1;:21:85:9:0;84:12:84:20:1;;83:21:85:9;86:16:86:31:0;;:::38:1;:8::40;95:21:95:24:0;96:25:96:26;97::97;98:24:98;99:21:99:22;:8:131:9;:24:99:25;:28::43;;:24:::1;;;:56:131:9:0;100:26:100:27;:::31:1;103:30:103:37:0;:20::52:1;:62::64:0;:20::65:1;;:69::89:0;;:12::91:1;104:30:104:37:0;:20::52:1;:63::65:0;:20::66:1;;:59::61:0;:20::66:1;;:70::74:0;:12::76:1;106:41:106:48:0;:31::63:1;107:20:107:30:0;:::37:1;;:41::43:0;:12::45:1;108:20:108:30:0;:40::41;:20::42:1;;:46::50:0;:12::52:1;111:24:111:34:0;:44::46;:24::47:1;;:41::42:0;:24::47:1;;112:16:112:17:0;;:20::21;:16:::1;:23:114:13:0;113:28:113:31;:34::38;:28:::1;:24::39;:46::53:0;;:56::60;:46:::1;:42::61;:24;:16::63;112:23:114:13;115:22:115:25:0;:12::26:1;;;;;;;;;;;;;118:36:118:46:0;:57::59;:36::60:1;;:53::55:0;:36::60:1;;:32::61;119:16:119:29:0;:32::38;;:16:::1;:42::47:0;;:16:::1;:49:121:13:0;120:29:120:39;;:::43:1;:16::44;;;;;;;;;;;;;;;;;;;;;;119:49:121:13;122:16:122:29:0;:33::38;;:41::47;;:33:::1;:16;:49:124:13:0;123:29:123:39;;:::43:1;:16::44;;;;;;;;;;;;;;;;;;;122:49:124:13;127:24:127:34:0;;:45::47;:24::48:1;;:41::43:0;:24::48:1;;:20::49;:53::59:0;;:12::61:1;130:20:130:30:0;;:41::43;:20::44:1;;:37::39:0;:20::44:1;;:48::58:0;;:72::73;;:76::77;:72:::1;:80::81:0;:72:::1;:48::82;;:65::66:0;;:69::70;:65:::1;:48::82;;:12::84;99:49:99:50:0;;:::54:1;:45;;;;;;;;;;;;;:56:131:9;;;;:8;;;132:16:132:26:0;:29::30;:16:::1;:33::48:0;;:16:::1;:8::50;133:16:133:26:0;:29::30;:16:::1;:33::48:0;;:16:::1;:8::50;136:30:136:43:0;;:26::44:1;137::137:27:0;138::138;139:27:139:32;140:21:140:22;:8:151:9;:24:140:25;:28::43;;:24:::1;;;:56:151:9:0;141:27:141:37;;:51::52;:55::56;:51:::1;:59::60:0;:51:::1;:27::61;;:44::45:0;:48::49;:44:::1;:27::61;;:23::62;142:16:142:20:0;:23::32;;:16:::1;:34:144:13:0;143:30:143:41;;:::45:1;:16::46;;;;;;;;;;;;;144:19:150:13:0;145:20:145:24;:27::36;;:20:::1;:38:147:17:0;146:34:146:45;;:::49:1;:20::50;;;;;;;;;;147:23:149:17:0;148:34:148:38;:20::39:1;;;;;;;147:23:149:17;144:19:150:13;140:49:140:50:0;:::54:1;:45;;::151:9;:56;;:8;;;152::152:29;153:20:153:35:0;;:::39:1;:43::44:0;:19:::1;154:16:154:27:0;;:31::35;:16:::1;:8::37;155:16:155:27:0;;:31::46;;:49::60;;:31:::1;:63::74:0;;:31:::1;:16::75;:::82;:8::84;158:22:158:31:0;;:34::35;:22:::1;:38::40:0;:22:::1;159:24:159:39:0;;160:12:160:31;::::1;:33:162:9:0;161:24:161:31;:12::32:1;160:33:162:9;163:12:163:21:0;:24::25;:12:::1;:27:165:9:0;164:12:164:26:1;;163:27:165:9;168:47:168:53:0;;:55::56;:33::57:1;169:47:169:56:0;:58::59;:33::60:1;170::170:37:0;:40::48;;:33:::1;:51::63:0;;:33:::1;:66::79:0;;:33:::1;:82::98:0;:33:::1;171:16:171:31:0;:::38:1;;:42::44:0;:8::46:1;172:27:172:28:0;:16::43:1;:8::64;177:32:177:36:0;:39::47;:32:::1;:50::62:0;;:32:::1;:65::78:0;;:32:::1;178:16:178:31:0;:::38:1;;:42::44:0;:8::46:1;181:41:181:44:0;;:31::59:1;:69::71:0;:31::72:1;;:75::79:0;:31:::1;182:16:182:30:0;:::37:1;;:41::43:0;:8::45:1;184:25:184:40:0;;:::44:1;185::185:40:0;;:43::44;:25:::1;187:27:187:37:0;:16::54:1;:58::79:0;;:8::81:1;188:27:188:37:0;:16::52:1;:56::70:0;;:8::72:1;189:27:189:37:0;:16::52:1;:56::71:0;;:8::73:1;191:27:191:37:0;:16::54:1;:58::79:0;;:8::81:1;192:27:192:37:0;:16::52:1;:56::70:0;:8::72:1;193:16:193:52;:8::73;199:25:199:40:0;;:43::44;:25:::1;200::200:40:0;;:43::44;:25:::1;201:16:201:33:0;:37::47;:16:::1;:8::49;202:16:202:33:0;:37::47;:16:::1;:8::49;203:12:203:29:0;:::43:1;:45:205:9:0;204:31:204:46;;:49::50;:31:::1;:20::65;:69::71:0;:12::73:1;203:45:205:9;40:4:206:5;;;;",
+    "bytecode": "76827701239d53798277589d54798277549d557a827700a269c05379827758967657a269765da16900cd5279c78800d15279ce8800cc02d0079d78cf76827701139d76517f7501608876597f75557f77815879816e9f69767b94011ea26978557f75517f77818b7b01137f7501117f778176559559935a9676579f637557685479a169017800000000657659799f766b63768b76ce01207f755d798876ce01217f7501207f77518876cf76827701279d76517f750173887601177f75537f77537900a0637601007e81557901007e81a0696876557a757c6b7c6b7c6b7c6c6c6c7801237f75011f7f7781765979935c79a26357798b587a757c6b7c6b7c6b7c6b7c6b7c6b7c6c6c6c6c6c6c68765c795a7993a16356798b577a757c6b7c6b7c6b7c6b7c6b7c6c6c6c6c6c68527901277f7501237f77815b799d5279011f7f7501177f770111795679589558937f75567958957f778854798b557a757c6b7c6b7c6b7c6c6c6c6d6d686c9166757b52955779a0697c52955679a0695a79810000000065765b799f766b635e7978589558937f757858957f77817656799f6354798b557a757c6b7c6b7c6b7c6c6c6c67765679a06353798b547a757c6b7c6b7c6c6c6751537a757c6b7c6c6868788b7b7577686c9166756958798c5296527978a16952795a79547a94537a94939f69537a59955a9656796ea06378776876579f63755768557a54807c5280016052797e5e797e5d797e7c7e76827701139d00d28801807c7e5c7a7e5b7a7e76827701119d577ace01207f75517e76827701219d57798b5879529378cd5b798878d15379887cd253798876cd5a7a8876d17b88d2885579539356795493c47ba269c478a169c49c6355795393d10088686d6d6d6d51",
+    "sourceMap": "46:16:46:37;:::44:1;;:48::50:0;:8::52:1;47:16:47:29:0;;:::36:1;;:40::41:0;:8::43:1;48:16:48:28:0;;:::35:1;;:39::40:0;:8::42:1;49:16:49:25:0;;:::32:1;;:36::37:0;:16:::1;:8::39;51:18:51::0;52:30:52:40;;:::47:1;;:50::51:0;:30:::1;53:16:53:31:0;:35::36;:16:::1;:8::38;54:16:54:31:0;:35::37;:16:::1;:8::39;57:27:57:28:0;:16::45:1;:59::62:0;;:49::79:1;:8::81;58:27:58:28:0;:16::43:1;:57::60:0;;:47::75:1;:8::77;59:27:59:28:0;:16::35:1;:39::43:0;:8::45:1;62:36:62:39:0;:26::54:1;63:16:63:25:0;:::32:1;;:36::38:0;:8::40:1;64:16:64:25:0;:35::36;:16::37:1;;:41::45:0;:8::47:1;65:25:65:34:0;:44::45;:25::46:1;;:41::42:0;:25::46:1;;:21::47;66:25:66:37:0;;:21::38:1;73:16:73:30:0;::::1;:8::32;74:16:74:21:0;:24::30;:16:::1;:34::36:0;:16:::1;:8::38;76:28:76:37:0;:47::48;:28::49:1;;:44::45:0;:28::49:1;;:24::50;:::54;77:28:77:37:0;:48::50;:28::51:1;;:44::46:0;:28::51:1;;:24::52;82:19:82:28:0;:31::32;:19:::1;:35::36:0;:19:::1;:40::42:0;:18:::1;83:12:83:15:0;:18::19;:12:::1;:21:85:9:0;84:12:84:20:1;;83:21:85:9;86:16:86:31:0;;:::38:1;:8::40;95:21:95:24:0;96:25:96:26;97::97;98:24:98;99:21:99:22;:8:131:9;:24:99:25;:28::43;;:24:::1;;;:56:131:9:0;100:26:100:27;:::31:1;103:30:103:37:0;:20::52:1;:62::64:0;:20::65:1;;:69::89:0;;:12::91:1;104:30:104:37:0;:20::52:1;:63::65:0;:20::66:1;;:59::61:0;:20::66:1;;:70::74:0;:12::76:1;106:41:106:48:0;:31::63:1;107:20:107:30:0;:::37:1;;:41::43:0;:12::45:1;108:20:108:30:0;:40::41;:20::42:1;;:46::50:0;:12::52:1;111:24:111:34:0;:44::46;:24::47:1;;:41::42:0;:24::47:1;;112:16:112:17:0;;:20::21;:16:::1;:23:114:13:0;113:28:113:31;:34::38;:28:::1;:24::39;:46::53:0;;:56::60;:46:::1;:42::61;:24;:16::63;112:23:114:13;115:22:115:25:0;:12::26:1;;;;;;;;;;;;;118:36:118:46:0;:57::59;:36::60:1;;:53::55:0;:36::60:1;;:32::61;119:16:119:29:0;:32::38;;:16:::1;:42::47:0;;:16:::1;:49:121:13:0;120:29:120:39;;:::43:1;:16::44;;;;;;;;;;;;;;;;;;;;;;119:49:121:13;122:16:122:29:0;:33::38;;:41::47;;:33:::1;:16;:49:124:13:0;123:29:123:39;;:::43:1;:16::44;;;;;;;;;;;;;;;;;;;122:49:124:13;127:24:127:34:0;;:45::47;:24::48:1;;:41::43:0;:24::48:1;;:20::49;:53::59:0;;:12::61:1;130:20:130:30:0;;:41::43;:20::44:1;;:37::39:0;:20::44:1;;:48::58:0;;:72::73;;:76::77;:72:::1;:80::81:0;:72:::1;:48::82;;:65::66:0;;:69::70;:65:::1;:48::82;;:12::84;99:49:99:50:0;;:::54:1;:45;;;;;;;;;;;;;:56:131:9;;;;:8;;;132:16:132:26:0;:29::30;:16:::1;:33::48:0;;:16:::1;:8::50;133:16:133:26:0;:29::30;:16:::1;:33::48:0;;:16:::1;:8::50;136:30:136:43:0;;:26::44:1;137::137:27:0;138::138;139:27:139:32;140:21:140:22;:8:151:9;:24:140:25;:28::43;;:24:::1;;;:56:151:9:0;141:27:141:37;;:51::52;:55::56;:51:::1;:59::60:0;:51:::1;:27::61;;:44::45:0;:48::49;:44:::1;:27::61;;:23::62;142:16:142:20:0;:23::32;;:16:::1;:34:144:13:0;143:30:143:41;;:::45:1;:16::46;;;;;;;;;;;;;144:19:150:13:0;145:20:145:24;:27::36;;:20:::1;:38:147:17:0;146:34:146:45;;:::49:1;:20::50;;;;;;;;;;147:23:149:17:0;148:34:148:38;:20::39:1;;;;;;;147:23:149:17;144:19:150:13;140:49:140:50:0;:::54:1;:45;;::151:9;:56;;:8;;;152::152:29;153:20:153:35:0;;:::39:1;:43::44:0;:19:::1;154:16:154:27:0;;:31::35;:16:::1;:8::37;155:16:155:27:0;;:31::46;;:49::60;;:31:::1;:63::74:0;;:31:::1;:16::75;:::82;:8::84;158:22:158:31:0;;:34::35;:22:::1;:38::40:0;:22:::1;159:24:159:39:0;;160:12:160:31;::::1;:33:162:9:0;161:24:161:31;:12::32:1;160:33:162:9;163:12:163:21:0;:24::25;:12:::1;:27:165:9:0;164:12:164:26:1;;163:27:165:9;168:47:168:53:0;;:55::56;:33::57:1;169:47:169:56:0;:58::59;:33::60:1;170::170:37:0;:40::48;;:33:::1;:51::63:0;;:33:::1;:66::79:0;;:33:::1;:82::98:0;:33:::1;171:16:171:31:0;:::38:1;;:42::44:0;:8::46:1;172:27:172:28:0;:16::43:1;:8::64;177:32:177:36:0;:39::47;:32:::1;:50::62:0;;:32:::1;:65::78:0;;:32:::1;178:16:178:31:0;:::38:1;;:42::44:0;:8::46:1;181:41:181:44:0;;:31::59:1;:69::71:0;:31::72:1;;:75::79:0;:31:::1;182:16:182:30:0;:::37:1;;:41::43:0;:8::45:1;184:25:184:40:0;;:::44:1;185::185:40:0;;:43::44;:25:::1;187:27:187:37:0;:16::54:1;:58::79:0;;:8::81:1;188:27:188:37:0;:16::52:1;:56::70:0;;:8::72:1;189:27:189:37:0;:16::52:1;:56::71:0;;:8::73:1;191:27:191:37:0;:16::54:1;:58::79:0;;:8::81:1;192:27:192:37:0;:16::52:1;:56::70:0;:8::72:1;193:16:193:52;:8::73;199:25:199:40:0;;:43::44;:25:::1;200::200:40:0;;:43::44;:25:::1;201:16:201:33:0;:37::47;:16:::1;:8::49;202:16:202:33:0;:37::47;:16:::1;:8::49;203:12:203:29:0;:::43:1;:45:205:9:0;204:31:204:46;;:49::50;:31:::1;:20::65;:69::71:0;:12::73:1;203:45:205:9;45:6:206:5;;;;",
     "logs": [],
     "requires": [
-      {
-        "ip": 6,
-        "line": 46
-      },
-      {
-        "ip": 12,
-        "line": 47
-      },
-      {
-        "ip": 18,
-        "line": 48
-      },
-      {
-        "ip": 25,
-        "line": 49
-      },
-      {
-        "ip": 36,
-        "line": 53
-      },
-      {
-        "ip": 40,
-        "line": 54
-      },
-      {
-        "ip": 46,
-        "line": 57
-      },
-      {
-        "ip": 52,
-        "line": 58
-      },
-      {
-        "ip": 56,
-        "line": 59
-      },
-      {
-        "ip": 63,
-        "line": 63
-      },
-      {
-        "ip": 69,
-        "line": 64
-      },
-      {
-        "ip": 83,
-        "line": 73
-      },
-      {
-        "ip": 89,
-        "line": 74
-      },
-      {
-        "ip": 124,
-        "line": 86
-      },
-      {
-        "ip": 147,
-        "line": 103
-      },
-      {
-        "ip": 157,
-        "line": 104
-      },
-      {
-        "ip": 164,
-        "line": 107
-      },
-      {
-        "ip": 170,
-        "line": 108
-      },
-      {
-        "ip": 193,
-        "line": 113
-      },
-      {
-        "ip": 293,
-        "line": 127
-      },
-      {
-        "ip": 318,
-        "line": 130
-      },
-      {
-        "ip": 348,
-        "line": 132
-      },
-      {
-        "ip": 355,
-        "line": 133
-      },
-      {
-        "ip": 447,
-        "line": 152
-      },
-      {
-        "ip": 457,
-        "line": 154
-      },
-      {
-        "ip": 470,
-        "line": 155
-      },
-      {
-        "ip": 515,
-        "line": 171
-      },
-      {
-        "ip": 518,
-        "line": 172
-      },
-      {
-        "ip": 532,
-        "line": 178
-      },
-      {
-        "ip": 545,
-        "line": 182
-      },
-      {
-        "ip": 557,
-        "line": 187
-      },
-      {
-        "ip": 562,
-        "line": 188
-      },
-      {
-        "ip": 567,
-        "line": 189
-      },
-      {
-        "ip": 572,
-        "line": 191
-      },
-      {
-        "ip": 576,
-        "line": 192
-      },
-      {
-        "ip": 578,
-        "line": 193
-      },
-      {
-        "ip": 590,
-        "line": 201
-      },
-      {
-        "ip": 594,
-        "line": 202
-      },
-      {
-        "ip": 604,
-        "line": 204
-      }
+      { "ip": 6, "line": 46 },
+      { "ip": 12, "line": 47 },
+      { "ip": 18, "line": 48 },
+      { "ip": 25, "line": 49 },
+      { "ip": 36, "line": 53 },
+      { "ip": 40, "line": 54 },
+      { "ip": 46, "line": 57 },
+      { "ip": 52, "line": 58 },
+      { "ip": 56, "line": 59 },
+      { "ip": 63, "line": 63 },
+      { "ip": 69, "line": 64 },
+      { "ip": 83, "line": 73 },
+      { "ip": 89, "line": 74 },
+      { "ip": 124, "line": 86 },
+      { "ip": 147, "line": 103 },
+      { "ip": 157, "line": 104 },
+      { "ip": 164, "line": 107 },
+      { "ip": 170, "line": 108 },
+      { "ip": 193, "line": 113 },
+      { "ip": 293, "line": 127 },
+      { "ip": 318, "line": 130 },
+      { "ip": 348, "line": 132 },
+      { "ip": 355, "line": 133 },
+      { "ip": 447, "line": 152 },
+      { "ip": 457, "line": 154 },
+      { "ip": 470, "line": 155 },
+      { "ip": 515, "line": 171 },
+      { "ip": 518, "line": 172 },
+      { "ip": 532, "line": 178 },
+      { "ip": 545, "line": 182 },
+      { "ip": 557, "line": 187 },
+      { "ip": 562, "line": 188 },
+      { "ip": 567, "line": 189 },
+      { "ip": 572, "line": 191 },
+      { "ip": 576, "line": 192 },
+      { "ip": 578, "line": 193 },
+      { "ip": 590, "line": 201 },
+      { "ip": 594, "line": 202 },
+      { "ip": 604, "line": 204 }
     ],
     "sourceTags": "317:332:fu;435:439:fu"
   },
   "compiler": {
     "name": "cashc",
-    "version": "0.13.0-next.8",
+    "version": "0.13.0",
     "options": {
       "enforceFunctionParameterTypes": true,
       "enforceLocktimeGuard": true
     }
   },
-  "updatedAt": "2026-05-27T16:44:39.758Z",
-  "fingerprint": "990b63ac70437c2eb3b3bc4ebd554865c75002b96a2203785b77967a7af5a62a"
+  "updatedAt": "2026-05-30T08:38:18.166Z"
 }

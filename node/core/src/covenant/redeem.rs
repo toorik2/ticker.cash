@@ -124,7 +124,11 @@ mod tests {
     }
 
     /// `oracleLockingBytecodeHex`. Constructor: [tickerLockingBytecode, slotCategoryReversed].
+    ///
+    /// IGNORED for v13: this test pins against the v12 chipnet deploy. Once the v13
+    /// genesis ceremony lands (PR13d Week 4), update the live hex below and re-enable.
     #[test]
+    #[ignore = "live-chipnet pin awaits v13 genesis deploy"]
     fn oracle_redeem_matches_live_chipnet_locking() {
         let ticker_lb = live_ticker_locking_bytecode();
         // slotCategory on chain: 846b2ca944750af011fa41bb87f9fda1244090a63be2cc3286223551343020f7
@@ -157,7 +161,13 @@ mod tests {
 
     /// `slotLockingBytecodeHex`. Constructor:
     /// [notary0..notary6, packedSourceCNHashes, oracleCategoryReversed, oracleLockingBytecode].
+    ///
+    /// IGNORED for v13: this test pins against the v12 chipnet deploy and v12's
+    /// 4-arg redeem_publisher_slot signature (with notary pubkeys). Both change in v13:
+    /// the constructor drops notaries (PR13b Week 2) and the deploy changes (PR13d Week 4).
+    /// Re-enable after both land.
     #[test]
+    #[ignore = "v12 signature + live-chipnet pin; awaits v13 PR13b + PR13d"]
     fn publisher_slot_redeem_matches_live_chipnet_locking() {
         let notaries = live_notary_pubkeys();
         let cn_hashes = packed_cn_hashes();

@@ -29,7 +29,7 @@ pragma cashscript >= 0.13.0;
 //   [9..17)   medianPrice                  8 B   u64 LE  sat-scaled USD/BCH
 //   [17..19)  activeCount                  2 B   u16 LE  threshold ratchet
 //
-// Slot (39 B, version 0x72) — see PublisherSlot.cash for full layout.
+// Slot (39 B, version 0x73 in v13) — see PublisherSlot.cash for full layout.
 //
 // Ticker (17 B, version 0x80) — UNCHANGED from v11.
 
@@ -105,7 +105,7 @@ contract Oracle(
 
             bytes slotCommit = tx.inputs[slotIdx].nftCommitment;
             require(slotCommit.length == 39);
-            require(slotCommit.slice(0, 1) == 0x72);
+            require(slotCommit.slice(0, 1) == 0x73);
 
             // Distinct + monotonically-sorted pkh (anti-Sybil)
             bytes pkh = slotCommit.slice(3, 23);

@@ -34,7 +34,7 @@ pub const ORACLE_COMMIT_LEN: usize = 19;
 pub const TICKER_COMMIT_LEN: usize = 17;
 
 /// Length of a PublisherSlot NFT commit, bytes.
-/// Layout: `0x72 | source_id(u16 LE) | pkh(20 B) | price(u64 LE) | timestamp(u32 LE) | cycle_seq(u32 LE)`.
+/// Layout: `0x73 | source_id(u16 LE) | pkh(20 B) | price(u64 LE) | timestamp(u32 LE) | cycle_seq(u32 LE)`.
 pub const SLOT_COMMIT_LEN: usize = 39;
 
 // ─── Version bytes ─────────────────────────────────────────────────────────
@@ -45,8 +45,10 @@ pub const ORACLE_VERSION_BYTE: u8 = 0x60;
 /// Ticker NFT commit version byte (`Oracle.cash:174-177`).
 pub const TICKER_VERSION_BYTE: u8 = 0x80;
 
-/// PublisherSlot NFT commit version byte. Distinct from v11's `0x70` for VerifiedAttestation.
-pub const SLOT_VERSION_BYTE: u8 = 0x72;
+/// PublisherSlot NFT commit version byte. `0x73` is v13's tag, distinct from v12's `0x72`
+/// and v11's `0x70` (VerifiedAttestation). The version-byte bump is the structural marker
+/// of v13's dropped notary tier.
+pub const SLOT_VERSION_BYTE: u8 = 0x73;
 
 // ─── Capability bytes ──────────────────────────────────────────────────────
 

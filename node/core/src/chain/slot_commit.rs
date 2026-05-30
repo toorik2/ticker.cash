@@ -1,10 +1,10 @@
-//! PublisherSlot NFT commit (39 B, version `0x72`).
+//! PublisherSlot NFT commit (39 B, version `0x73` in v13).
 //!
 //! Layout:
 //!
 //! | Offset | Size | Field        | Type      |
 //! |--------|------|--------------|-----------|
-//! | 0      | 1    | version      | `0x72`    |
+//! | 0      | 1    | version      | `0x73`    |
 //! | 1..3   | 2    | source_id    | u16 LE    |
 //! | 3..23  | 20   | pkh          | bytes20   |
 //! | 23..31 | 8    | price        | u64 LE    |
@@ -75,7 +75,7 @@ mod tests {
     fn encode_length_and_version() {
         let bytes = encode_slot_commit(&fixture());
         assert_eq!(bytes.len(), SLOT_COMMIT_LEN);
-        assert_eq!(bytes[0], 0x72);
+        assert_eq!(bytes[0], 0x73);
     }
 
     #[test]
@@ -105,14 +105,14 @@ mod tests {
     #[test]
     fn known_vector_byte_for_byte() {
         // Hand-computed expected bytes for the fixture:
-        //   version 0x72
+        //   version 0x73
         //   source_id  = 1            → 01 00
         //   pkh        = 11..44        → 20 bytes
         //   price      = 0x01234567   → 67 45 23 01 00 00 00 00
         //   timestamp  = 1_700_000_000 = 0x6553F100 → 00 F1 53 65
         //   cycle_seq  = 42 = 0x2A     → 2A 00 00 00
         let expected: [u8; 39] = [
-            0x72, 0x01, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb,
+            0x73, 0x01, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb,
             0xcc, 0xdd, 0xee, 0xff, 0x00, 0x11, 0x22, 0x33, 0x44, 0x67, 0x45, 0x23, 0x01, 0x00,
             0x00, 0x00, 0x00, 0x00, 0xf1, 0x53, 0x65, 0x2a, 0x00, 0x00, 0x00,
         ];

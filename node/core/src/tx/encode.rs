@@ -284,7 +284,7 @@ mod tests {
     #[test]
     fn mutable_nft_output_has_token_prefix() {
         let cat = [0x33u8; 32];
-        let commit = vec![0x72, 0x01, 0x00]; // sample slot commit prefix
+        let commit = vec![0x73, 0x01, 0x00]; // sample slot commit prefix (v13 version byte)
         let tx = Tx::new(
             vec![],
             vec![Output {
