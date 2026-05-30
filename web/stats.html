@@ -1,0 +1,641 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="theme-color" content="#f3efe4" />
+<meta name="description" content="ticker.cash observability dashboard — per-slot freshness, publisher wallet runway, federation quorum. Reads chain state directly from Fulcrum in the browser." />
+<meta property="og:title" content="Ticker · Stats" />
+<meta property="og:description" content="Per-slot observability for the ticker.cash chipnet deploy: freshness, runway, quorum. Direct-from-Fulcrum, no server-side API." />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://usd.ticker.cash/stats" />
+<title>Ticker · Stats</title>
+<style>
+  @font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:300;font-display:swap;src:url('/fonts/ibm-plex-mono-latin-300-normal.woff2') format('woff2')}
+  @font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:400;font-display:swap;src:url('/fonts/ibm-plex-mono-latin-400-normal.woff2') format('woff2')}
+  @font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:500;font-display:swap;src:url('/fonts/ibm-plex-mono-latin-500-normal.woff2') format('woff2')}
+  @font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:700;font-display:swap;src:url('/fonts/ibm-plex-mono-latin-700-normal.woff2') format('woff2')}
+  *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+  html{scrollbar-gutter:stable}
+  html,body{min-height:100vh;background:#f3efe4;color:#1a1a18;font-family:'IBM Plex Mono',monospace;font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased}
+  a{color:#1a1a18;text-decoration:underline;text-underline-offset:3px;text-decoration-thickness:1px;text-decoration-color:#b6b1a3}
+  a:hover{text-decoration-color:#1a1a18}
+  [hidden]{display:none !important}
+  .head{padding:1rem 1.75rem;display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:0.5rem;border-bottom:1px solid #c8c2b3}
+  .head .l{font-weight:700;letter-spacing:0.22em;text-transform:uppercase;font-size:13px;display:flex;align-items:baseline;gap:0.6rem}
+  .head .l .pair{color:#6a6457;font-weight:400;letter-spacing:0.08em;font-size:11px;text-transform:none}
+  .head .r{font-size:11px;color:#6a6457;display:flex;gap:1.25rem;align-items:center}
+  .head .r a{color:#6a6457;text-decoration:none;border-bottom:1px solid transparent}
+  .head .r a:hover{color:#1a1a18;border-bottom-color:#6a6457}
+  .head .r a.active{color:#1a1a18;border-bottom-color:#1a1a18}
+  .doc{max-width:1180px;margin:0 auto;padding:2rem 1.75rem 5rem}
+  .status-stripe{background:#fffcf0;border:1px solid #1a1a18;padding:0.95rem 1.25rem;margin-bottom:2rem;display:flex;align-items:baseline;flex-wrap:wrap;gap:0.5rem 1rem;font-size:13.5px;font-variant-numeric:tabular-nums}
+  .status-stripe .dot{font-size:14px;line-height:1;color:#1a7b3b}
+  .status-stripe .status-label{font-weight:700;letter-spacing:0.18em;text-transform:uppercase;font-size:12px;color:#1a7b3b;margin-left:0.15rem}
+  .status-stripe.warn .dot,.status-stripe.warn .status-label{color:#a02010}
+  .status-stripe .sep{color:#b6b1a3;font-weight:300}
+  .status-stripe .metric{display:inline-flex;align-items:baseline;gap:0.35rem}
+  .status-stripe .metric .k{color:#6a6457;font-size:10px;letter-spacing:0.14em;text-transform:uppercase;font-weight:500}
+  .status-stripe .metric .v{font-weight:600}
+  .status-stripe .metric.warn .v{color:#a02010}
+  @media(max-width:680px){.status-stripe{font-size:12px;gap:0.4rem 0.6rem;padding:0.8rem 1rem}.status-stripe .sep{display:none}.status-stripe .metric{flex:0 0 auto}}
+  .stalled-banner{padding:1rem 1.25rem;border:2px solid #a02010;background:#fff0ec;color:#a02010;margin-bottom:1.5rem;font-weight:600;letter-spacing:0.04em;display:flex;justify-content:space-between;align-items:baseline;gap:0.5rem;flex-wrap:wrap}
+  .stalled-banner b{font-size:13px;text-transform:uppercase;letter-spacing:0.14em}
+  .stalled-banner .sub{font-weight:400;color:#a02010;opacity:0.7;font-size:11.5px}
+  .slot-table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid #1a1a18;background:#fffcf0;margin-bottom:2rem}
+  .slot-table{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-numeric:tabular-nums}
+  .slot-table thead th{text-align:left;padding:0.7rem 0.9rem;border-bottom:1px solid #1a1a18;font-size:10px;letter-spacing:0.16em;text-transform:uppercase;color:#6a6457;font-weight:600;background:#f3efe4;white-space:nowrap}
+  .slot-table thead th.r{text-align:right}
+  .slot-table thead th[title]{cursor:help;border-bottom-style:dotted;border-bottom-color:#8a8472}
+  .slot-table tbody td{padding:0.65rem 0.9rem;border-bottom:1px solid #ecebe0;vertical-align:baseline}
+  .slot-table tbody tr:last-child td{border-bottom:none}
+  .slot-table tbody td.r{text-align:right}
+  .slot-table tbody td .src{color:#1a1a18;font-weight:600;display:flex;align-items:baseline;gap:0.5rem}
+  .slot-table tbody td .pkh{color:#8a8472;font-size:10.5px;letter-spacing:0.05em;margin-top:0.15rem;font-weight:400}
+  .slot-table tbody td .sub{color:#6a6457;font-size:10.5px;letter-spacing:0;margin-left:0.4em;font-weight:400}
+  .slot-table tbody td.status{font-weight:600;text-transform:uppercase;letter-spacing:0.1em;font-size:10.5px}
+  .slot-table tbody tr.has-error{background:#fff5f2}
+  .status-ok{color:#1a7b3b}
+  .status-lagging{color:#b88800}
+  .status-unfunded{color:#c84800}
+  .status-stalled{color:#a02010}
+  .copy-btn{background:transparent;border:1px solid #c8c2b3;border-radius:2px;font-family:inherit;font-size:9.5px;letter-spacing:0.08em;text-transform:uppercase;color:#6a6457;padding:0.1rem 0.35rem;cursor:pointer;font-weight:500;transition:all 0.15s ease;flex:0 0 auto;line-height:1.3}
+  .copy-btn:hover{color:#1a1a18;border-color:#1a1a18;background:#fffcf0}
+  .copy-btn.copied{color:#1a7b3b;border-color:#1a7b3b}
+  .explore-btn{background:transparent;border:1px solid #c8c2b3;border-radius:2px;font-family:inherit;font-size:9.5px;letter-spacing:0.08em;text-transform:uppercase;color:#6a6457;padding:0.1rem 0.35rem;cursor:pointer;font-weight:500;text-decoration:none;line-height:1.3;flex:0 0 auto;transition:all 0.15s ease}
+  .explore-btn:hover{color:#1a1a18;border-color:#1a1a18;background:#fffcf0;text-decoration:none}
+  .foldout{border:1px solid #c8c2b3;background:#fffcf0;margin-bottom:0.75rem}
+  .foldout > summary{cursor:pointer;padding:0.7rem 1rem;font-size:10.5px;letter-spacing:0.18em;text-transform:uppercase;font-weight:600;color:#1a1a18;list-style:none;display:flex;align-items:center;gap:0.5rem;user-select:none}
+  .foldout > summary::-webkit-details-marker{display:none}
+  .foldout > summary::before{content:'▸';display:inline-block;color:#6a6457;transition:transform 0.15s ease;width:0.8rem}
+  .foldout[open] > summary::before{transform:rotate(90deg)}
+  .foldout > summary .ct{margin-left:auto;font-weight:400;color:#6a6457;letter-spacing:0.04em;font-size:10px;text-transform:none}
+  .foldout[open] > summary{border-bottom:1px solid #c8c2b3}
+  .foldout-body{padding:1rem 1.25rem}
+  .foldout.alert{border-color:#a02010}
+  .foldout.alert > summary{color:#a02010}
+  .foldout.alert > summary::before{color:#a02010}
+  .sparks{display:grid;grid-template-columns:repeat(3,1fr);gap:1.25rem}
+  @media(max-width:680px){.sparks{grid-template-columns:1fr}}
+  .spark{display:flex;flex-direction:column;gap:0.35rem}
+  .spark .h{font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:#6a6457;font-weight:500;display:flex;justify-content:space-between;gap:0.5rem}
+  .spark .h .v{color:#1a1a18;font-weight:600;letter-spacing:0;text-transform:none;font-variant-numeric:tabular-nums}
+  .spark svg{display:block;width:100%;height:34px}
+  .errors-list{margin:0 0 0 1.25rem;padding:0;list-style:disc;color:#a02010;font-size:11.5px;line-height:1.7}
+  .errors-list li{margin-bottom:0.15rem}
+  .ts-strip{margin:-0.5rem 0 1rem;font-size:10.5px;color:#6a6457;letter-spacing:0.04em}
+  .foot{margin-top:3rem;padding-top:0.8rem;border-top:1px solid #c8c2b3;font-size:10.5px;color:#6a6457;letter-spacing:0.1em;text-transform:uppercase;display:flex;justify-content:space-between;gap:0.5rem;flex-wrap:wrap;font-weight:500}
+  .foot a{color:#6a6457;text-decoration:none;border-bottom:1px solid transparent}
+  .foot a:hover{color:#1a1a18;border-bottom-color:#6a6457}
+</style>
+</head>
+<body>
+<header class="head">
+  <div class="l">▌ TICKER <span class="pair">stats · chipnet</span></div>
+  <div class="r"><a href="/">home</a><a href="/docs">docs</a><a href="/stats" class="active">stats</a><a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github</a></div>
+</header>
+<div class="doc">
+  <div id="stalled-banner" class="stalled-banner" hidden>
+    <span><b>Cycles stopped</b> <span id="stalled-detail" class="sub">—</span></span>
+    <span class="sub">expected stride ~<span id="stalled-stride">—</span></span>
+  </div>
+  <div class="status-stripe ok" id="status-stripe">
+    <span class="dot" id="ss-dot">●</span>
+    <span class="status-label" id="ss-status">CONNECTING</span>
+    <span class="sep">·</span>
+    <span class="metric"><span class="k">cycle</span><span class="v" id="ss-seq">—</span></span>
+    <span class="sep">·</span>
+    <span class="metric" id="ss-age-metric"><span class="v" id="ss-age">—</span><span class="k">ago</span></span>
+    <span class="sep">·</span>
+    <span class="metric" id="ss-quorum-metric"><span class="k">quorum</span><span class="v" id="ss-quorum">—</span></span>
+    <span class="sep">·</span>
+    <span class="metric"><span class="k">stride</span><span class="v" id="ss-stride">—</span></span>
+  </div>
+  <div class="ts-strip" id="ts-strip">reading direct from <span id="fulcrum-host">fulcrum…</span></div>
+  <div class="slot-table-wrap">
+    <table class="slot-table">
+      <thead><tr>
+        <th title="Slot index (0..12). Stable across cycles. Slot 0 = kraken, slot 12 = htx.">#</th>
+        <th title="The CEX this slot fetches its price from. Click 'copy' to grab the publisher's full P2PKH address for top-ups.">Source</th>
+        <th class="r" title="Wall-clock age of the slot's most recent attest. For an active publisher this should stay below ~60s.">Last attest</th>
+        <th class="r" title="Cycles behind oracle.seq. 0 = caught up. 1-3 = lagging. >3 = stalled.">Behind</th>
+        <th class="r" title="Estimated time until wallet depletes at ~3.8k sats/cycle.">Runway</th>
+        <th class="r" title="Current publisher wallet balance in sats. Top up via the copy button next to Source.">Balance</th>
+        <th class="r" title="ok = caught up + funded. lagging = 1-3 cycles behind. unfunded = <5 cycles of runway. stalled = >3 cycles behind.">Status</th>
+      </tr></thead>
+      <tbody id="slot-rows"><tr><td colspan="7" style="text-align:center;padding:1.5rem;color:#6a6457">connecting to fulcrum…</td></tr></tbody>
+    </table>
+  </div>
+  <details class="foldout" id="fold-trends">
+    <summary>Trends <span class="ct">accumulated since page load</span></summary>
+    <div class="foldout-body">
+      <div class="sparks">
+        <div class="spark"><div class="h"><span>Cycle seq</span><span class="v" id="spark-seq-v">—</span></div><svg id="spark-seq"></svg></div>
+        <div class="spark"><div class="h"><span>Slots current / 13</span><span class="v" id="spark-quorum-v">—</span></div><svg id="spark-quorum"></svg></div>
+        <div class="spark"><div class="h"><span>Stride (s)</span><span class="v" id="spark-stride-v">—</span></div><svg id="spark-stride"></svg></div>
+      </div>
+    </div>
+  </details>
+  <details class="foldout" id="fold-errors" hidden>
+    <summary>Errors <span class="ct" id="fold-errors-count">0</span></summary>
+    <div class="foldout-body"><ul class="errors-list" id="errors-list"></ul></div>
+  </details>
+</div>
+<div class="foot" style="max-width:1180px;margin:3rem auto 0;padding:0.8rem 1.75rem 1.5rem">
+  <div>stats.ticker.cash · chipnet · client-side, no server-side API</div>
+  <div><a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github</a></div>
+</div>
+<script>
+const FULCRUM_WSS = 'wss://fulcrum.layer1.cash:50004';
+const ORACLE_ADDR = 'bchtest:pwc6n79kccw4my9hy9umvr0qmpzf5pf5kg0sl293z38cmvxmnd08zpch7papm';
+const ORACLE_CATEGORY = '4c435bb6dfc372a0dcc050f5a14a76054a70e869d4b8f591f221f829bdec99cc';
+const SLOT_ADDR = 'bchtest:pvxvf7m74s56wkaecz8e4je3skpktpnunwvm408lswm9w9nj99duk0xhm604g';
+const SLOT_CATEGORY = '5b6d3820103515108df0ee217120daa36959ec916f176f8f3232881a597d8994';
+const CASHADDR_PREFIX = 'bchtest';
+const STALENESS_SEC = 300;
+const STRIDE_FLOOR_SEC = 60;
+const REFRESH_MS = 5000;
+const TICK_MS = 1000;
+const DEPLOYED_AT_SEC = Math.floor(new Date('2026-05-30T15:05:00.000Z').getTime() / 1000);
+const EXPECTED_SATS_PER_CYCLE = 2000n + (20000n + 2n * 1500n) / 13n;
+
+const SOURCES = [
+  {id:1,name:'kraken'},{id:2,name:'coinbase'},{id:3,name:'gemini'},
+  {id:4,name:'binance_us'},{id:5,name:'bitstamp'},{id:6,name:'cryptocom'},
+  {id:7,name:'bitfinex'},{id:8,name:'exmo'},{id:9,name:'independentreserve'},
+  {id:10,name:'okx_usdc'},{id:11,name:'kucoin_usdc'},{id:12,name:'bybit'},{id:13,name:'htx'}
+];
+
+function cashaddrPolymod(values){
+  let c = 1n;
+  for (const v of values) {
+    const c0 = c >> 35n;
+    c = ((c & 0x07ffffffffn) << 5n) ^ BigInt(v);
+    if (c0 & 0x01n) c ^= 0x98f2bc8e61n;
+    if (c0 & 0x02n) c ^= 0x79b76d99e2n;
+    if (c0 & 0x04n) c ^= 0xf33e5fb3c4n;
+    if (c0 & 0x08n) c ^= 0xae2eabe2a8n;
+    if (c0 & 0x10n) c ^= 0x1e4f43e470n;
+  }
+  return c ^ 1n;
+}
+function cashaddrTo5Bit(bytes){
+  const result = []; let acc = 0, bits = 0;
+  for (const b of bytes) {
+    acc = (acc << 8) | b; bits += 8;
+    while (bits >= 5) { bits -= 5; result.push((acc >> bits) & 0x1f); }
+  }
+  if (bits > 0) result.push((acc << (5 - bits)) & 0x1f);
+  return result;
+}
+function cashaddrEncodeP2PKH(prefix, pkh20){
+  const payload = new Uint8Array(21);
+  payload[0] = 0;
+  payload.set(pkh20, 1);
+  const data5 = cashaddrTo5Bit(payload);
+  const prefix5 = [...prefix].map(c => c.charCodeAt(0) & 0x1f);
+  const polyInput = [...prefix5, 0, ...data5, 0,0,0,0,0,0,0,0];
+  const poly = cashaddrPolymod(polyInput);
+  const checksum = [];
+  for (let i = 0; i < 8; i++) checksum.push(Number((poly >> BigInt(5 * (7 - i))) & 0x1fn));
+  const ALPHABET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+  return prefix + ':' + [...data5, ...checksum].map(v => ALPHABET[v]).join('');
+}
+
+function hexToBytes(hex){
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.substr(i*2, 2), 16);
+  return out;
+}
+function bytesToHex(bytes){
+  return Array.from(bytes).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+function decodeOracleCommit(hex){
+  if (hex.length !== 38) return null;
+  const b = hexToBytes(hex);
+  if (b[0] !== 0x60) return null;
+  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  const scaled = dv.getBigUint64(9, true);
+  return {
+    seq: dv.getUint32(1, true),
+    lastTs: dv.getUint32(5, true),
+    medianPrice: scaled,
+    medianUsd: Number(scaled) / 1e8,
+    activeCount: dv.getUint16(17, true),
+  };
+}
+function decodeSlotCommit(hex){
+  if (hex.length !== 78) return null;
+  const b = hexToBytes(hex);
+  if (b[0] !== 0x73) return null;
+  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  return {
+    sourceId: dv.getUint16(1, true),
+    pkh: b.slice(3, 23),
+    price: dv.getBigUint64(23, true),
+    timestamp: dv.getUint32(31, true),
+    cycleSeq: dv.getUint32(35, true),
+  };
+}
+class ElectrumWS {
+  constructor(url){
+    this.url = url; this.ws = null; this.nextId = 1;
+    this.pending = new Map(); this.buffer = ''; this.connecting = null;
+  }
+  async connect(){
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) return;
+    if (this.connecting) return this.connecting;
+    this.connecting = new Promise((resolve, reject) => {
+      const ws = new WebSocket(this.url);
+      const timer = setTimeout(() => { try { ws.close(); } catch{} this.connecting = null; reject(new Error('ws connect timeout')); }, 10000);
+      ws.onopen = () => { clearTimeout(timer); this.ws = ws; this.connecting = null; resolve(); };
+      ws.onerror = () => { clearTimeout(timer); this.connecting = null; reject(new Error('ws error')); };
+      ws.onclose = () => { this.ws = null; this.connecting = null; this.failAll(new Error('ws closed')); };
+      ws.onmessage = (ev) => this.onMessage(ev.data);
+    });
+    return this.connecting;
+  }
+  failAll(err){
+    for (const [,p] of this.pending) p.reject(err);
+    this.pending.clear();
+  }
+  onMessage(data){
+    this.buffer += data;
+    let idx;
+    while ((idx = this.buffer.indexOf('\n')) >= 0) {
+      const line = this.buffer.slice(0, idx);
+      this.buffer = this.buffer.slice(idx + 1);
+      if (!line.trim()) continue;
+      try {
+        const msg = JSON.parse(line);
+        if (msg.id != null && this.pending.has(msg.id)) {
+          const { resolve, reject } = this.pending.get(msg.id);
+          this.pending.delete(msg.id);
+          if (msg.error) reject(new Error(msg.error.message || JSON.stringify(msg.error)));
+          else resolve(msg.result);
+        }
+      } catch {}
+    }
+  }
+  async request(method, ...params){
+    await this.connect();
+    const id = this.nextId++;
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
+      const payload = JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n';
+      try { this.ws.send(payload); } catch (e) { this.pending.delete(id); reject(e); return; }
+      setTimeout(() => {
+        if (this.pending.has(id)) {
+          this.pending.delete(id);
+          reject(new Error('request timeout: ' + method));
+        }
+      }, 12000);
+    });
+  }
+}
+
+async function buildSnapshot(client){
+  const errors = [];
+  const fetchedAt = Math.floor(Date.now() / 1000);
+  const [oracleR, slotR, tipR] = await Promise.allSettled([
+    client.request('blockchain.address.listunspent', ORACLE_ADDR, 'include_tokens'),
+    client.request('blockchain.address.listunspent', SLOT_ADDR, 'include_tokens'),
+    client.request('blockchain.headers.subscribe'),
+  ]);
+  const oracleUtxos = oracleR.status === 'fulfilled' ? oracleR.value : (errors.push('oracle: ' + oracleR.reason.message), []);
+  const slotUtxos = slotR.status === 'fulfilled' ? slotR.value : (errors.push('slots: ' + slotR.reason.message), []);
+  const tip = tipR.status === 'fulfilled' ? tipR.value : (errors.push('tip: ' + tipR.reason.message), null);
+
+  let oracleState = null;
+  const oUtxo = oracleUtxos.find(u => u.token_data && u.token_data.category === ORACLE_CATEGORY && u.token_data.nft && u.token_data.nft.commitment);
+  if (oUtxo) {
+    const d = decodeOracleCommit(oUtxo.token_data.nft.commitment);
+    if (d) oracleState = { seq: d.seq, lastTs: d.lastTs, medianUsd: d.medianUsd, activeCount: d.activeCount, ageSec: Math.max(0, fetchedAt - d.lastTs) };
+    else errors.push('oracle decode failed');
+  } else if (oracleR.status === 'fulfilled') errors.push('oracle UTXO not found');
+
+  const decodedSlots = [];
+  for (const u of slotUtxos) {
+    if (!u.token_data || u.token_data.category !== SLOT_CATEGORY) continue;
+    if (!u.token_data.nft || !u.token_data.nft.commitment) continue;
+    if (u.token_data.nft.capability !== 'mutable') continue;
+    const c = decodeSlotCommit(u.token_data.nft.commitment);
+    if (c) decodedSlots.push(c);
+  }
+
+  const balanceResults = await Promise.allSettled(decodedSlots.map(async (d) => {
+    const addr = cashaddrEncodeP2PKH(CASHADDR_PREFIX, d.pkh);
+    const utxos = await client.request('blockchain.address.listunspent', addr);
+    const sats = utxos.filter(u => !u.token_data).reduce((s, u) => s + BigInt(u.value), 0n);
+    return { addr, sats };
+  }));
+
+  let cycleStrideSec = STRIDE_FLOOR_SEC;
+  if (oracleState && oracleState.seq > 0 && oracleState.lastTs > DEPLOYED_AT_SEC) {
+    cycleStrideSec = Math.max(STRIDE_FLOOR_SEC, Math.round((oracleState.lastTs - DEPLOYED_AT_SEC) / oracleState.seq));
+  }
+
+  const oracleSeq = oracleState ? oracleState.seq : 0;
+  const slotsByIndex = new Map();
+  for (let i = 0; i < decodedSlots.length; i++) {
+    const d = decodedSlots[i];
+    const slot = SOURCES.findIndex(s => s.id === d.sourceId);
+    if (slot < 0) { errors.push('unknown sourceId ' + d.sourceId); continue; }
+    if (slotsByIndex.has(slot)) { errors.push('dup slot ' + slot); continue; }
+    const br = balanceResults[i];
+    let addr, sats;
+    if (br.status === 'fulfilled') { addr = br.value.addr; sats = br.value.sats; }
+    else { addr = cashaddrEncodeP2PKH(CASHADDR_PREFIX, d.pkh); sats = 0n; errors.push('balance slot ' + slot + ': ' + br.reason.message); }
+    const cyclesOfRunway = Number(sats / EXPECTED_SATS_PER_CYCLE);
+    const cyclesBehind = Math.max(0, oracleSeq - d.cycleSeq);
+    const status = (cyclesOfRunway < 5) ? 'unfunded' : (cyclesBehind > 3) ? 'stalled' : (cyclesBehind > 0) ? 'lagging' : 'ok';
+    slotsByIndex.set(slot, {
+      slot, sourceId: d.sourceId, sourceName: SOURCES[slot].name,
+      publisherPkh: bytesToHex(d.pkh), publisherAddress: addr,
+      lastAttestTs: d.timestamp, lastCycleSeq: d.cycleSeq, cyclesBehind,
+      walletBalanceSats: sats.toString(), cyclesOfRunway,
+      runwayDurationSec: cyclesOfRunway * cycleStrideSec, status,
+    });
+  }
+  const slots = Array.from(slotsByIndex.values()).sort((a, b) => a.slot - b.slot);
+  const slotsCurrent = slots.filter(s => s.cyclesBehind === 0).length;
+  const slotsLagging = slots.filter(s => s.cyclesBehind > 0 && s.cyclesBehind <= 3).length;
+  const slotsStalled = slots.filter(s => s.cyclesBehind > 3).length;
+  const slotsUnfunded = slots.filter(s => s.status === 'unfunded').length;
+  const quorumOk = slotsCurrent >= 7;
+  const healthy = tip !== null && oracleState !== null && oracleState.ageSec < STALENESS_SEC && quorumOk;
+
+  return {
+    fetchedAt, cycleStrideSec, oracle: oracleState,
+    health: { healthy, stalenessThresholdSec: STALENESS_SEC, fulcrumTip: tip ? tip.height : null },
+    slots, aggregate: { slotsCurrent, slotsLagging, slotsStalled, slotsUnfunded, quorumOk }, errors,
+  };
+}
+let lastSnap = null;
+
+function fmtAge(s){
+  if (s == null) return '—';
+  if (s < 60) return s + 's';
+  if (s < 3600) return Math.floor(s/60) + 'm ' + (s%60).toString().padStart(2,'0') + 's';
+  if (s < 86400) return Math.floor(s/3600) + 'h ' + Math.floor((s%3600)/60).toString().padStart(2,'0') + 'm';
+  return Math.floor(s/86400) + 'd ' + Math.floor((s%86400)/3600).toString().padStart(2,'0') + 'h';
+}
+function fmtSats(s){
+  if (s == null) return '—';
+  const n = typeof s === 'string' ? Number(s) : s;
+  if (!isFinite(n)) return '—';
+  return n.toLocaleString('en-US') + ' sats';
+}
+function fmtPkh(hex){ if (!hex) return '—'; return hex.slice(0,8) + '…' + hex.slice(-8); }
+
+function updateStatusStripe(d){
+  const o = d.oracle, q = d.aggregate;
+  const healthy = d.health.healthy && q.quorumOk && q.slotsStalled === 0 && q.slotsUnfunded === 0;
+  const stripe = document.getElementById('status-stripe');
+  stripe.className = 'status-stripe ' + (healthy ? 'ok' : 'warn');
+  document.getElementById('ss-status').textContent = healthy ? 'HEALTHY' : (d.health.healthy ? 'DEGRADED' : 'UNHEALTHY');
+  document.getElementById('ss-seq').textContent = o ? '#' + o.seq.toLocaleString('en-US') : '—';
+  document.getElementById('ss-age').textContent = o ? fmtAge(o.ageSec) : '—';
+  document.getElementById('ss-quorum').textContent = q.slotsCurrent + ' / 13';
+  document.getElementById('ss-stride').textContent = d.cycleStrideSec + 's';
+  document.getElementById('ss-age-metric').classList.toggle('warn', !!o && o.ageSec >= STALENESS_SEC);
+  document.getElementById('ss-quorum-metric').classList.toggle('warn', !q.quorumOk);
+}
+
+function updateStalledBanner(d){
+  const banner = document.getElementById('stalled-banner');
+  if (!banner || !d.oracle) { if (banner) banner.hidden = true; return; }
+  const stride = d.cycleStrideSec || 60;
+  if (d.oracle.ageSec >= 5 * stride) {
+    document.getElementById('stalled-detail').textContent = 'no cycle for ' + fmtAge(d.oracle.ageSec) + ' (last cycle #' + d.oracle.seq.toLocaleString('en-US') + ')';
+    document.getElementById('stalled-stride').textContent = stride + 's';
+    banner.hidden = false;
+  } else banner.hidden = true;
+}
+
+function makeTd(text, opts){
+  const td = document.createElement('td');
+  if (opts && opts.right) td.classList.add('r');
+  if (opts && opts.cls) td.classList.add(opts.cls);
+  if (text != null) td.textContent = String(text);
+  return td;
+}
+function makeCopyButton(text){
+  const btn = document.createElement('button');
+  btn.type = 'button'; btn.className = 'copy-btn';
+  btn.textContent = 'copy'; btn.title = 'Copy ' + text;
+  btn.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      btn.textContent = 'copied'; btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = 'copy'; btn.classList.remove('copied'); }, 1400);
+    } catch {
+      btn.textContent = 'fail';
+      setTimeout(() => { btn.textContent = 'copy'; }, 1400);
+    }
+  });
+  return btn;
+}
+function makeSourceCell(sourceName, pkhShort, fullAddress){
+  const td = document.createElement('td');
+  const src = document.createElement('div'); src.className = 'src';
+  const name = document.createElement('span'); name.textContent = sourceName;
+  src.appendChild(name);
+  if (fullAddress) {
+    src.appendChild(makeCopyButton(fullAddress));
+    const explore = document.createElement('a');
+    explore.className = 'explore-btn'; explore.textContent = 'tx↗';
+    explore.href = 'https://bchexplorer.cash/chipnet/address/' + fullAddress;
+    explore.target = '_blank'; explore.rel = 'noopener';
+    explore.title = 'Open ' + fullAddress + ' in block explorer';
+    src.appendChild(explore);
+  }
+  const pkh = document.createElement('div');
+  pkh.className = 'pkh'; pkh.textContent = pkhShort;
+  td.appendChild(src); td.appendChild(pkh);
+  return td;
+}
+function makeRunwayCell(runwaySec, cyclesOfRunway){
+  const td = document.createElement('td'); td.classList.add('r');
+  if (!runwaySec || cyclesOfRunway < 1) {
+    td.textContent = 'no runway'; td.style.color = '#a02010'; return td;
+  }
+  td.appendChild(document.createTextNode(fmtAge(runwaySec)));
+  const sub = document.createElement('span');
+  sub.className = 'sub';
+  sub.textContent = '(' + cyclesOfRunway.toLocaleString('en-US') + ' cycles)';
+  td.appendChild(document.createTextNode(' ')); td.appendChild(sub);
+  return td;
+}
+function makeStatusCell(status){
+  const td = document.createElement('td');
+  td.classList.add('r', 'status', 'status-' + status);
+  td.textContent = status; return td;
+}
+function makeRow(s, slotErrorSet){
+  const tr = document.createElement('tr');
+  const nowSec = Math.floor(Date.now() / 1000);
+  const ageAttest = Math.max(0, nowSec - s.lastAttestTs);
+  tr.dataset.slot = String(s.slot);
+  tr.dataset.lastAttestTs = String(s.lastAttestTs);
+  if (slotErrorSet && slotErrorSet.has(s.slot)) tr.classList.add('has-error');
+  tr.appendChild(makeTd(String(s.slot)));
+  tr.appendChild(makeSourceCell(s.sourceName, fmtPkh(s.publisherPkh), s.publisherAddress));
+  const ageTd = document.createElement('td'); ageTd.classList.add('r', 'age-attest');
+  ageTd.appendChild(document.createTextNode(fmtAge(ageAttest) + ' '));
+  const ago = document.createElement('span'); ago.className = 'sub'; ago.textContent = 'ago';
+  ageTd.appendChild(ago);
+  tr.appendChild(ageTd);
+  tr.appendChild(makeTd(s.cyclesBehind === 0 ? '—' : '−' + s.cyclesBehind, { right: true }));
+  tr.appendChild(makeRunwayCell(s.runwayDurationSec, s.cyclesOfRunway));
+  tr.appendChild(makeTd(fmtSats(s.walletBalanceSats), { right: true }));
+  tr.appendChild(makeStatusCell(s.status));
+  return tr;
+}
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+function drawSparkline(svg, values){
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+  if (!values || values.length < 2) return;
+  const W = 100, H = 34;
+  svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+  svg.setAttribute('preserveAspectRatio', 'none');
+  const min = Math.min(...values), max = Math.max(...values);
+  const range = (max - min) || 1;
+  const step = W / (values.length - 1);
+  const pts = values.map((v, i) => (i * step).toFixed(2) + ',' + (H - 2 - ((v - min) / range) * (H - 4)).toFixed(2)).join(' ');
+  const poly = document.createElementNS(SVG_NS, 'polyline');
+  poly.setAttribute('points', pts);
+  poly.setAttribute('fill', 'none');
+  poly.setAttribute('stroke', '#1a1a18');
+  poly.setAttribute('stroke-width', '1.2');
+  poly.setAttribute('vector-effect', 'non-scaling-stroke');
+  svg.appendChild(poly);
+}
+function renderSparklines(recent){
+  if (!recent || recent.length < 2) {
+    ['spark-seq','spark-quorum','spark-stride'].forEach(id => {
+      const el = document.getElementById(id);
+      while (el && el.firstChild) el.removeChild(el.firstChild);
+    });
+    return;
+  }
+  drawSparkline(document.getElementById('spark-seq'), recent.map(e => e.seq));
+  drawSparkline(document.getElementById('spark-quorum'), recent.map(e => e.slotsCurrent));
+  drawSparkline(document.getElementById('spark-stride'), recent.map(e => e.cycleStrideSec));
+  const last = recent[recent.length - 1];
+  document.getElementById('spark-seq-v').textContent = '#' + last.seq.toLocaleString('en-US');
+  document.getElementById('spark-quorum-v').textContent = last.slotsCurrent + ' / 13';
+  document.getElementById('spark-stride-v').textContent = last.cycleStrideSec + 's';
+}
+function renderErrors(errors){
+  const fold = document.getElementById('fold-errors');
+  const list = document.getElementById('errors-list');
+  const ct = document.getElementById('fold-errors-count');
+  while (list.firstChild) list.removeChild(list.firstChild);
+  if (!errors || errors.length === 0) {
+    fold.hidden = true; fold.classList.remove('alert'); fold.removeAttribute('open');
+    ct.textContent = '0'; return;
+  }
+  for (const e of errors) {
+    const li = document.createElement('li'); li.textContent = String(e);
+    list.appendChild(li);
+  }
+  fold.hidden = false; fold.classList.add('alert'); fold.setAttribute('open', '');
+  ct.textContent = String(errors.length);
+}
+function extractErrorSlots(errors){
+  const set = new Set();
+  if (!errors) return set;
+  for (const e of errors) {
+    const m = /\bslot (\d+)\b/i.exec(String(e));
+    if (m) set.add(Number(m[1]));
+  }
+  return set;
+}
+
+function render(d){
+  updateStatusStripe(d);
+  updateStalledBanner(d);
+  document.getElementById('ts-strip').textContent = 'reading direct from ' + new URL(FULCRUM_WSS).host + ' · refreshed ' + new Date(d.fetchedAt * 1000).toISOString().replace('T', ' ').slice(0, 19);
+  const slotErrorSet = extractErrorSlots(d.errors);
+  const tbody = document.getElementById('slot-rows');
+  while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
+  if (!d.slots || d.slots.length === 0) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 7; td.style.textAlign = 'center';
+    td.style.padding = '1.5rem'; td.style.color = '#a02010';
+    td.textContent = 'no slot UTXOs found';
+    tr.appendChild(td); tbody.appendChild(tr);
+  } else {
+    for (const s of d.slots) tbody.appendChild(makeRow(s, slotErrorSet));
+  }
+  renderSparklines(history);
+  renderErrors(d.errors);
+}
+
+function renderHardError(msg){
+  const tbody = document.getElementById('slot-rows');
+  while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
+  const tr = document.createElement('tr');
+  const td = document.createElement('td');
+  td.colSpan = 7; td.style.textAlign = 'center';
+  td.style.padding = '1.5rem'; td.style.color = '#a02010';
+  td.textContent = msg;
+  tr.appendChild(td); tbody.appendChild(tr);
+  renderErrors([msg]);
+}
+
+const client = new ElectrumWS(FULCRUM_WSS);
+const history = [];
+
+async function poll(){
+  try {
+    const d = await buildSnapshot(client);
+    lastSnap = d;
+    render(d);
+    if (d.oracle && (history.length === 0 || history[history.length - 1].seq !== d.oracle.seq)) {
+      history.push({
+        seq: d.oracle.seq, lastTs: d.oracle.lastTs, medianUsd: d.oracle.medianUsd,
+        slotsCurrent: d.aggregate.slotsCurrent, cycleStrideSec: d.cycleStrideSec,
+      });
+      if (history.length > 50) history.shift();
+    }
+  } catch (e) {
+    renderHardError('fulcrum read failed: ' + (e && e.message ? e.message : String(e)));
+  }
+}
+
+function tick(){
+  if (!lastSnap) return;
+  const nowSec = Math.floor(Date.now() / 1000);
+  if (lastSnap.oracle) {
+    const age = Math.max(0, nowSec - lastSnap.oracle.lastTs);
+    const el = document.getElementById('ss-age');
+    if (el) el.textContent = fmtAge(age);
+    document.getElementById('ss-age-metric').classList.toggle('warn', age >= STALENESS_SEC);
+  }
+  const rows = document.querySelectorAll('#slot-rows tr[data-last-attest-ts]');
+  rows.forEach(tr => {
+    const ts = Number(tr.dataset.lastAttestTs);
+    if (!isFinite(ts) || ts <= 0) return;
+    const cell = tr.querySelector('td.age-attest');
+    if (!cell) return;
+    const age = Math.max(0, nowSec - ts);
+    const sub = cell.querySelector('span.sub');
+    while (cell.firstChild) cell.removeChild(cell.firstChild);
+    cell.appendChild(document.createTextNode(fmtAge(age) + ' '));
+    if (sub) cell.appendChild(sub);
+  });
+}
+
+document.getElementById('fulcrum-host').textContent = new URL(FULCRUM_WSS).host;
+poll();
+setInterval(poll, REFRESH_MS);
+setInterval(tick, TICK_MS);
+</script>
+</body>
+</html>
