@@ -21,14 +21,26 @@ pub fn tls_client_config() -> Arc<ClientConfig> {
     Arc::new(config)
 }
 
-/// Insecure variant — accepts any server certificate. Safe for Electrum
-/// because the daemon validates all returned UTXOs by decoding their
-/// CashTokens commits against the manifest-pinned locking bytecode +
-/// version bytes; a malicious Fulcrum can at worst stall cycles, never
-/// trick the daemon into a wrong-commit broadcast.
+/// Accept any server certificate.
 ///
-/// Enabled via `TICKER_ELECTRUM_INSECURE_SKIP_VERIFY=1`. Logged at startup
-/// with a WARN-level reminder so the env var can't go silently unnoticed.
+/// **Threat model**: the daemon does not trust Fulcrum/Electrum servers for
+/// correctness. Every UTXO returned is decoded against the manifest-pinned
+/// locking-bytecode, version byte, and (for token UTXOs) covenant constraints
+/// before being acted on. A malicious or impersonated Fulcrum can stall the
+/// daemon by withholding UTXOs or returning garbage, but cannot cause it to
+/// build an incorrect tx — the covenant rejects anything off-spec.
+///
+/// Given that posture, TLS cert verification for Electrum is *integrity-only*
+/// (preventing on-path tampering of the returned UTXO blob). The current
+/// chipnet endpoint (`chipnet.bch.ninja`) presents a self-signed cert with
+/// the CA bit set, which strict rustls rejects with `CaUsedAsEndEntity`.
+/// Operators can opt into "accept any cert" mode via env var:
+///
+/// ```text
+///   TICKER_ELECTRUM_ACCEPT_ANY_CERT=1
+/// ```
+///
+/// A WARN line is logged at startup so this can't go silently unnoticed.
 pub fn tls_client_config_no_verify() -> Arc<ClientConfig> {
     let provider = rustls::crypto::ring::default_provider();
     let config = ClientConfig::builder_with_provider(Arc::new(provider))
@@ -89,10 +101,15 @@ impl ServerCertVerifier for AcceptAnyServerCert {
     }
 }
 
-/// Picks the TLS config based on `TICKER_ELECTRUM_INSECURE_SKIP_VERIFY` env var.
+/// Picks the TLS config based on `TICKER_ELECTRUM_ACCEPT_ANY_CERT` env var.
+/// See [`tls_client_config_no_verify`] for the threat-model justification.
 pub fn tls_client_config_from_env() -> Arc<ClientConfig> {
-    if std::env::var("TICKER_ELECTRUM_INSECURE_SKIP_VERIFY").as_deref() == Ok("1") {
-        eprintln!("WARN: TICKER_ELECTRUM_INSECURE_SKIP_VERIFY=1 — TLS cert verification disabled");
+    if std::env::var("TICKER_ELECTRUM_ACCEPT_ANY_CERT").as_deref() == Ok("1") {
+        eprintln!(
+            "WARN: TICKER_ELECTRUM_ACCEPT_ANY_CERT=1 — Electrum TLS cert verification skipped \
+             (safe by threat model: Fulcrum is untrusted, daemon validates all UTXOs via \
+             on-chain commit decode; see crates/ticker-core/src/electrum/tls.rs)"
+        );
         tls_client_config_no_verify()
     } else {
         tls_client_config()

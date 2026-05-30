@@ -41,11 +41,18 @@ use stats_collector::{NotaryIdentity, RealStatsCollector};
 
 const NOTARY_BASE_PORT: u16 = 8081;
 const TICKER_HOME_ENV: &str = "TICKER_HOME";
-const DEFAULT_TICKER_HOME: &str = ".ticker";
 
-/// Resolve a path inside `$TICKER_HOME/`, defaulting to `.ticker/` in the CWD.
+/// Resolve a path inside `$TICKER_HOME/`. Defaults to `$HOME/.ticker/` if the
+/// env var is unset. Errors out only if BOTH `TICKER_HOME` and `HOME` are
+/// unset, which would be a deeply unusual systemd or container config.
 fn home_path(suffix: &str) -> PathBuf {
-    let base = std::env::var(TICKER_HOME_ENV).unwrap_or_else(|_| DEFAULT_TICKER_HOME.to_string());
+    let base = std::env::var(TICKER_HOME_ENV).unwrap_or_else(|_| {
+        let home = std::env::var("HOME").unwrap_or_else(|_| {
+            eprintln!("ticker-node: neither TICKER_HOME nor HOME is set; falling back to ./.ticker");
+            ".".to_string()
+        });
+        format!("{home}/.ticker")
+    });
     PathBuf::from(base).join(suffix)
 }
 const ELECTRUM_TIMEOUT_SEC: u64 = 30;

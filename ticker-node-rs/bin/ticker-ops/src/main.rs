@@ -1,29 +1,28 @@
 //! ticker-ops — coordinator-side tooling.
 //!
 //! Subcommands:
+//!
+//!   ticker-ops setup-all [--seed PATH] [--state PATH] [--out-base DIR]
+//!                       [--network chipnet|mainnet]
+//!                       [--electrum-host HOST] [--electrum-port PORT]
+//!                       [--electrum-tls BOOL]
+//!     Generate 13 per-slot install directories from seed + deploy-state.
+//!
 //!   ticker-ops dump-state [--state-dir .ticker]
-//!     Print deploy + per-publisher state as JSON.
+//!     Print manifest + deploy-state + per-publisher state as JSON.
 //!
-//!   ticker-ops fund --per N [--seed .ticker/seed.hex]
-//!                  [--manifest .ticker/manifest.json] [--broadcast]
-//!     Distribute N sats from master to each of 13 publisher wallets.
+//!   ticker-ops fund --per N [--slots N,M,K] [--seed PATH] [--manifest PATH]
+//!                   [--broadcast]
+//!     Distribute N sats from master to publishers. Without --slots, all 13.
 //!
-//!   ticker-ops bake --output install.sh
-//!                  [--seed .ticker/seed.hex] [--manifest .ticker/manifest.json]
-//!                  --role notary|publisher --slot N
-//!                  --binary-url URL --binary-sha256 HEX
-//!     Produce a self-extracting bash installer bundling key + manifest +
-//!     binary download URL for one operator.
-//!
-//!   ticker-ops deploy [--broadcast] [--seed PATH]
-//!     Run the v12 genesis ceremony — Ticker mint, Oracle mint with bootstrap
-//!     commit, PublisherSlot fleet mint (13 slots). Idempotent + resumable
-//!     via .ticker/deploy-state.json.
+//!   ticker-ops send --seed PATH --label LABEL --to ADDR --amount SATS
+//!                   [--electrum-host HOST] [--electrum-port PORT]
+//!                   [--network chipnet|mainnet] [--broadcast]
+//!     Sweep / top-up from any labeled wallet to a P2PKH address.
 
-mod bake;
-mod deploy;
 mod dump;
 mod fund;
+mod p2pkh;
 mod send;
 mod setup;
 mod state;
@@ -39,7 +38,7 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = pico_args::Arguments::from_env();
     let subcmd = args
         .subcommand()?
-        .ok_or("ticker-ops: missing subcommand (dump-state|fund|bake|deploy)")?;
+        .ok_or("ticker-ops: missing subcommand (setup-all|dump-state|fund|send)")?;
     match subcmd.as_str() {
         "dump-state" => {
             let state_dir: String = args
@@ -65,27 +64,6 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
                 .transpose()?;
             let broadcast = args.contains("--broadcast");
             fund::fund(&seed, &manifest, per_publisher, only_slots, broadcast)
-        }
-        "bake" => {
-            let output: String = args.value_from_str("--output")?;
-            let role: String = args.value_from_str("--role")?;
-            let slot: u8 = args.value_from_str("--slot")?;
-            let binary_url: String = args.value_from_str("--binary-url")?;
-            let binary_sha256: String = args.value_from_str("--binary-sha256")?;
-            let seed: String = args
-                .opt_value_from_str("--seed")?
-                .unwrap_or_else(|| ".ticker/seed.hex".to_string());
-            let manifest: String = args
-                .opt_value_from_str("--manifest")?
-                .unwrap_or_else(|| ".ticker/manifest.json".to_string());
-            bake::bake(&seed, &manifest, &role, slot, &binary_url, &binary_sha256, &output)
-        }
-        "deploy" => {
-            let broadcast = args.contains("--broadcast");
-            let seed: String = args
-                .opt_value_from_str("--seed")?
-                .unwrap_or_else(|| ".ticker/seed.hex".to_string());
-            deploy::deploy(&seed, broadcast)
         }
         "send" => {
             let seed: String = args.value_from_str("--seed")?;
@@ -118,17 +96,15 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
             let state: String = args
                 .opt_value_from_str("--state")?
                 .unwrap_or_else(|| ".ticker/deploy-state.json".to_string());
-            let out_base: String = args
-                .opt_value_from_str("--out-base")?
-                .unwrap_or_else(|| {
-                    std::env::var("HOME").unwrap_or_else(|_| ".".to_string())
-                });
+            let out_base: String = args.opt_value_from_str("--out-base")?.unwrap_or_else(|| {
+                std::env::var("HOME").unwrap_or_else(|_| ".".to_string())
+            });
             let network: String = args
                 .opt_value_from_str("--network")?
                 .unwrap_or_else(|| "chipnet".to_string());
             let electrum_host: String = args
                 .opt_value_from_str("--electrum-host")?
-                .unwrap_or_else(|| "fulcrum.layer1.cash".to_string());
+                .unwrap_or_else(|| "chipnet.bch.ninja".to_string());
             let electrum_port: u16 = args.opt_value_from_str("--electrum-port")?.unwrap_or(50002);
             let electrum_tls: bool = args.opt_value_from_str("--electrum-tls")?.unwrap_or(true);
             setup::setup_all(

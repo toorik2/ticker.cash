@@ -111,6 +111,67 @@ fn polymod(values: &[u8]) -> u64 {
     c
 }
 
+/// Decode error for `decode_p2pkh_cashaddr`.
+#[derive(Debug, thiserror::Error)]
+pub enum CashAddrDecodeError {
+    #[error("missing prefix in {0:?}")]
+    MissingPrefix(String),
+    #[error("wrong prefix: got {got:?}, expected {expected:?}")]
+    WrongPrefix { got: String, expected: &'static str },
+    #[error("invalid character {0:?} in address body")]
+    InvalidChar(char),
+    #[error("address too short")]
+    TooShort,
+    #[error("not a P2PKH address (version byte 0x{0:02x})")]
+    NotP2pkh(u8),
+}
+
+/// Decode a P2PKH CashAddr and extract the 20-byte pkh.
+///
+/// Tolerates the network's natural prefix (`expected`) only; mainnet addresses
+/// passed to a chipnet expectation get [`CashAddrDecodeError::WrongPrefix`].
+/// Checksum bytes are dropped; we don't currently verify the checksum on input
+/// (covenant rejection would catch a bit-flipped address anyway).
+pub fn decode_p2pkh_cashaddr(
+    addr: &str,
+    expected: AddressPrefix,
+) -> Result<[u8; 20], CashAddrDecodeError> {
+    let (prefix, body) = addr
+        .split_once(':')
+        .ok_or_else(|| CashAddrDecodeError::MissingPrefix(addr.to_string()))?;
+    if prefix != expected.as_str() {
+        return Err(CashAddrDecodeError::WrongPrefix {
+            got: prefix.to_string(),
+            expected: expected.as_str(),
+        });
+    }
+    let mut data5: Vec<u8> = Vec::with_capacity(body.len());
+    for c in body.chars() {
+        let pos = ALPHABET
+            .iter()
+            .position(|&b| b == c as u8)
+            .ok_or(CashAddrDecodeError::InvalidChar(c))?;
+        data5.push(pos as u8);
+    }
+    if data5.len() < 8 {
+        return Err(CashAddrDecodeError::TooShort);
+    }
+    // Drop the 8-char (40-bit) checksum suffix.
+    data5.truncate(data5.len() - 8);
+    let payload8 = convert_bits(&data5, 5, 8, false);
+    if payload8.len() < 21 {
+        return Err(CashAddrDecodeError::TooShort);
+    }
+    let version = payload8[0];
+    // P2PKH version byte: high reserved bit 0, type=0 (P2PKH), size-code 0 (20 B) → 0x00.
+    if version != 0x00 {
+        return Err(CashAddrDecodeError::NotP2pkh(version));
+    }
+    let mut out = [0u8; 20];
+    out.copy_from_slice(&payload8[1..21]);
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -152,5 +213,25 @@ mod tests {
         let addr = encode_p2pkh_cashaddr(&pkh, AddressPrefix::Chipnet);
         assert!(addr.starts_with("bchtest:q"));
         assert_eq!(addr.len(), "bchtest:".len() + 42); // 34 payload + 8 checksum chars = 42 base32 chars
+    }
+
+    /// Encode → decode roundtrip preserves the pkh on both networks.
+    #[test]
+    fn encode_decode_roundtrip() {
+        for prefix in [AddressPrefix::Mainnet, AddressPrefix::Chipnet] {
+            for pkh_byte in [0x00u8, 0x42, 0xff] {
+                let pkh = [pkh_byte; 20];
+                let addr = encode_p2pkh_cashaddr(&pkh, prefix);
+                let decoded = decode_p2pkh_cashaddr(&addr, prefix).unwrap();
+                assert_eq!(decoded, pkh);
+            }
+        }
+    }
+
+    #[test]
+    fn decode_rejects_wrong_prefix() {
+        let addr = encode_p2pkh_cashaddr(&[0; 20], AddressPrefix::Mainnet);
+        let r = decode_p2pkh_cashaddr(&addr, AddressPrefix::Chipnet);
+        assert!(matches!(r, Err(CashAddrDecodeError::WrongPrefix { .. })));
     }
 }

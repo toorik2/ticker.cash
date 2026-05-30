@@ -64,16 +64,3 @@ pub fn load(path: impl AsRef<Path>) -> Result<DeployState, Box<dyn std::error::E
         Err(e) => Err(Box::new(e)),
     }
 }
-
-pub fn save(
-    path: impl AsRef<Path>,
-    state: &DeployState,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let path = path.as_ref();
-    if let Some(parent) = path.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-    let body = serde_json::to_vec_pretty(state)?;
-    fs::write(path, body)?;
-    Ok(())
-}

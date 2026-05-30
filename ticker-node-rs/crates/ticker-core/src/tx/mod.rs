@@ -17,7 +17,9 @@ pub use attest::{
 pub use update::{
     build_oracle_update_tx, CycleSlotUtxo, OracleUtxo, UpdateArgs, UpdateError,
 };
-pub use cashaddr::{encode_p2pkh_cashaddr, AddressPrefix};
+pub use cashaddr::{
+    decode_p2pkh_cashaddr, encode_p2pkh_cashaddr, AddressPrefix, CashAddrDecodeError,
+};
 pub use encode::{
     encode_tx, encode_varint, Input, Output, TokenPrefix, Tx, TxOutpoint, MUTABLE_CAPABILITY,
     MINTING_CAPABILITY, NO_CAPABILITY,
