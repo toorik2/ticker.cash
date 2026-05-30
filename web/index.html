@@ -96,7 +96,7 @@
 
     <div class="lead">
       <p>A <b>decentralized BCH/USD price feed</b> on Bitcoin Cash chipnet. A smart contract takes the median of ≥ 7 of 13 publisher attestations and commits it on chain. Every 60s.</p>
-      <p>The trust root is the <b>7-of-13 publisher quorum</b>: corrupting fewer than 7 publishers can't move the median; the covenant absorbs ≤ 6 outliers without bias. No admin keys, no upgrade path, no governance signers — the rules are in <code>Oracle.cash</code> + <code>PublisherSlot.cash</code>, deployed once, immutable.</p>
+      <p>The trust root is the <b>7-of-13 publisher quorum</b>: corrupting fewer than 7 publishers can't move the median; the covenant absorbs ≤ 6 outliers without bias. No admin keys, no upgrade path.</p>
       <p><b>Read the price.</b> On-chain: spend a Ticker NFT as an input, decode its 17-byte commit. Off-chain: <code>GET /api/v1/price</code>. Full integration guide, signature inventory, and operator playbook in the <a href="/docs">docs</a> · live federation state at <a href="/stats">stats</a>.</p>
     </div>
 
