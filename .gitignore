@@ -6,6 +6,7 @@ package-lock.json
 
 # Local-only secrets — never commit
 .ticker/
+.ticker-coordinator/
 .env
 .env.local
 secrets/
