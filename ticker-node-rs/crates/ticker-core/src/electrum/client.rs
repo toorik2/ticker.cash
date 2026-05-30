@@ -5,7 +5,7 @@
 //! Auto-reconnect on disconnect is the caller's responsibility (the cycle
 //! orchestrator catches `Disconnected` and retries).
 
-use super::tls::tls_client_config;
+use super::tls::tls_client_config_from_env;
 use super::types::Utxo;
 use rustls::pki_types::ServerName;
 use rustls::{ClientConnection, StreamOwned};
@@ -88,7 +88,7 @@ impl ElectrumClient {
         tcp.set_read_timeout(Some(read_timeout))?;
         tcp.set_write_timeout(Some(read_timeout))?;
 
-        let config = tls_client_config();
+        let config = tls_client_config_from_env();
         let server_name = ServerName::try_from(host.to_string())
             .map_err(|_| ElectrumError::InvalidServerName(host.to_string()))?;
         let conn = ClientConnection::new(config, server_name)?;
@@ -131,6 +131,21 @@ impl ElectrumClient {
     /// with CashTokens `token_data` attached.
     pub fn list_unspent(&mut self, address: &str) -> Result<Vec<Utxo>, ElectrumError> {
         let result = self.call("blockchain.address.listunspent", [address])?;
+        Ok(serde_json::from_value(result)?)
+    }
+
+    /// `blockchain.scripthash.listunspent` with `include_tokens` hint —
+    /// scripthash form is what Fulcrum honours for CashTokens-bearing addresses
+    /// (the `address.listunspent` path returns empty for token-aware addresses
+    /// against current chipnet servers).
+    pub fn list_unspent_by_scripthash(
+        &mut self,
+        scripthash_hex: &str,
+    ) -> Result<Vec<Utxo>, ElectrumError> {
+        let result = self.call(
+            "blockchain.scripthash.listunspent",
+            [scripthash_hex, "include_tokens"],
+        )?;
         Ok(serde_json::from_value(result)?)
     }
 

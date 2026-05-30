@@ -75,6 +75,31 @@ pub fn run_publisher<E: Env>(
                 state = CycleState::Idle;
             }
             Ok(next) => {
+                match &next {
+                    CycleState::Snapshotted { snap } => log_info!(
+                        "snapshot",
+                        "n" => cycle_counter,
+                        "new_seq" => snap.new_seq,
+                        "mine_cycle_seq" => snap.mine_slot_commit.cycle_seq
+                    ),
+                    CycleState::Attested { attest_txid, snap } => log_info!(
+                        "attest ok",
+                        "n" => cycle_counter,
+                        "new_seq" => snap.new_seq,
+                        "txid" => hex::encode(attest_txid)
+                    ),
+                    CycleState::AlreadyAttested { snap } => log_info!(
+                        "already attested",
+                        "n" => cycle_counter,
+                        "new_seq" => snap.new_seq
+                    ),
+                    CycleState::QuorumReached { cycle_slot_commits, .. } => log_info!(
+                        "quorum",
+                        "n" => cycle_counter,
+                        "count" => cycle_slot_commits.len()
+                    ),
+                    _ => {}
+                }
                 state = next;
             }
             Err(e) => {
@@ -87,12 +112,12 @@ pub fn run_publisher<E: Env>(
                     None
                 };
                 match sev {
-                    Severity::Soft => log_info!("cycle soft", "msg" => msg, "n" => cycle_counter),
+                    Severity::Soft => log_info!("cycle soft", "err" => msg, "n" => cycle_counter),
                     Severity::Transient => {
-                        log_warn!("cycle transient", "msg" => msg, "n" => cycle_counter)
+                        log_warn!("cycle transient", "err" => msg, "n" => cycle_counter)
                     }
                     Severity::Hard => {
-                        log_error!("cycle hard", "msg" => msg, "n" => cycle_counter)
+                        log_error!("cycle hard", "err" => msg, "n" => cycle_counter)
                     }
                 }
                 if counts {

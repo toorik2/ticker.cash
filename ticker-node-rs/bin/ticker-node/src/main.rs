@@ -235,6 +235,13 @@ fn address_prefix_for(network: &Network) -> AddressPrefix {
     }
 }
 
+/// Electrum scripthash convention: `sha256(locking_script)`, reversed, lowercase hex.
+fn scripthash_of(locking_script: &[u8]) -> String {
+    let mut h = ticker_core::crypto::sha256(locking_script);
+    h.reverse();
+    hex::encode(h)
+}
+
 fn build_publisher_cfg(
     m: &Manifest,
     key: &OperatorKey,
@@ -295,6 +302,12 @@ fn build_publisher_cfg(
     let prefix = address_prefix_for(&m.network);
     let publisher_address = encode_p2pkh_cashaddr(&key.pkh, prefix);
 
+    // Precompute Electrum scripthashes (sha256(locking_script) reversed, lowercase hex).
+    let pub_lock = ticker_core::tx::script::p2pkh_locking_script(&key.pkh).to_vec();
+    let publisher_scripthash_hex = scripthash_of(&pub_lock);
+    let oracle_scripthash_hex = scripthash_of(&oracle_lb);
+    let slot_scripthash_hex = scripthash_of(&slot_lb_expected);
+
     Ok(CycleConfig {
         slot,
         my_pkh: key.pkh,
@@ -310,6 +323,9 @@ fn build_publisher_cfg(
         publisher_address,
         oracle_address: m.oracle.address.clone(),
         slot_address: m.slot.address.clone(),
+        oracle_scripthash_hex,
+        slot_scripthash_hex,
+        publisher_scripthash_hex,
         oracle_category_be_hex: m.oracle.category.clone(),
         slot_category_be_hex: m.slot.category.clone(),
         poll_interval: Duration::from_secs(POLL_INTERVAL_SEC),

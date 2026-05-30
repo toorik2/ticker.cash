@@ -20,7 +20,8 @@ pub struct TokenData {
     #[serde(default)]
     pub nft: Option<NftBody>,
     /// Optional fungible amount (we don't use; v12 tokens are NFT-only).
-    #[serde(default)]
+    /// Fulcrum sends as a string ("0"); we deliberately don't parse it.
+    #[serde(default, skip)]
     pub amount: Option<u64>,
 }
 

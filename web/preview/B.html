@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="theme-color" content="#f3efe4" />
+<title>Ticker · BCH/USD · v.B</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;700&display=swap');
+  *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+  html{scrollbar-gutter:stable;scroll-behavior:smooth}
+  html,body{min-height:100vh;background:#f3efe4;color:#1a1a18;font-family:'IBM Plex Mono',monospace;font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased}
+  a{color:#1a1a18;text-decoration:underline;text-underline-offset:3px;text-decoration-thickness:1px;text-decoration-color:#b6b1a3}
+  a:hover{text-decoration-color:#1a1a18}
+  .preview-bar{background:#1a1a18;color:#fffcf0;text-align:center;padding:0.55rem;font-size:11px;letter-spacing:0.15em;text-transform:uppercase;font-weight:500}
+  .preview-bar a{color:#fffcf0;text-decoration:underline;text-decoration-color:#6a6457;margin:0 0.5rem}
+  .head{padding:1rem 1.75rem;display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:0.5rem;border-bottom:1px solid #c8c2b3}
+  .head .l{font-weight:700;letter-spacing:0.22em;text-transform:uppercase;font-size:13px;display:flex;align-items:baseline;gap:0.6rem}
+  .head .l .pair{color:#6a6457;font-weight:400;letter-spacing:0.08em;font-size:11px;text-transform:none}
+  .head .r{font-size:11px;color:#6a6457;display:flex;gap:1.25rem;align-items:center}
+  .head .r a{color:#6a6457;text-decoration:none;border-bottom:1px solid transparent}
+  .head .r a:hover{color:#1a1a18;border-bottom-color:#6a6457}
+  .doc{max-width:1180px;margin:0 auto;padding:3rem 1.75rem 5rem;display:grid;grid-template-columns:1fr 280px;gap:3rem;align-items:start}
+  @media(max-width:960px){.doc{grid-template-columns:1fr;gap:2.5rem}}
+  .main{min-width:0}
+  .price-panel{border:1px solid #1a1a18;display:grid;grid-template-columns:auto 1fr;background:#fffcf0;margin-bottom:2.5rem}
+  .vtag{background:#1a1a18;color:#fffcf0;writing-mode:vertical-rl;transform:rotate(180deg);padding:1rem 0.55rem;font-size:10.5px;font-weight:600;letter-spacing:0.4em;text-transform:uppercase;display:flex;align-items:center;justify-content:center}
+  .price-body{padding:2rem 2.25rem 1.5rem}
+  .price-big{font-size:clamp(2.5rem,7vw,4.25rem);font-weight:300;line-height:0.9;letter-spacing:-0.055em;font-variant-numeric:tabular-nums;color:#1a1a18}
+  .price-big .d{font-weight:300;color:#8a8472;margin-right:0.04em}
+  .price-trust{margin-top:0.55rem;font-size:11.5px;color:#6a6457;letter-spacing:0.04em}
+  .price-trust b{color:#1a1a18;font-weight:600}
+  .price-stats{margin-top:1.2rem;display:flex;flex-direction:column;border-top:1px solid #ecebe0}
+  .price-stats .row{display:grid;grid-template-columns:8.5rem 1fr auto;align-items:baseline;gap:1rem;padding:0.4rem 0;border-bottom:1px solid #ecebe0;font-size:12.5px}
+  .price-stats .row:last-child{border-bottom:none}
+  .price-stats .k{color:#6a6457;text-transform:uppercase;font-size:10.5px;letter-spacing:0.1em;font-weight:500}
+  .price-stats .v{font-weight:600;font-variant-numeric:tabular-nums;color:#1a1a18;grid-column:3;text-align:right}
+  .price-stats .v.warn{color:#a02010}
+  .price-stats .v.ok{color:#1a7b3b}
+  .doc-lead{font-size:14px;line-height:1.75;color:#3a3a32;margin-bottom:2.5rem;max-width:42rem}
+  .doc-lead b{color:#1a1a18;font-weight:600}
+  section.chapter{margin-bottom:3rem;padding-top:1rem}
+  section.chapter:target{padding-top:1.5rem}
+  section.chapter>h2{font-size:11px;letter-spacing:0.22em;text-transform:uppercase;font-weight:600;color:#1a1a18;border-bottom:1px solid #c8c2b3;padding-bottom:0.45rem;margin-bottom:1.5rem;display:flex;justify-content:space-between;gap:0.5rem}
+  section.chapter>h2 .num{color:#8a8472;font-weight:500;letter-spacing:0.05em;margin-right:0.6rem}
+  section.chapter h3{font-size:13.5px;font-weight:600;color:#1a1a18;margin:1.85rem 0 0.65rem;letter-spacing:0.02em}
+  section.chapter h3:first-of-type{margin-top:0.5rem}
+  p{font-size:13.5px;line-height:1.75;color:#3a3a32;margin-bottom:0.95rem}
+  p b,li b{color:#1a1a18;font-weight:600}
+  ul,ol.body{margin:0.4rem 0 0.95rem 1.5rem;padding:0}
+  ul li,ol.body li{font-size:13.5px;line-height:1.7;color:#3a3a32;margin-bottom:0.4rem}
+  code{font-family:inherit;font-size:0.92em;background:#ecebe0;padding:0.05em 0.35em;border-radius:2px;word-break:break-word}
+  pre{background:#1a1a18;color:#f3efe4;font-family:inherit;font-size:12px;line-height:1.65;padding:1.1rem 1.25rem;border-radius:2px;overflow-x:auto;margin:0.6rem 0 1.1rem}
+  pre code{background:transparent;padding:0;font-size:inherit;color:inherit}
+  table{width:100%;border-collapse:collapse;margin:0.5rem 0 1.2rem;font-size:12.5px}
+  table th,table td{text-align:left;padding:0.55rem 0.85rem;border-bottom:1px solid #ecebe0;vertical-align:top}
+  table th{font-size:10.5px;letter-spacing:0.12em;text-transform:uppercase;color:#6a6457;font-weight:600;border-bottom:1px solid #c8c2b3;background:#fffcf0}
+  table td code{font-size:11.5px}
+  .callout{border-left:2px solid #1a1a18;background:#fffcf0;padding:1rem 1.15rem;margin:0.85rem 0 1.2rem;font-size:12.5px;line-height:1.7;color:#3a3a32}
+  .callout b{color:#1a1a18}
+  .side{position:sticky;top:1.5rem;display:flex;flex-direction:column;gap:1.5rem}
+  .side h4{font-size:10.5px;letter-spacing:0.22em;text-transform:uppercase;font-weight:600;color:#1a1a18;border-bottom:1px solid #c8c2b3;padding-bottom:0.45rem;margin-bottom:0.7rem}
+  .side .kv{font-size:12px;display:flex;flex-direction:column}
+  .side .kv .row{display:flex;justify-content:space-between;gap:0.5rem;padding:0.4rem 0;border-bottom:1px solid #ecebe0;align-items:baseline}
+  .side .kv .row:last-child{border-bottom:none}
+  .side .kv .k{color:#6a6457;font-size:11px}
+  .side .kv .v{font-weight:600;text-align:right;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+  .side .kv .v code{font-family:inherit;font-size:11px;color:#1a1a18}
+  .side .toc{font-size:12px}
+  .side .toc ol{list-style:none;counter-reset:toc;padding:0;margin:0}
+  .side .toc li{counter-increment:toc;padding:0.3rem 0;color:#6a6457}
+  .side .toc li::before{content:counter(toc,decimal-leading-zero) ' ·  ';color:#b6b1a3;font-weight:500}
+  .side .toc a{color:inherit;text-decoration:none;border-bottom:1px solid transparent}
+  .side .toc a:hover{color:#1a1a18;border-bottom-color:#b6b1a3}
+  .foot{margin-top:3rem;padding-top:0.8rem;border-top:1px solid #c8c2b3;font-size:10.5px;color:#6a6457;letter-spacing:0.1em;text-transform:uppercase;display:flex;justify-content:space-between;gap:0.5rem;flex-wrap:wrap;font-weight:500}
+</style>
+</head>
+<body>
+<div class="preview-bar">Preview · Version B · one page —
+  <a href="/preview/A-home.html">A</a> ·
+  <a href="/preview/C.html">C</a> ·
+  <a href="/">current site</a>
+</div>
+<header class="head">
+  <div class="l">▌ TICKER <span class="pair">BCH / USD · chipnet</span></div>
+  <div class="r"><a href="/api/v1/price">api</a><a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github</a></div>
+</header>
+<div class="doc">
+  <main class="main">
+    <div class="price-panel">
+      <div class="vtag">Median</div>
+      <div class="price-body">
+        <div class="price-big"><span class="d">$</span><span id="price">———</span></div>
+        <div class="price-trust">Median of <b><span id="active">—</span> publishers</b>, attested by <b>7 independent notaries</b>.</div>
+        <div class="price-stats">
+          <div class="row"><span class="k">Updated</span><span class="v" id="age">—</span></div>
+          <div class="row"><span class="k">Status</span><span class="v ok" id="status">—</span></div>
+        </div>
+      </div>
+    </div>
+
+    <p class="doc-lead">A <b>decentralized BCH/USD price feed</b> on Bitcoin Cash chipnet. Seven notaries co-witness prices from thirteen operator-diverse exchanges; any publisher relays them to a covenant that commits the per-cycle median on chain. No admin keys; the covenant is the only on-chain rule.</p>
+
+    <section class="chapter" id="trust">
+      <h2><span class="num">§01</span><span>Trust model</span></h2>
+      <p>The 7-key notary federation is the only off-chain trust assumption. Each notary independently fetches the price from its pinned CEX over TLS and signs <code>(serverName, sourceId, price, ts, cycleSeq)</code> with its Schnorr key.</p>
+      <p><b>Publishers are interchangeable relays.</b> They can't fake notary sigs, alter prices, or skip quorum. A single publisher's only adversarial power is to pick which subset of slot inputs goes into their <code>Oracle.update</code> — but the covenant position-checks the median across ≥ 7 distinct publishers, absorbing ≤ 6 outliers without bias.</p>
+      <p><b>Sources are operator-diverse.</b> 9 USD spot markets (Kraken, Coinbase, Gemini, Binance.US, Bitstamp, Crypto.com, Bitfinex, EXMO, Independent Reserve — 4 US, 5 non-US), 2 USDC (OKX, KuCoin), 2 USDT (Bybit, HTX). No operator family appears twice; no quote-currency dominates.</p>
+
+      <h3>Federation collusion model</h3>
+      <p>What a colluding <b>≥ 4 of 7</b> notaries <i>can</i> do:</p>
+      <ul><li>Sign attestations for arbitrary prices the publishers will propagate.</li></ul>
+      <p>What no collusion can do:</p>
+      <ul>
+        <li>Skip the ≥ 7 distinct-publisher quorum check.</li>
+        <li>Replay a stale notary signature — slot's cycleSeq is strict-monotonic.</li>
+        <li>Hide a cycle from observers — every transition is an on-chain tx.</li>
+        <li>Mint new slots after genesis — slot category closed by consensus.</li>
+        <li>Run the chain faster than the 30 s minimum stride enforced by <code>Oracle.cash</code>.</li>
+      </ul>
+      <p>No admin keys. No upgrade path. Adding an 8th notary is a hard cutover: fresh PublisherSlot covenant, new genesis, slot fleet migration.</p>
+    </section>
+
+    <section class="chapter" id="flow">
+      <h2><span class="num">§02</span><span>Cycle flow</span></h2>
+      <ol class="body">
+        <li>Publisher polls the Oracle UTXO for <code>prevTs</code> and <code>cycleSeq</code>.</li>
+        <li>Publisher requests a Schnorr signature from one of the 7 notaries.</li>
+        <li>Publisher broadcasts <code>PublisherSlot.attest</code>. Slot covenant verifies both Schnorr sigs, the CN/SAN hash, and the monotonic cycleSeq advance; rewrites the slot commit in place.</li>
+        <li>Publisher waits ~25 s for peer slot refreshes.</li>
+        <li>Once ≥ 7 slots carry the current cycleSeq, any publisher builds <code>Oracle.update</code> consuming the Oracle + ≥ 7 slots, re-emits each slot unchanged, and mints 2 mutable Tickers.</li>
+        <li>First to broadcast wins; losers retry on the new tip.</li>
+      </ol>
+    </section>
+
+    <section class="chapter" id="signatures">
+      <h2><span class="num">§03</span><span>Signatures</span></h2>
+      <p>Six signatures appear from <i>"an exchange quoted a price"</i> to <i>"your dApp's tx settles."</i> Three are off-chain Schnorr sigs verified per slot refresh; three are standard BCH input sigs.</p>
+
+      <h3>Step 1 · Slot refresh</h3>
+<pre><code>   Exchange         Notary           Publisher       PublisherSlot
+   (1 of 13)        (1 of 7)         (1 of 13)       covenant
+   ─────────        ────────         ─────────       ─────────────
+        │                │                │                │
+        │ ◄── TLS ────── │                │                │
+        ├── price ─────► │                │                │
+        │                │                │                │
+        │                │  Schnorr sig 1 │                │
+        │                ├──────────────► │                │
+        │                │  serverName ‖ sourceId ‖ price ‖
+        │                │  ts ‖ cycleSeq ‖ publisherPkh   │
+        │                │                │                │
+        │                │                │ Schnorr sig 2  │
+        │                │                │ sourceId ‖ price ‖
+        │                │                │ ts ‖ publisherPkh ‖
+        │                │                │ cycleSeq ‖ hash160(SN)
+        │                │                │                │
+        │                │                │  Tx sig 3 on slot.attest
+        │                │                ├──────────────► │
+        │                │                │                │
+        │                │                │      verifies 1 + 2,
+        │                │                │      cycleSeq monotone,
+        │                │                │      CN/SAN matches sourceId
+</code></pre>
+
+      <h3>Step 2 · Oracle.update (race)</h3>
+<pre><code>   ≥ 7 slots      Race-winner publisher          Oracle covenant
+        │                  │                              │
+        │                  │  Tx sig 4 (P2PKH)            │
+        │                  ├────────────────────────────► │
+        │                  │                              │
+        │                  │                  median position-check,
+        │                  │                  ≥ 7 distinct sorted pkhs,
+        │                  │                  newTs - prevTs ≥ 30,
+        │                  │                  re-emit slots, mint 2 Tickers
+</code></pre>
+
+      <h3>Step 3 · Consumer</h3>
+<pre><code>   Consumer dApp                    Ticker covenant + consumer gate
+        │                                       │
+        │  Tx sig 5 (P2PKH)                      │
+        │  in[0] = consumer covenant            │
+        │  in[1] = Ticker NFT                   │
+        │  out[0] = business output             │
+        │  out[1] = Ticker re-emit              │
+        ├─────────────────────────────────────► │
+        │                       Ticker.cash:  identical re-emit at out[1]
+        │                       Consumer:     price gate, freshness gate
+</code></pre>
+
+      <h3>Signature inventory</h3>
+      <table>
+        <thead><tr><th>#</th><th>Signer</th><th>Algorithm</th><th>Signs</th><th>Verified by</th></tr></thead>
+        <tbody>
+          <tr><td>0</td><td>Exchange TLS cert</td><td>TLS</td><td>The TLS session</td><td>Notary's TLS client</td></tr>
+          <tr><td>1</td><td>Notary (1 of 7)</td><td>Schnorr</td><td><code>serverName ‖ sourceId ‖ price ‖ ts ‖ cycleSeq ‖ publisherPkh</code></td><td>Slot.attest OR-list</td></tr>
+          <tr><td>2</td><td>Publisher (1 of 13)</td><td>Schnorr</td><td><code>sourceId ‖ price ‖ ts ‖ publisherPkh ‖ cycleSeq ‖ hash160(serverName)</code></td><td>Slot-pinned key</td></tr>
+          <tr><td>3</td><td>Publisher wallet</td><td>P2PKH</td><td>slot.attest tx</td><td>BCH consensus</td></tr>
+          <tr><td>4</td><td>Race winner</td><td>P2PKH</td><td>Oracle.update tx</td><td>BCH consensus</td></tr>
+          <tr><td>5</td><td>Consumer</td><td>P2PKH</td><td>Their own tx</td><td>BCH consensus + consumer covenant</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout"><b>What no signature in this system grants.</b> No signer can change the covenant rules, roll back a confirmed cycle, override the median, or mint new slots after genesis. Every signature is a witness inside a fixed game.</div>
+    </section>
+
+    <section class="chapter" id="integrate">
+      <h2><span class="num">§04</span><span>Integrate</span></h2>
+      <p>Two paths.</p>
+
+      <h3>On-chain (atomic)</h3>
+      <p>Spend a Ticker NFT as a tx input. The Ticker is mutable, anyone-can-spend, self-replicates via the Ticker covenant. Your tx becomes a chain-descendant of the <code>Oracle.update</code> that minted it — BCH consensus refuses to confirm it in any chain history that excludes the update.</p>
+<pre><code>input[0]   your consumer covenant
+input[1]   Ticker NFT  (from the pinned Oracle category)
+output[0]  business logic
+output[1]  Ticker re-emit  (Ticker.cash enforces structural equality)
+output[2]  optional change</code></pre>
+      <p>Decode <code>tx.inputs[1].nftCommitment</code> as:</p>
+<pre><code>0x80 | seq(4) | lastTs(4) | medianPrice(8)</code></pre>
+      <p>Little-endian throughout. <code>medianPrice / 10⁸</code> = USD. Pin the Oracle category (LE-reversed) so an attacker can't feed you a Ticker from a different oracle.</p>
+      <p>Reference covenant: <code>contracts/examples/PriceGatedRelease.cash</code> — locks BCH, releases on <code>price ≥ strike</code>. ~64 B script body.</p>
+      <div class="callout"><b>Barrier semantics caveat.</b> The reference example accepts any past Ticker that ever cleared the strike — once the gate has been historically reachable, it stays open. For "current price ≥ strike," the protocol needs a freshness witness (planned v12.2).</div>
+
+      <h3>Off-chain (JSON)</h3>
+<pre><code>$ curl -s https://usd.ticker.cash/api/v1/price</code></pre>
+      <p>No auth, CORS open. Schema below.</p>
+    </section>
+
+    <section class="chapter" id="operate">
+      <h2><span class="num">§05</span><span>Operate</span></h2>
+      <p>Two daemons, both stateless. The unified binary <code>scripts/ticker-node.ts</code> wraps either or both.</p>
+<pre><code>$ ticker-node --notary --slot 0                # notary only
+$ ticker-node --publisher --slot 0 \           # publisher only
+    --notary-url https://notary-0.ticker.cash \
+    ...×6 more...
+$ ticker-node --notary --publisher --slot 0    # bundled</code></pre>
+      <p><b>Notary</b>: HTTP daemon holding one Schnorr key. POST /sign returns a signature over the canonical message. <b>Publisher</b>: polls Oracle, requests notary sigs, runs slot.attest() each cycle, races to broadcast Oracle.update. ~12 k sats per cycle.</p>
+      <div class="callout"><b>Source.</b> <a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github.com/toorik2/ticker.cash</a>.</div>
+    </section>
+
+    <section class="chapter" id="reference">
+      <h2><span class="num">§06</span><span>Reference</span></h2>
+
+      <h3>Parameters</h3>
+      <table>
+        <tbody>
+          <tr><td>Federation size (M)</td><td>7</td><td>OR-list of independent Schnorr keys.</td></tr>
+          <tr><td>Source count (N)</td><td>13</td><td>9 USD + 2 USDC + 2 USDT.</td></tr>
+          <tr><td>Quorum floor</td><td>7</td><td>Minimum distinct publishers per cycle.</td></tr>
+          <tr><td>Quorum ratchet</td><td>~50%</td><td>max(7, ⌈0.5 × oldActive⌉). Decay 10%/cycle.</td></tr>
+          <tr><td>Cycle stride (min)</td><td>30 s</td><td>Covenant + daemon.</td></tr>
+          <tr><td>Tickers per cycle (K)</td><td>2</td><td>Mutable; anyone-can-spend.</td></tr>
+          <tr><td>Network</td><td>chipnet</td><td>Mainnet follows.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Commit layouts</h3>
+      <table>
+        <tbody>
+          <tr><td>Oracle (19 B)</td><td><code>0x60 | seq(4) | lastTs(4) | medianUsd(8) | activeCount(2)</code></td></tr>
+          <tr><td>Slot (39 B)</td><td><code>0x72 | sourceId(2) | publisherPkh(20) | price(8) | timestamp(4) | cycleSeq(4)</code></td></tr>
+          <tr><td>Ticker (17 B)</td><td><code>0x80 | seq(4) | lastTs(4) | medianPrice(8)</code></td></tr>
+        </tbody>
+      </table>
+
+      <h3>API schemas</h3>
+<pre><code>// GET /api/v1/price
+{
+  "medianUsd":    344.94,         // null if stub branch (a)
+  "scale":        "usd-e8",
+  "scaledValue":  "34494000000",
+  "lastLocktime": 1779818724,
+  "seq":          11,
+  "activeCount":  7,
+  "network":      "chipnet",
+  "deployedAt":   1779210000,
+  "fetchedAt":    1779818790,
+  "ageSec":       66,
+  "stub":         false           // (a) backend unreachable → null + 503
+                                  // (b) ageSec ≥ 300 → stale + 200
+}</code></pre>
+<pre><code>// GET /api/v1/health
+{
+  "healthy":              true,
+  "stalenessThresholdSec": 300,
+  "node":     { "ok": true, "blockHeight": 224801 },
+  "fulcrum":  { "ok": true, "tipHeight":   224801 },
+  "lastCycle": {
+    "seq":         11,
+    "locktime":    1779818724,
+    "ageSec":      66,
+    "activeCount": 7
+  },
+  "errors": []
+}</code></pre>
+    </section>
+
+    <div class="foot">
+      <div>usd.ticker.cash · chipnet</div>
+      <div><a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github</a></div>
+    </div>
+  </main>
+
+  <aside class="side">
+    <div>
+      <h4>Contents</h4>
+      <div class="toc">
+        <ol>
+          <li><a href="#trust">Trust model</a></li>
+          <li><a href="#flow">Cycle flow</a></li>
+          <li><a href="#signatures">Signatures</a></li>
+          <li><a href="#integrate">Integrate</a></li>
+          <li><a href="#operate">Operate</a></li>
+          <li><a href="#reference">Reference</a></li>
+        </ol>
+      </div>
+    </div>
+    <div>
+      <h4>Contracts</h4>
+      <div class="kv">
+        <div class="row"><span class="k">Oracle</span><span class="v"><code>rwgvjpjd…77s</code></span></div>
+        <div class="row"><span class="k">Slot</span><span class="v"><code>r0kguz7z…pn9</code></span></div>
+        <div class="row"><span class="k">Ticker</span><span class="v"><code>r0r403dh…sph</code></span></div>
+        <div class="row"><span class="k">Category</span><span class="v"><code>9880c313…d17</code></span></div>
+      </div>
+    </div>
+    <div>
+      <h4>API</h4>
+      <div class="kv">
+        <div class="row"><span class="k">Price</span><span class="v"><a href="/api/v1/price"><code>/price</code></a></span></div>
+        <div class="row"><span class="k">Health</span><span class="v"><a href="/api/v1/health"><code>/health</code></a></span></div>
+        <div class="row"><span class="k">Seq</span><span class="v">#<span id="seq">—</span></span></div>
+      </div>
+    </div>
+  </aside>
+</div>
+<script>
+const STALE_SEC=300;
+function fmtUsd(n){if(n==null||!isFinite(n))return'———';return n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}
+function fmtAge(s){if(s==null)return'—';if(s<60)return s+'s';if(s<3600)return Math.floor(s/60)+'m '+(s%60)+'s';return Math.floor(s/3600)+'h '+Math.floor((s%3600)/60)+'m'}
+let currentSeq=null,cycleObservedAtMs=null;
+function refreshAge(){if(cycleObservedAtMs==null)return;const ageSec=Math.floor((Date.now()-cycleObservedAtMs)/1000);document.getElementById('age').textContent=fmtAge(ageSec);const isStale=ageSec>STALE_SEC;const sv=document.getElementById('status');sv.textContent=isStale?'Stale':'Live';sv.className='v '+(isStale?'warn':'ok')}
+async function poll(){try{const r=await fetch('/api/v1/price',{cache:'no-store'});const d=await r.json();document.getElementById('price').textContent=fmtUsd(d.medianUsd);document.getElementById('seq').textContent=d.seq??'—';document.getElementById('active').textContent=d.activeCount??'—';if(d.seq!=null){if(currentSeq==null){currentSeq=d.seq;cycleObservedAtMs=d.lastLocktime?d.lastLocktime*1000:Date.now()}else if(d.seq!==currentSeq){currentSeq=d.seq;cycleObservedAtMs=Date.now()}}refreshAge()}catch(e){}}
+poll();setInterval(poll,12000);setInterval(refreshAge,1000);
+</script>
+</body>
+</html>

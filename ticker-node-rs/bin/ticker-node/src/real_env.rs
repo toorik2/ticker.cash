@@ -99,7 +99,7 @@ impl Env for RealEnv {
             .electrum
             .lock()
             .unwrap()
-            .list_unspent(&cfg.oracle_address)
+            .list_unspent_by_scripthash(&cfg.oracle_scripthash_hex)
             .map_err(|e| self.map_electrum(e))?;
         for u in utxos {
             let Some(td) = &u.token_data else { continue };
@@ -129,7 +129,7 @@ impl Env for RealEnv {
             .electrum
             .lock()
             .unwrap()
-            .list_unspent(&cfg.slot_address)
+            .list_unspent_by_scripthash(&cfg.slot_scripthash_hex)
             .map_err(|e| self.map_electrum(e))?;
         let mut out = Vec::with_capacity(utxos.len());
         for u in utxos {
@@ -162,7 +162,7 @@ impl Env for RealEnv {
             .electrum
             .lock()
             .unwrap()
-            .list_unspent(&cfg.publisher_address)
+            .list_unspent_by_scripthash(&cfg.publisher_scripthash_hex)
             .map_err(|e| self.map_electrum(e))?;
         let mut out = Vec::with_capacity(utxos.len());
         for u in utxos {

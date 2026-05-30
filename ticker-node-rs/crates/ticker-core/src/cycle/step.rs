@@ -50,7 +50,7 @@ fn idle<E: Env>(env: &mut E, cfg: &CycleConfig) -> Result<CycleState, CycleError
     let oracle = env
         .get_oracle_utxo(cfg)?
         .ok_or_else(|| CycleError::OracleNotFound {
-            address: cfg.oracle_address.clone(),
+            scripthash: cfg.oracle_scripthash_hex.clone(),
         })?;
 
     let new_seq = oracle.commit.seq + 1;
@@ -452,6 +452,9 @@ mod tests {
             publisher_address: "bchtest:qaaa".to_string(),
             oracle_address: "bchtest:qbbb".to_string(),
             slot_address: "bchtest:qccc".to_string(),
+            oracle_scripthash_hex: "00".repeat(32),
+            slot_scripthash_hex: "11".repeat(32),
+            publisher_scripthash_hex: "22".repeat(32),
             oracle_category_be_hex: "00".repeat(32),
             slot_category_be_hex: "00".repeat(32),
             poll_interval: std::time::Duration::from_secs(3),

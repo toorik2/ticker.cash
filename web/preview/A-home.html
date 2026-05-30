@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="theme-color" content="#f3efe4" />
+<meta name="description" content="A decentralized BCH/USD ticker on chipnet. 7 notaries, 13 exchanges, on-chain median per cycle." />
+<title>Ticker · BCH/USD · v.A</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;700&display=swap');
+  *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+  html{scrollbar-gutter:stable}
+  html,body{min-height:100vh;background:#f3efe4;color:#1a1a18;font-family:'IBM Plex Mono',monospace;font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased}
+  a{color:#1a1a18;text-decoration:underline;text-underline-offset:3px;text-decoration-thickness:1px;text-decoration-color:#b6b1a3}
+  a:hover{text-decoration-color:#1a1a18}
+  .preview-bar{background:#1a1a18;color:#fffcf0;text-align:center;padding:0.55rem;font-size:11px;letter-spacing:0.15em;text-transform:uppercase;font-weight:500}
+  .preview-bar a{color:#fffcf0;text-decoration:underline;text-decoration-color:#6a6457;margin:0 0.5rem}
+  .head{padding:1rem 1.75rem;display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:0.5rem;border-bottom:1px solid #c8c2b3}
+  .head .l{font-weight:700;letter-spacing:0.22em;text-transform:uppercase;font-size:13px;display:flex;align-items:baseline;gap:0.6rem}
+  .head .l .pair{color:#6a6457;font-weight:400;letter-spacing:0.08em;font-size:11px;text-transform:none}
+  .head .r{font-size:11px;color:#6a6457;display:flex;gap:1.25rem;align-items:center}
+  .head .r a{color:#6a6457;text-decoration:none;border-bottom:1px solid transparent}
+  .head .r a:hover{color:#1a1a18;border-bottom-color:#6a6457}
+  .doc{max-width:1180px;margin:0 auto;padding:3rem 1.75rem 5rem;display:grid;grid-template-columns:1fr 300px;gap:3rem;align-items:start}
+  @media(max-width:880px){.doc{grid-template-columns:1fr;gap:2.5rem}}
+  .main{min-width:0}
+  .price-panel{border:1px solid #1a1a18;display:grid;grid-template-columns:auto 1fr;background:#fffcf0}
+  .vtag{background:#1a1a18;color:#fffcf0;writing-mode:vertical-rl;transform:rotate(180deg);padding:1rem 0.55rem;font-size:10.5px;font-weight:600;letter-spacing:0.4em;text-transform:uppercase;display:flex;align-items:center;justify-content:center}
+  .price-body{padding:2.25rem 2.25rem 1.5rem}
+  .price-big{font-size:clamp(3rem,9vw,5.5rem);font-weight:300;line-height:0.9;letter-spacing:-0.055em;font-variant-numeric:tabular-nums;color:#1a1a18}
+  .price-big .d{font-weight:300;color:#8a8472;margin-right:0.04em}
+  .price-trust{margin-top:0.65rem;font-size:11.5px;color:#6a6457;letter-spacing:0.04em}
+  .price-trust b{color:#1a1a18;font-weight:600}
+  .price-stats{margin-top:1.5rem;display:flex;flex-direction:column;border-top:1px solid #ecebe0}
+  .price-stats .row{display:grid;grid-template-columns:8.5rem 1fr auto;align-items:baseline;gap:1rem;padding:0.5rem 0;border-bottom:1px solid #ecebe0;font-size:12.5px}
+  .price-stats .row:last-child{border-bottom:none}
+  .price-stats .k{color:#6a6457;text-transform:uppercase;font-size:10.5px;letter-spacing:0.1em;font-weight:500}
+  .price-stats .v{font-weight:600;font-variant-numeric:tabular-nums;color:#1a1a18;grid-column:3;text-align:right}
+  .price-stats .v.warn{color:#a02010}
+  .price-stats .v.ok{color:#1a7b3b}
+  .lead{font-size:14px;line-height:1.75;color:#3a3a32;margin:2.5rem 0 0}
+  .lead p{margin-bottom:0.85rem}
+  .lead p:last-child{margin-bottom:0}
+  .lead b{color:#1a1a18;font-weight:600}
+  .lead a{font-weight:500}
+  .specs{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid #1a1a18;background:#fffcf0;margin-top:2rem}
+  @media(max-width:680px){.specs{grid-template-columns:repeat(2,1fr)}}
+  .spec{padding:1.1rem 1.25rem;border-right:1px solid #c8c2b3}
+  .spec:last-child{border-right:none}
+  .spec .h{font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:#6a6457;margin-bottom:0.4rem;font-weight:500}
+  .spec .v{font-size:1.5rem;font-weight:300;line-height:1.05;letter-spacing:-0.025em}
+  .spec .v small{font-size:0.5em;font-weight:400;color:#6a6457;letter-spacing:0}
+  .side{position:sticky;top:1.5rem;display:flex;flex-direction:column;gap:1.85rem}
+  .side h3{font-size:10.5px;letter-spacing:0.22em;text-transform:uppercase;font-weight:600;color:#1a1a18;border-bottom:1px solid #c8c2b3;padding-bottom:0.45rem;margin-bottom:0.85rem}
+  .side .kv{font-size:12.5px;display:flex;flex-direction:column}
+  .side .kv .row{display:flex;justify-content:space-between;gap:0.75rem;padding:0.45rem 0;border-bottom:1px solid #ecebe0;align-items:baseline}
+  .side .kv .row:last-child{border-bottom:none}
+  .side .kv .k{color:#6a6457;font-size:11px;letter-spacing:0.04em}
+  .side .kv .v{font-weight:600;text-align:right;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+  .side .kv .v code{font-family:inherit;font-size:11px;color:#1a1a18}
+  .foot{margin-top:3rem;padding-top:0.8rem;border-top:1px solid #c8c2b3;font-size:10.5px;color:#6a6457;letter-spacing:0.1em;text-transform:uppercase;display:flex;justify-content:space-between;gap:0.5rem;flex-wrap:wrap;font-weight:500}
+</style>
+</head>
+<body>
+<div class="preview-bar">Preview · Version A · home —
+  <a href="/preview/A-docs.html">docs (A)</a> ·
+  <a href="/preview/B.html">B</a> ·
+  <a href="/preview/C.html">C</a> ·
+  <a href="/">current site</a>
+</div>
+<header class="head">
+  <div class="l">▌ TICKER <span class="pair">BCH / USD · chipnet</span></div>
+  <div class="r"><a href="/preview/A-docs.html">docs</a><a href="/api/v1/price">api</a><a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github</a></div>
+</header>
+<div class="doc">
+  <div class="main">
+    <div class="price-panel">
+      <div class="vtag">Median</div>
+      <div class="price-body">
+        <div class="price-big"><span class="d">$</span><span id="price">———</span></div>
+        <div class="price-trust">Median of <b><span id="active">—</span> publishers</b>, attested by <b>7 independent notaries</b>.</div>
+        <div class="price-stats">
+          <div class="row"><span class="k">Updated</span><span class="v" id="age">—</span></div>
+          <div class="row"><span class="k">Status</span><span class="v ok" id="status">—</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="specs">
+      <div class="spec"><div class="h">Sources</div><div class="v">13</div></div>
+      <div class="spec"><div class="h">Quorum</div><div class="v">≥7</div></div>
+      <div class="spec"><div class="h">Notaries</div><div class="v">7</div></div>
+      <div class="spec"><div class="h">Cycle</div><div class="v">~1<small>m</small></div></div>
+    </div>
+
+    <div class="lead">
+      <p>A <b>decentralized BCH/USD price feed</b> on Bitcoin Cash chipnet. Seven notaries co-witness prices from thirteen exchanges (9 USD-quoted, 2 USDC, 2 USDT); any publisher relays them to a smart contract that commits the median on chain.</p>
+      <p>The notaries are the only off-chain trust assumption — corrupting a majority of them (≥ 4 of 7) is the only attack the design admits; everything else is rejected by script.</p>
+      <p><b>Read the price.</b> On-chain: spend a Ticker NFT as an input, decode its 17-byte commit. Off-chain: <code>GET /api/v1/price</code>. Integration guide, signature inventory, and operator playbook in the <a href="/preview/A-docs.html">docs</a>.</p>
+    </div>
+
+  </div>
+
+  <aside class="side">
+    <div>
+      <h3>Contracts</h3>
+      <div class="kv">
+        <div class="row"><span class="k">Oracle</span><span class="v"><a href="https://chipnet.imaginary.cash/address/bchtest:rwgvjpjdcmlw342a4q0q02mtp0w4tenm46xnsdmrdrveww2h4ru060alut77s" target="_blank" rel="noopener"><code>rwgvjpjd…0alut77s ↗</code></a></span></div>
+        <div class="row"><span class="k">Slot</span><span class="v"><a href="https://chipnet.imaginary.cash/address/bchtest:r0kguz7zfa5nfje32xr3fg2utsc5y3g5hwdume2h3csd4rfrrg2dkvcqr9pn9" target="_blank" rel="noopener"><code>r0kguz7z…kvcqr9pn9 ↗</code></a></span></div>
+        <div class="row"><span class="k">Ticker</span><span class="v"><a href="https://chipnet.imaginary.cash/address/bchtest:r0r403dhnnahycepwklerew4js0q6t2eme69ex3vvgkuk7jps8hdcrntknsph" target="_blank" rel="noopener"><code>r0r403dh…rntknsph ↗</code></a></span></div>
+        <div class="row"><span class="k">Category</span><span class="v"><code>9880c313…40f0d17</code></span></div>
+      </div>
+    </div>
+    <div>
+      <h3>Endpoints</h3>
+      <div class="kv">
+        <div class="row"><span class="k">Price</span><span class="v"><a href="/api/v1/price"><code>/api/v1/price</code></a></span></div>
+        <div class="row"><span class="k">Health</span><span class="v"><a href="/api/v1/health"><code>/api/v1/health</code></a></span></div>
+        <div class="row"><span class="k">Seq</span><span class="v">#<span id="seq">—</span></span></div>
+      </div>
+    </div>
+  </aside>
+</div>
+<div class="foot" style="max-width:1180px;margin:3rem auto 0;padding:0.8rem 1.75rem 1.5rem">
+  <div>usd.ticker.cash · chipnet</div>
+  <div><a href="/preview/A-docs.html">docs</a> · <a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github</a></div>
+</div>
+<script>
+const STALE_SEC=300;
+function fmtUsd(n){if(n==null||!isFinite(n))return'———';return n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}
+function fmtAge(s){if(s==null)return'—';if(s<60)return s+'s';if(s<3600)return Math.floor(s/60)+'m '+(s%60)+'s';return Math.floor(s/3600)+'h '+Math.floor((s%3600)/60)+'m'}
+let currentSeq=null,cycleObservedAtMs=null;
+function refreshAge(){if(cycleObservedAtMs==null)return;const ageSec=Math.floor((Date.now()-cycleObservedAtMs)/1000);document.getElementById('age').textContent=fmtAge(ageSec);const isStale=ageSec>STALE_SEC;const sv=document.getElementById('status');sv.textContent=isStale?'Stale':'Live';sv.className='v '+(isStale?'warn':'ok')}
+async function poll(){try{const r=await fetch('/api/v1/price',{cache:'no-store'});const d=await r.json();document.getElementById('price').textContent=fmtUsd(d.medianUsd);document.getElementById('seq').textContent=d.seq??'—';document.getElementById('active').textContent=d.activeCount??'—';if(d.seq!=null){if(currentSeq==null){currentSeq=d.seq;cycleObservedAtMs=d.lastLocktime?d.lastLocktime*1000:Date.now()}else if(d.seq!==currentSeq){currentSeq=d.seq;cycleObservedAtMs=Date.now()}}refreshAge()}catch(e){}}
+poll();setInterval(poll,12000);setInterval(refreshAge,1000);
+</script>
+</body>
+</html>

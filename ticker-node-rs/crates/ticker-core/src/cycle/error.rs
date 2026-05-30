@@ -19,8 +19,8 @@ pub enum Severity {
 #[derive(Debug, thiserror::Error)]
 pub enum CycleError {
     // ─── soft (info log, retry next cycle) ─────────────────────────────────
-    #[error("no oracle UTXO at {address}")]
-    OracleNotFound { address: String },
+    #[error("no oracle UTXO at scripthash {scripthash}")]
+    OracleNotFound { scripthash: String },
     #[error("my slot not found in {count} mutable slot UTXOs")]
     MySlotNotFound { count: usize },
     #[error("slot already at cycleSeq {at}, can't progress to {new}")]

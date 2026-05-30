@@ -123,6 +123,11 @@ pub struct CycleConfig {
     /// Oracle / Slot CashAddrs — used to look up the respective UTXO sets.
     pub oracle_address: String,
     pub slot_address: String,
+    /// Pre-computed reversed-SHA-256 scripthashes for the Electrum
+    /// `blockchain.scripthash.listunspent` method (lowercase hex).
+    pub oracle_scripthash_hex: String,
+    pub slot_scripthash_hex: String,
+    pub publisher_scripthash_hex: String,
     /// 64-hex Oracle category (display order, big-endian).
     pub oracle_category_be_hex: String,
     /// 64-hex Slot category (display order, big-endian).
