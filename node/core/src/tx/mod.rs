@@ -11,9 +11,7 @@ pub mod script;
 pub mod sighash;
 pub mod update;
 
-pub use attest::{
-    build_attest_tx, AttestArgs, AttestError, FunderUtxo, NotaryAttestation, SlotUtxo,
-};
+pub use attest::{build_attest_tx, AttestArgs, AttestError, FunderUtxo, SlotUtxo};
 pub use update::{
     build_oracle_update_tx, CycleSlotUtxo, OracleUtxo, UpdateArgs, UpdateError,
 };

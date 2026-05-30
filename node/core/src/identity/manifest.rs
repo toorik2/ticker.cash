@@ -57,7 +57,7 @@ struct ManifestContracts {
     slot: TokenContractInfo,
 }
 
-/// Top-level manifest — exact mirror of the v12 schema in `manifest.ts`.
+/// Top-level manifest. v13 dropped `notaryPubkeys` (no notary tier).
 #[derive(Debug, Clone)]
 pub struct Manifest {
     pub version: u32,
@@ -65,8 +65,6 @@ pub struct Manifest {
     pub ticker: ContractInfo,
     pub oracle: TokenContractInfo,
     pub slot: TokenContractInfo,
-    /// 7 notary compressed pubkeys (66 hex chars each), in slot order.
-    pub notary_pubkeys: Vec<String>,
     /// 13 publisher pkhs (40 hex chars each), in slot order.
     pub publisher_pkhs: Vec<String>,
     pub electrum: ElectrumDefault,
@@ -89,14 +87,11 @@ struct ManifestRaw {
     version: u32,
     network: Network,
     contracts: ManifestContracts,
-    #[serde(rename = "notaryPubkeys")]
-    notary_pubkeys: Vec<String>,
     #[serde(rename = "publisherPkhs")]
     publisher_pkhs: Vec<String>,
     electrum: ElectrumDefault,
 }
 
-const NOTARY_COUNT: usize = 7;
 const PUBLISHER_COUNT: usize = 13;
 
 fn validate_locking_bytecode_hex(
@@ -172,25 +167,6 @@ pub fn load_manifest(path: impl AsRef<Path>) -> Result<Manifest, ManifestError> 
         )?,
         category: validate_hex_field("contracts.slot.category", &m.contracts.slot.category, 64)?,
     };
-    if m.notary_pubkeys.len() != NOTARY_COUNT {
-        return Err(ManifestError::InvalidField {
-            field: "notaryPubkeys",
-            reason: format!("expected {NOTARY_COUNT} entries, got {}", m.notary_pubkeys.len()),
-        });
-    }
-    let mut notary_pubkeys = Vec::with_capacity(NOTARY_COUNT);
-    for (i, pk) in m.notary_pubkeys.iter().enumerate() {
-        notary_pubkeys.push(validate_hex_field(
-            // `i` is not const but the lifetime requirements of thiserror mean we
-            // simplify by referencing a static label and letting `reason` carry detail.
-            "notaryPubkeys[i]",
-            pk,
-            66,
-        ).map_err(|_| ManifestError::InvalidField {
-            field: "notaryPubkeys",
-            reason: format!("entry {i} is not a 66-hex compressed pubkey"),
-        })?);
-    }
     if m.publisher_pkhs.len() != PUBLISHER_COUNT {
         return Err(ManifestError::InvalidField {
             field: "publisherPkhs",
@@ -220,7 +196,6 @@ pub fn load_manifest(path: impl AsRef<Path>) -> Result<Manifest, ManifestError> 
         ticker,
         oracle,
         slot,
-        notary_pubkeys,
         publisher_pkhs,
         electrum: m.electrum,
     })
@@ -251,15 +226,6 @@ mod tests {
                     "category": "846b2ca944750af011fa41bb87f9fda1244090a63be2cc3286223551343020f7"
                 }
             },
-            "notaryPubkeys": [
-                "0261cddf9b5d64bc2a588de8e36402e9fb99d95fcf1e69f4f63f1b386ea1a6f6ba",
-                "03c69d09352fdf6e7aa855dcb7958ff0447017087eaef31202e4099981626ec90b",
-                "03228ed5c8efe76933aadd86c0483046263492a5635f95570b5bb2d0b5600a55ce",
-                "030ee2d60a5fdede626f7c83f6199e672f7ca8f290bf9f411f5c85dd4d9bdb6ec8",
-                "03619e9fdfe9c2a0b6e353a520078fd938e953a02df3a289017af8281357b85f12",
-                "02c3912220a6af45a83f017a0b9717d103bf153641205aa38e617b24a3641e54b0",
-                "02cf85d91dbddc61a32d7f4ea4b67b5e16ed7bd2c3f128a18b178eb8b44edda84d"
-            ],
             "publisherPkhs": [
                 "8ce2d07b5632a5855f5411d3b085c1bcd1c07a17",
                 "333e5c6321f963622336421a64667f298e31c052",
@@ -297,7 +263,6 @@ mod tests {
         let m = load_manifest(&path).unwrap();
         assert_eq!(m.version, 1);
         assert_eq!(m.network, Network::Chipnet);
-        assert_eq!(m.notary_pubkeys.len(), 7);
         assert_eq!(m.publisher_pkhs.len(), 13);
         assert_eq!(m.electrum.host, "fulcrum.layer1.cash");
         assert!(m.electrum.tls);
@@ -321,13 +286,13 @@ mod tests {
     }
 
     #[test]
-    fn rejects_wrong_notary_count() {
+    fn rejects_wrong_publisher_count() {
         let path = write_path(
             &good_manifest().replace(
-                r#""02cf85d91dbddc61a32d7f4ea4b67b5e16ed7bd2c3f128a18b178eb8b44edda84d""#,
+                r#""aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa""#,
                 "",
             ).replacen(",", "", 1), // remove a trailing comma somewhere
-            "badnotary.json",
+            "badpub.json",
         );
         // The shape of the edit may produce either a JSON parse error or a count
         // mismatch; both are acceptable rejection outcomes.

@@ -1,30 +1,29 @@
 //! Identity resolver: load manifest + load key + derive slot via manifest lookup.
 //!
-//! No legacy seed-derived fallback. Operators run a v12 binary that requires
-//! the per-operator install layout (manifest.json + per-role key file).
+//! v13: only `Publisher` role exists. The v12 notary tier is gone, so the
+//! `Role` enum + role machinery would be a degenerate single-variant — it's
+//! simpler to expose a publisher-only resolver and drop the enum.
 
 use super::key::{load_operator_key, OperatorKey, OperatorKeyError};
 use super::manifest::{load_manifest, Manifest, ManifestError};
 use std::path::Path;
 
-/// Which role this process runs.
+/// Which role this process runs. v13 only has Publisher; kept as an enum for
+/// call-site clarity (`resolve_identity(Role::Publisher, …)`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Role {
-    Notary,
     Publisher,
 }
 
 impl Role {
     pub fn name(self) -> &'static str {
         match self {
-            Role::Notary => "notary",
             Role::Publisher => "publisher",
         }
     }
     /// Default keyfile path for this role under `.ticker/`.
     pub fn default_key_path(self) -> &'static str {
         match self {
-            Role::Notary => ".ticker/notary.key",
             Role::Publisher => ".ticker/publisher.key",
         }
     }
@@ -68,32 +67,15 @@ pub fn resolve_identity(
     let manifest = load_manifest(manifest_path)?;
     let key = load_operator_key(key_path, role.name())?;
 
-    let (ident_hex, slot) = match role {
-        Role::Notary => {
-            let id_hex = hex::encode(key.public_key);
-            let slot = manifest
-                .notary_pubkeys
-                .iter()
-                .position(|p| p == &id_hex)
-                .ok_or_else(|| IdentityError::KeyNotInManifest {
-                    role: "notary",
-                    ident_hex: id_hex.clone(),
-                })?;
-            (id_hex, slot as u8)
-        }
-        Role::Publisher => {
-            let id_hex = hex::encode(key.pkh);
-            let slot = manifest
-                .publisher_pkhs
-                .iter()
-                .position(|p| p == &id_hex)
-                .ok_or_else(|| IdentityError::KeyNotInManifest {
-                    role: "publisher",
-                    ident_hex: id_hex.clone(),
-                })?;
-            (id_hex, slot as u8)
-        }
-    };
+    let id_hex = hex::encode(key.pkh);
+    let slot = manifest
+        .publisher_pkhs
+        .iter()
+        .position(|p| p == &id_hex)
+        .ok_or_else(|| IdentityError::KeyNotInManifest {
+            role: "publisher",
+            ident_hex: id_hex.clone(),
+        })? as u8;
 
     if let Some(s) = slot_flag {
         if s != slot {
@@ -104,7 +86,6 @@ pub fn resolve_identity(
         }
     }
 
-    let _ = ident_hex; // pin in case we want to log it later
     Ok(BaseIdentity {
         role,
         slot,

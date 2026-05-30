@@ -28,7 +28,6 @@ pub fn dump(state_dir: &str) -> Result<(), Box<dyn std::error::Error>> {
                 "oracle":  { "address": m.oracle.address,  "lockingBytecodeHex": m.oracle.locking_bytecode_hex, "category": m.oracle.category },
                 "slot":    { "address": m.slot.address,    "lockingBytecodeHex": m.slot.locking_bytecode_hex,   "category": m.slot.category },
             },
-            "notaryCount": m.notary_pubkeys.len(),
             "publisherCount": m.publisher_pkhs.len(),
             "electrum": { "host": m.electrum.host, "port": m.electrum.port, "tls": m.electrum.tls },
         })),

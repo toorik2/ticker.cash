@@ -1,39 +1,19 @@
-//! Real `/stats` collector — reads on-disk publisher-state-N.json files,
-//! reports the notary identity if we're running one.
+//! Real `/stats` collector — reads on-disk publisher-state-N.json files.
+//!
+//! v13: no notary tier, so no notary identity. The stats endpoint still emits
+//! a `notary: null` field for wire-shape backward compatibility.
 
 use std::path::PathBuf;
 
 use ticker_core::cycle::orchestrator::CYCLE_ERROR_COUNT;
 use ticker_core::cycle::state::PublisherState;
-use ticker_core::notary::server::SIGN_REQUEST_COUNT;
-use ticker_core::stats::{NotaryStats, PublisherStats, StatsCollector};
+use ticker_core::stats::{PublisherStats, StatsCollector};
 
 pub struct RealStatsCollector {
     pub state_dir: PathBuf,
-    pub notary: Option<NotaryIdentity>,
-}
-
-#[derive(Debug, Clone)]
-pub struct NotaryIdentity {
-    pub slot: u8,
-    pub port: u16,
-    pub address: String,
-    pub pubkey_hex: String,
 }
 
 impl StatsCollector for RealStatsCollector {
-    fn notary(&self) -> Option<NotaryStats> {
-        self.notary.as_ref().map(|n| NotaryStats {
-            slot: n.slot,
-            port: n.port,
-            address: n.address.clone(),
-            pubkey: n.pubkey_hex.clone(),
-            mode: "operator-key",
-            sign_requests_since_start: SIGN_REQUEST_COUNT
-                .load(std::sync::atomic::Ordering::Relaxed),
-        })
-    }
-
     fn publishers(&self) -> Vec<PublisherStats> {
         let mut out = Vec::new();
         let Ok(entries) = std::fs::read_dir(&self.state_dir) else {

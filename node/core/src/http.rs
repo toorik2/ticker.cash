@@ -1,6 +1,7 @@
 //! Minimal HTTP/1.1 request parsing + response writing.
 //!
-//! Covers the subset we need:
+//! Shared by the `/stats` server (the only HTTP server left after v13 dropped
+//! the notary tier). Covers the subset we need:
 //!   * Read request line + headers + (optional) `Content-Length`-bounded body.
 //!   * Write a single response with status line + `Content-Type` + body.
 //!

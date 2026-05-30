@@ -1,6 +1,6 @@
 //! `Env` trait — abstracts every I/O point the cycle's `step` function touches.
 //!
-//! Real impl is wired up in the binary (Electrum + notary HTTP + clock + file I/O).
+//! Real impl is wired up in the binary (Electrum + price fetcher + clock + file I/O).
 //! Tests provide a `MockEnv` impl that returns canned UTXOs / responses without
 //! talking to a network.
 
@@ -39,13 +39,13 @@ pub struct FunderInfo {
     pub satoshis: u64,
 }
 
-/// Notary response (publisher → notary `POST /sign` reply).
+/// Publisher's own price observation. v13: the publisher fetches directly
+/// (no notary tier) — this struct is what a `PriceProver` returns.
 #[derive(Debug, Clone)]
-pub struct NotaryResponse {
+pub struct PriceObservation {
     pub price: u64,
     pub timestamp: u32,
     pub server_name: String,
-    pub notary_sig: Vec<u8>,
 }
 
 /// Trait abstracting every I/O point the cycle touches.
@@ -71,14 +71,8 @@ pub trait Env {
     fn broadcast_attest(&mut self, raw: &[u8]) -> Result<Txid, CycleError>;
     fn broadcast_update(&mut self, raw: &[u8]) -> Result<Txid, CycleError>;
 
-    // ─── notary RPC ─────────────────────────────────────────────────────
-    fn request_notary_sign(
-        &mut self,
-        url: &str,
-        source_id: u16,
-        cycle_seq: u32,
-        pkh: &[u8; 20],
-    ) -> Result<NotaryResponse, CycleError>;
+    // ─── price fetch (publisher's own observation in v13) ───────────────
+    fn fetch_price(&mut self, source_id: u16) -> Result<PriceObservation, CycleError>;
 
     // ─── persistence ────────────────────────────────────────────────────
     fn load_state(&self, slot: u8) -> Result<PublisherState, CycleError>;

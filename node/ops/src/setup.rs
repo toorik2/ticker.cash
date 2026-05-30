@@ -1,9 +1,9 @@
 //! `ticker-ops setup-all` — generate per-slot install directories on the
 //! coordinator's box from `seed.hex` + `deploy-state.json`.
 //!
-//! For coordinator-only deployment where one box runs all 13 slots: each slot
-//! gets its own `$home/.ticker-slot-N/` directory with a fresh manifest.json
-//! and the per-role keys (notary.key for slots 0..6, publisher.key for all).
+//! v13: publisher-only. Each slot gets `$home/.ticker-slot-N/` with its
+//! manifest.json and publisher.key. The v12 notary tier is gone — slots 0..6
+//! no longer get a `notary.key` and the manifest no longer has `notaryPubkeys`.
 //!
 //! systemd units running `ticker-node` set `TICKER_HOME=$home/.ticker-slot-%i`
 //! to pick up the right per-slot identity.
@@ -18,7 +18,6 @@ use ticker_core::identity::seed::{derive_wallet, load_seed};
 
 use crate::state::load as load_state;
 
-const NOTARY_COUNT: usize = 7;
 const PUBLISHER_COUNT: usize = 13;
 
 pub fn setup_all(
@@ -52,13 +51,6 @@ pub fn setup_all(
         .ok_or("deploy-state missing slotLockingBytecodeHex")?;
     let slot_cat = deploy.slot_category.ok_or("deploy-state missing slotCategory")?;
 
-    // Derive all 7 notary pubkeys + 13 publisher pkhs.
-    let notary_pubkeys: Vec<String> = (0..NOTARY_COUNT)
-        .map(|i| {
-            derive_wallet(&seed, &format!("notary-{i}"))
-                .map(|w| hex::encode(w.public_key))
-        })
-        .collect::<Result<_, _>>()?;
     let publisher_pkhs: Vec<String> = (0..PUBLISHER_COUNT)
         .map(|i| {
             derive_wallet(&seed, &format!("publisher-{i}"))
@@ -75,7 +67,6 @@ pub fn setup_all(
             "oracle": { "address": oracle_addr,  "lockingBytecodeHex": oracle_lb, "category": oracle_cat },
             "slot":   { "address": slot_addr,    "lockingBytecodeHex": slot_lb,   "category": slot_cat   },
         },
-        "notaryPubkeys": notary_pubkeys,
         "publisherPkhs": publisher_pkhs,
         "electrum": { "host": electrum_host, "port": electrum_port, "tls": electrum_tls },
     });
@@ -102,29 +93,17 @@ pub fn setup_all(
         perms.set_mode(0o600);
         fs::set_permissions(&pub_key_path, perms)?;
 
-        // Notary key — only slots 0..6 (bundled units).
-        if slot < NOTARY_COUNT {
-            let not_w = derive_wallet(&seed, &format!("notary-{slot}"))?;
-            let not_key_path = slot_dir.join("notary.key");
-            fs::write(&not_key_path, hex::encode(not_w.private_key))?;
-            let mut perms = fs::metadata(&not_key_path)?.permissions();
-            perms.set_mode(0o600);
-            fs::set_permissions(&not_key_path, perms)?;
-        }
-
         // Sources index sanity print — confirms slot N maps to source N+1.
         let src_id = SOURCES.get(slot).map(|s| s.id).unwrap_or(0);
         println!(
-            "  slot {slot:>2} → {slot_dir} (source_id={src_id}, role={role})",
+            "  slot {slot:>2} → {slot_dir} (source_id={src_id})",
             slot_dir = slot_dir.display(),
-            role = if slot < NOTARY_COUNT { "bundled" } else { "publisher-only" }
         );
     }
 
     println!("\nsetup-all done. Layout:");
     println!("  .ticker-slot-N/manifest.json    (identical across slots)");
     println!("  .ticker-slot-N/publisher.key    (slot N's publisher key, 0600)");
-    println!("  .ticker-slot-N/notary.key       (slots 0..6 only, 0600)");
     println!("\nsystemd unit must set: Environment=TICKER_HOME=%h/.ticker-slot-%i");
     Ok(())
 }

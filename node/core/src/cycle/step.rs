@@ -13,7 +13,7 @@ use crate::chain::consts::{
 use crate::cycle::env::Env;
 use crate::cycle::error::CycleError;
 use crate::cycle::state::{CycleConfig, CycleSnapshot, CycleState, PublisherState};
-use crate::tx::attest::{build_attest_tx, AttestArgs, AttestError, FunderUtxo, NotaryAttestation, SlotUtxo};
+use crate::tx::attest::{build_attest_tx, AttestArgs, AttestError, FunderUtxo, SlotUtxo};
 use crate::tx::update::{
     build_oracle_update_tx, CycleSlotUtxo, OracleUtxo, UpdateArgs, UpdateError,
 };
@@ -22,8 +22,10 @@ use crate::tx::update::{
 ///
 /// The orchestrator is responsible for the outer `loop {}` plus error handling
 /// per [`Severity`]. `cycle_counter` increments at the top of each cycle (when
-/// transitioning out of `Idle`) and is used here only to round-robin the
-/// notary URL in `Snapshotted`.
+/// transitioning out of `Idle`).
+///
+/// v13: no notary tier. The `Snapshotted → Attested` transition fetches the
+/// price in-process via `env.fetch_price()` (publisher is the source of truth).
 pub fn step<E: Env>(
     state: CycleState,
     env: &mut E,
@@ -100,16 +102,9 @@ fn attest<E: Env>(
     env: &mut E,
     cfg: &CycleConfig,
     snap: CycleSnapshot,
-    cycle_counter: u64,
+    _cycle_counter: u64,
 ) -> Result<CycleState, CycleError> {
-    if cfg.notary_urls.is_empty() {
-        return Err(CycleError::Internal("no notary URLs configured".into()));
-    }
-    let notary_idx = (cycle_counter as usize) % cfg.notary_urls.len();
-    let notary_url = cfg.notary_urls[notary_idx].clone();
-
-    let attestation =
-        env.request_notary_sign(&notary_url, cfg.source_id, snap.new_seq, &cfg.my_pkh)?;
+    let observation = env.fetch_price(cfg.source_id)?;
 
     let all_funder = env.get_funder_utxos(cfg)?;
     let funder_balance: u64 = all_funder.iter().map(|u| u.satoshis).sum();
@@ -143,13 +138,9 @@ fn attest<E: Env>(
         funder_utxos: &funders,
         slot_category_wire_le: cfg.slot_category_wire_le,
         slot_redeem_script: &cfg.slot_redeem_script,
-        notary: NotaryAttestation {
-            price: attestation.price,
-            timestamp: attestation.timestamp,
-            server_name: attestation.server_name,
-            notary_sig: attestation.notary_sig,
-            notary_idx: notary_idx as u32,
-        },
+        price: observation.price,
+        timestamp: observation.timestamp,
+        server_name: observation.server_name,
         new_cycle_seq: snap.new_seq,
     };
 
@@ -173,7 +164,6 @@ fn attest<E: Env>(
 
 fn map_attest_error(e: AttestError) -> CycleError {
     match e {
-        AttestError::NotaryIdxOutOfRange(_) => CycleError::Internal(e.to_string()),
         AttestError::InsufficientFunds { have, need } => {
             CycleError::InsufficientFunds { have, need }
         }
@@ -344,7 +334,7 @@ mod tests {
 
     use crate::chain::oracle_commit::OracleState;
     use crate::chain::slot_commit::SlotCommit;
-    use crate::cycle::env::{FunderInfo, NotaryResponse, OracleInfo, SlotInfo};
+    use crate::cycle::env::{FunderInfo, OracleInfo, PriceObservation, SlotInfo};
     use std::cell::RefCell;
 
     /// Test env — records all calls + plays back canned responses.
@@ -353,8 +343,8 @@ mod tests {
         oracle: RefCell<Option<OracleInfo>>,
         slots: RefCell<Vec<SlotInfo>>,
         funder: RefCell<Vec<FunderInfo>>,
-        notary_response: RefCell<Option<NotaryResponse>>,
-        notary_error: RefCell<Option<CycleError>>,
+        price_response: RefCell<Option<PriceObservation>>,
+        price_error: RefCell<Option<CycleError>>,
         broadcast_attest_outcome: RefCell<VecDeque<Result<crate::cycle::state::Txid, CycleError>>>,
         broadcast_update_outcome: RefCell<VecDeque<Result<crate::cycle::state::Txid, CycleError>>>,
         state_file: RefCell<Option<PublisherState>>,
@@ -368,8 +358,8 @@ mod tests {
                 oracle: RefCell::new(None),
                 slots: RefCell::new(vec![]),
                 funder: RefCell::new(vec![]),
-                notary_response: RefCell::new(None),
-                notary_error: RefCell::new(None),
+                price_response: RefCell::new(None),
+                price_error: RefCell::new(None),
                 broadcast_attest_outcome: RefCell::new(VecDeque::new()),
                 broadcast_update_outcome: RefCell::new(VecDeque::new()),
                 state_file: RefCell::new(None),
@@ -411,20 +401,14 @@ mod tests {
                 .pop_front()
                 .unwrap_or(Ok([0xbb; 32]))
         }
-        fn request_notary_sign(
-            &mut self,
-            _url: &str,
-            _source_id: u16,
-            _cycle_seq: u32,
-            _pkh: &[u8; 20],
-        ) -> Result<NotaryResponse, CycleError> {
-            if let Some(e) = self.notary_error.borrow_mut().take() {
+        fn fetch_price(&mut self, _source_id: u16) -> Result<PriceObservation, CycleError> {
+            if let Some(e) = self.price_error.borrow_mut().take() {
                 return Err(e);
             }
-            self.notary_response
+            self.price_response
                 .borrow()
                 .clone()
-                .ok_or_else(|| CycleError::Internal("mock notary_response unset".into()))
+                .ok_or_else(|| CycleError::Internal("mock price_response unset".into()))
         }
         fn load_state(&self, _slot: u8) -> Result<PublisherState, CycleError> {
             Ok(self.state_file.borrow().clone().unwrap_or_default())
@@ -442,10 +426,6 @@ mod tests {
             publisher_privkey: [0x11; 32],
             publisher_pubkey: [0x02; 33],
             source_id: 1,
-            notary_urls: vec![
-                "http://127.0.0.1:8081".to_string(),
-                "http://127.0.0.1:8082".to_string(),
-            ],
             oracle_category_wire_le: [0xcc; 32],
             slot_category_wire_le: [0xdd; 32],
             oracle_redeem_script: vec![0u8; 100],
@@ -559,12 +539,12 @@ mod tests {
     }
 
     #[test]
-    fn snapshotted_propagates_notary_unreachable() {
+    fn snapshotted_propagates_price_fetch_failure() {
         let mut env = MockEnv::new();
         env.oracle.borrow_mut().replace(oracle_info(100, 1_700_000_000));
         env.slots.borrow_mut().push(slot_info([0x42; 20], 100, 1_700_000_100, 1000));
-        env.notary_error.borrow_mut().replace(CycleError::NotaryUnreachable {
-            url: "http://127.0.0.1:8081".to_string(),
+        env.price_error.borrow_mut().replace(CycleError::PriceFetchFailed {
+            source_id: 1,
             reason: "connection refused".to_string(),
         });
         let cfg = fixture_cfg();
@@ -573,7 +553,7 @@ mod tests {
             _ => panic!("expected Snapshotted"),
         };
         let r = step(CycleState::Snapshotted { snap }, &mut env, &cfg, 1);
-        assert!(matches!(r, Err(CycleError::NotaryUnreachable { .. })));
+        assert!(matches!(r, Err(CycleError::PriceFetchFailed { .. })));
     }
 
     #[test]
@@ -581,11 +561,10 @@ mod tests {
         let mut env = MockEnv::new();
         env.oracle.borrow_mut().replace(oracle_info(100, 1_700_000_000));
         env.slots.borrow_mut().push(slot_info([0x42; 20], 100, 1_700_000_100, 1000));
-        env.notary_response.borrow_mut().replace(NotaryResponse {
+        env.price_response.borrow_mut().replace(PriceObservation {
             price: 350_000_000,
             timestamp: 1_700_000_200,
             server_name: "api.kraken.com".to_string(),
-            notary_sig: vec![0xee; 70],
         });
         env.funder.borrow_mut().push(FunderInfo {
             txid_be: [0x33; 32],

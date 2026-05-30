@@ -5,7 +5,7 @@
 //!
 //! | Severity   | Meaning                              | Log level | Counts? |
 //! |------------|--------------------------------------|-----------|---------|
-//! | `Soft`     | Race lost, notary unreachable, etc.  | INFO      | no      |
+//! | `Soft`     | Race lost, price-fetch failed, etc.  | INFO      | no      |
 //! | `Transient`| Fulcrum disconnect, state I/O        | WARN      | yes     |
 //! | `Hard`     | Covenant rejected, manifest mismatch | ERROR     | yes     |
 
@@ -27,8 +27,8 @@ pub enum CycleError {
     SlotAheadOfNew { at: u32, new: u32 },
     #[error("stride floor: waiting {wait_sec} s")]
     StrideFloor { wait_sec: u32 },
-    #[error("notary {url} unreachable: {reason}")]
-    NotaryUnreachable { url: String, reason: String },
+    #[error("price fetch failed for source {source_id}: {reason}")]
+    PriceFetchFailed { source_id: u16, reason: String },
     #[error("insufficient funder balance {have} < need {need}")]
     InsufficientFunds { have: u64, need: u64 },
     #[error("attest race lost (mempool-conflict)")]
@@ -67,7 +67,7 @@ impl CycleError {
             | MySlotNotFound { .. }
             | SlotAheadOfNew { .. }
             | StrideFloor { .. }
-            | NotaryUnreachable { .. }
+            | PriceFetchFailed { .. }
             | InsufficientFunds { .. }
             | AttestRaceLost
             | UpdateRaceLostOk

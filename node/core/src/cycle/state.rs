@@ -111,8 +111,6 @@ pub struct CycleConfig {
     pub publisher_pubkey: [u8; 33],
     /// Source assigned to this publisher slot (from [`chain::sources::SOURCES`]).
     pub source_id: u16,
-    /// Notary URLs (one per notary slot). Cycle counter % notary_urls.len() picks.
-    pub notary_urls: Vec<String>,
     /// Wire-LE category bytes for Oracle (reverse of display txid).
     pub oracle_category_wire_le: [u8; 32],
     /// Wire-LE category bytes for PublisherSlot.

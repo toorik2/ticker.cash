@@ -1,26 +1,28 @@
-//! Real `Env` impl wiring Electrum + notary HTTP client + filesystem state.
+//! Real `Env` impl wiring Electrum + in-process PriceProver + filesystem state.
+//!
+//! v13: no notary HTTP client. `fetch_price` calls `PriceProver::prove` directly.
 
 use std::fs;
-use std::io::{Read, Write};
-use std::net::TcpStream;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ticker_core::chain::oracle_commit::decode_oracle_commit;
 use ticker_core::chain::slot_commit::decode_slot_commit;
-use ticker_core::cycle::env::{Env, FunderInfo, NotaryResponse, OracleInfo, SlotInfo};
+use ticker_core::chain::sources::SOURCES;
+use ticker_core::cycle::env::{Env, FunderInfo, OracleInfo, PriceObservation, SlotInfo};
 use ticker_core::cycle::error::CycleError;
 use ticker_core::cycle::state::{CycleConfig, PublisherState, Txid};
 use ticker_core::electrum::types::{NftCapability, Utxo};
 use ticker_core::electrum::{ElectrumClient, ElectrumError};
+use ticker_core::prover::{HttpsPlainProver, PriceProver};
 
-/// Real Env — holds the Electrum client (behind Mutex for the cycle loop)
-/// plus the `.ticker/` base path for state files.
+/// Real Env — holds the Electrum client (behind Mutex for the cycle loop),
+/// the `.ticker/` base path for state files, and an in-process price prover.
 pub struct RealEnv {
     pub electrum: Mutex<ElectrumClient>,
     pub state_dir: PathBuf,
-    pub notary_http_timeout: Duration,
+    pub prover: HttpsPlainProver,
 }
 
 impl RealEnv {
@@ -198,117 +200,22 @@ impl Env for RealEnv {
         parse_txid_be(&txid_hex)
     }
 
-    fn request_notary_sign(
-        &mut self,
-        url: &str,
-        source_id: u16,
-        cycle_seq: u32,
-        pkh: &[u8; 20],
-    ) -> Result<NotaryResponse, CycleError> {
-        // Hand-rolled HTTP/1.0 POST. Notary URLs are loopback-only by default
-        // (http://127.0.0.1:PORT) — no TLS for the local case.
-        let (host, port, path_prefix) = parse_url(url).map_err(|e| CycleError::NotaryUnreachable {
-            url: url.to_string(),
-            reason: e,
-        })?;
-        let path = if path_prefix == "/" {
-            "/sign".to_string()
-        } else {
-            format!("{path_prefix}/sign")
-        };
-        let body = serde_json::json!({
-            "sourceId": source_id,
-            "cycleSeq": cycle_seq,
-            "pubkeyHash": hex::encode(pkh),
-        })
-        .to_string();
-        let req = format!(
-            "POST {path} HTTP/1.0\r\nHost: {host}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-            body.len()
-        );
-        let mut stream = TcpStream::connect((host.as_str(), port)).map_err(|e| {
-            CycleError::NotaryUnreachable {
-                url: url.to_string(),
-                reason: e.to_string(),
-            }
-        })?;
-        let _ = stream.set_read_timeout(Some(self.notary_http_timeout));
-        let _ = stream.set_write_timeout(Some(self.notary_http_timeout));
-        stream
-            .write_all(req.as_bytes())
-            .map_err(|e| CycleError::NotaryUnreachable {
-                url: url.to_string(),
+    fn fetch_price(&mut self, source_id: u16) -> Result<PriceObservation, CycleError> {
+        let source = SOURCES
+            .iter()
+            .find(|s| s.id == source_id)
+            .ok_or_else(|| CycleError::Internal(format!("unknown source_id {source_id}")))?;
+        let proof = self
+            .prover
+            .prove(source)
+            .map_err(|e| CycleError::PriceFetchFailed {
+                source_id,
                 reason: e.to_string(),
             })?;
-        let mut resp = Vec::with_capacity(2048);
-        let _ = stream.read_to_end(&mut resp);
-        let body_start = resp
-            .windows(4)
-            .position(|w| w == b"\r\n\r\n")
-            .map(|i| i + 4)
-            .unwrap_or(0);
-        let body_str = std::str::from_utf8(&resp[body_start..]).map_err(|e| {
-            CycleError::NotaryUnreachable {
-                url: url.to_string(),
-                reason: e.to_string(),
-            }
-        })?;
-        let parsed: serde_json::Value =
-            serde_json::from_str(body_str).map_err(|e| CycleError::NotaryUnreachable {
-                url: url.to_string(),
-                reason: format!("parse: {e}"),
-            })?;
-        let price: u64 = parsed
-            .get("price")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| CycleError::NotaryUnreachable {
-                url: url.to_string(),
-                reason: "missing price".to_string(),
-            })?
-            .parse()
-            .map_err(|e: std::num::ParseIntError| CycleError::NotaryUnreachable {
-                url: url.to_string(),
-                reason: format!("price parse: {e}"),
-            })?;
-        let timestamp = parsed
-            .get("timestamp")
-            .and_then(|v| v.as_u64())
-            .ok_or_else(|| CycleError::NotaryUnreachable {
-                url: url.to_string(),
-                reason: "missing timestamp".to_string(),
-            })? as u32;
-        let server_name = parsed
-            .get("serverName")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| CycleError::NotaryUnreachable {
-                url: url.to_string(),
-                reason: "missing serverName".to_string(),
-            })?
-            .to_string();
-        let sig_hex = parsed
-            .get("notarySig")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| CycleError::NotaryUnreachable {
-                url: url.to_string(),
-                reason: "missing notarySig".to_string(),
-            })?;
-        let notary_sig = hex::decode(sig_hex).map_err(|e| CycleError::NotaryUnreachable {
-            url: url.to_string(),
-            reason: format!("sig hex: {e}"),
-        })?;
-        // ECDSA-DER signatures are 70-72 bytes typically; covenant `checkDataSig`
-        // accepts any valid DER. We don't enforce a fixed length client-side.
-        if notary_sig.len() < 64 || notary_sig.len() > 80 {
-            return Err(CycleError::NotaryUnreachable {
-                url: url.to_string(),
-                reason: format!("notarySig length {} outside 64..80", notary_sig.len()),
-            });
-        }
-        Ok(NotaryResponse {
-            price,
-            timestamp,
-            server_name,
-            notary_sig,
+        Ok(PriceObservation {
+            price: proof.price,
+            timestamp: proof.timestamp,
+            server_name: proof.server_name,
         })
     }
 
@@ -329,26 +236,4 @@ impl Env for RealEnv {
         let body = serde_json::to_vec_pretty(s).map_err(|e| CycleError::StateIo(e.to_string()))?;
         fs::write(&path, body).map_err(|e| CycleError::StateIo(e.to_string()))
     }
-}
-
-fn parse_url(url: &str) -> Result<(String, u16, String), String> {
-    let rest = url
-        .strip_prefix("http://")
-        .or_else(|| url.strip_prefix("https://"))
-        .ok_or_else(|| "url must be http(s)://".to_string())?;
-    let (authority, path) = match rest.find('/') {
-        Some(i) => (&rest[..i], &rest[i..]),
-        None => (rest, "/"),
-    };
-    let (host, port) = match authority.rsplit_once(':') {
-        Some((h, p)) => (
-            h.to_string(),
-            p.parse().map_err(|_| format!("bad port {p:?}"))?,
-        ),
-        None => (
-            authority.to_string(),
-            if url.starts_with("https") { 443 } else { 80 },
-        ),
-    };
-    Ok((host, port, path.to_string()))
 }

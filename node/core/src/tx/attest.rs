@@ -1,4 +1,4 @@
-//! `PublisherSlot.attest` transaction builder.
+//! `PublisherSlot.attest` transaction builder (v13).
 //!
 //! Tx shape:
 //!   inputs:  [0] PublisherSlot UTXO with covenant unlock script
@@ -6,11 +6,13 @@
 //!   outputs: [0] PublisherSlot re-emit (mutable NFT, new commit, same satoshis)
 //!            [1] optional P2PKH change to publisher address
 //!
-//! Unlock-script layout (PublisherSlot.attest, function index 0 of 2):
-//!   push(cycleSeq, 4 B LE) push(publisherSig, 64 B) push(publisherPubkey, 33 B)
-//!   push(timestamp, 4 B LE) push(price, 8 B LE) push(serverName, variable)
-//!   push(notarySig, 64 B) push(notaryIdx, int) push(0, fn selector)
-//!   push(redeemScript)
+//! Unlock-script layout (v13 PublisherSlot.attest, function index 0 of 2):
+//!   push(cycleSeq, 4 B LE) push(publisherSig, 70-72 B ECDSA-DER)
+//!   push(publisherPubkey, 33 B) push(timestamp, 4 B LE) push(price, 8 B LE)
+//!   push(serverName, variable) push(0, fn selector) push(redeemScript)
+//!
+//! v12 carried two extra pushes (notarySig + notaryIdx) between serverName and
+//! the fn selector. v13 drops the notary tier entirely (see PR13a / Phase B).
 //!
 //! Per cashscript convention, declaration order of args is REVERSED before
 //! pushing — last declared arg is pushed first.
@@ -49,17 +51,8 @@ pub struct FunderUtxo {
     pub satoshis: u64,
 }
 
-/// Notary response payload.
-#[derive(Debug, Clone)]
-pub struct NotaryAttestation {
-    pub price: u64,
-    pub timestamp: u32,
-    pub server_name: String,
-    pub notary_sig: Vec<u8>,
-    pub notary_idx: u32, // 0..6
-}
-
-/// Inputs to [`build_attest_tx`].
+/// Inputs to [`build_attest_tx`]. The publisher is the source of truth for
+/// `(price, timestamp, server_name)` in v13 — no notary tier exists.
 #[derive(Debug, Clone)]
 pub struct AttestArgs<'a> {
     pub slot_utxo: SlotUtxo,
@@ -74,15 +67,19 @@ pub struct AttestArgs<'a> {
     pub slot_category_wire_le: [u8; 32],
     /// Full PublisherSlot redeem script (built at startup from manifest+artifact).
     pub slot_redeem_script: &'a [u8],
-    pub notary: NotaryAttestation,
+    /// USD price scaled by 1e8 (matching the covenant's price scale).
+    pub price: u64,
+    /// Publisher's wall-clock at fetch time, unix seconds.
+    pub timestamp: u32,
+    /// CN claimed by the publisher; the covenant checks `hash160(server_name)`
+    /// against the slot's pinned `sourceCNHashes` entry.
+    pub server_name: String,
     pub new_cycle_seq: u32,
 }
 
 /// Errors building an attest tx.
 #[derive(Debug, thiserror::Error)]
 pub enum AttestError {
-    #[error("notary_idx {0} out of range 0..7")]
-    NotaryIdxOutOfRange(u32),
     #[error("insufficient funder balance: have {have}, need {need}")]
     InsufficientFunds { have: u64, need: u64 },
     #[error("crypto: {0}")]
@@ -95,10 +92,6 @@ pub enum AttestError {
 /// funder UTXOs as inputs. Change is paid back to the publisher's address
 /// (derived from `publisher_pkh`) if it would be ≥ 546 sats; otherwise dropped.
 pub fn build_attest_tx(args: &AttestArgs) -> Result<Vec<u8>, AttestError> {
-    if args.notary.notary_idx >= 7 {
-        return Err(AttestError::NotaryIdxOutOfRange(args.notary.notary_idx));
-    }
-
     // ─── 1. Funder accounting (gate on worst-case hint; actual fee comes
     //         from the dynamic-size pass below) ─────────────────────────────
     let funder_balance: u64 = args.funder_utxos.iter().map(|u| u.satoshis).sum();
@@ -112,14 +105,14 @@ pub fn build_attest_tx(args: &AttestArgs) -> Result<Vec<u8>, AttestError> {
     let change = funder_balance - MAX_ATTEST_FEE_HINT;
 
     // ─── 2. Build the slot input's covenant unlock script ──────────────────
-    let server_name_bytes = args.notary.server_name.as_bytes();
+    let server_name_bytes = args.server_name.as_bytes();
     let cn_hash20 = hash160(server_name_bytes);
 
     // Publisher signs the publisher digest with their privkey.
     let publisher_digest = publisher_sig_digest(
         args.source_id,
-        args.notary.price,
-        args.notary.timestamp,
+        args.price,
+        args.timestamp,
         &args.publisher_pkh,
         args.new_cycle_seq,
         &cn_hash20,
@@ -130,11 +123,9 @@ pub fn build_attest_tx(args: &AttestArgs) -> Result<Vec<u8>, AttestError> {
         args.new_cycle_seq,
         &publisher_sig,
         &args.publisher_pubkey,
-        args.notary.timestamp,
-        args.notary.price,
+        args.timestamp,
+        args.price,
         server_name_bytes,
-        &args.notary.notary_sig,
-        args.notary.notary_idx,
         args.slot_redeem_script,
     );
 
@@ -142,8 +133,8 @@ pub fn build_attest_tx(args: &AttestArgs) -> Result<Vec<u8>, AttestError> {
     let new_commit = encode_slot_commit(&SlotCommit {
         source_id: args.source_id,
         pkh: args.publisher_pkh,
-        price: args.notary.price,
-        timestamp: args.notary.timestamp,
+        price: args.price,
+        timestamp: args.timestamp,
         cycle_seq: args.new_cycle_seq,
     });
 
@@ -298,11 +289,11 @@ fn sign_all_funders(
     Ok(())
 }
 
-/// Compose the slot.attest unlock script bytes.
+/// Compose the v13 slot.attest unlock script bytes.
 ///
 /// Push order (last declared arg first, per cashscript convention):
 ///   cycleSeq → publisherSig → publisherPubkey → timestamp → price →
-///   serverName → notarySig → notaryIdx → fn-selector(0) → redeem-script
+///   serverName → fn-selector(0) → redeem-script
 fn build_attest_unlock_script(
     cycle_seq: u32,
     publisher_sig: &[u8],
@@ -310,8 +301,6 @@ fn build_attest_unlock_script(
     timestamp: u32,
     price: u64,
     server_name: &[u8],
-    notary_sig: &[u8],
-    notary_idx: u32,
     redeem_script: &[u8],
 ) -> Vec<u8> {
     let mut s = Vec::with_capacity(redeem_script.len() + 256);
@@ -321,8 +310,6 @@ fn build_attest_unlock_script(
     push_data(&mut s, &timestamp.to_le_bytes());
     push_data(&mut s, &price.to_le_bytes());
     push_data(&mut s, server_name);
-    push_data(&mut s, notary_sig);
-    push_int(&mut s, notary_idx as i64); // 0..6 collapse to OP_0..OP_6
     push_int(&mut s, 0); // function selector for attest (function index 0)
     push_data(&mut s, redeem_script);
     s
@@ -355,30 +342,12 @@ mod tests {
             funder_utxos: &[],            // overridden via leak below
             slot_category_wire_le: [0x33; 32],
             slot_redeem_script: &[],      // overridden via leak below
-            notary: NotaryAttestation {
-                price: 350_000_000,
-                timestamp: 1_780_000_000,
-                server_name: "api.kraken.com".to_string(),
-                notary_sig: vec![0xee; 70],
-                notary_idx: 3,
-            },
+            price: 350_000_000,
+            timestamp: 1_780_000_000,
+            server_name: "api.kraken.com".to_string(),
             new_cycle_seq: 42,
         };
         (args, redeem, funders)
-    }
-
-    #[test]
-    fn rejects_out_of_range_notary_idx() {
-        let (mut args, redeem, funders) = dummy_args(1);
-        let redeem_ref: &'static [u8] = Box::leak(redeem.into_boxed_slice());
-        let funders_ref: &'static [FunderUtxo] = Box::leak(funders.into_boxed_slice());
-        args.slot_redeem_script = redeem_ref;
-        args.funder_utxos = funders_ref;
-        args.notary.notary_idx = 7;
-        assert!(matches!(
-            build_attest_tx(&args),
-            Err(AttestError::NotaryIdxOutOfRange(7))
-        ));
     }
 
     #[test]

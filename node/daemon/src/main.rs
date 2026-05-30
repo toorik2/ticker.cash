@@ -1,14 +1,13 @@
-//! ticker-node — operator daemon entry point.
+//! ticker-node — operator daemon entry point (v13, publisher-only).
 //!
-//! One unified process: optionally a notary (HTTP listener), optionally a
-//! publisher (cycle loop), optionally a /stats endpoint. Configured by the
-//! manifest + per-role keyfile; CLI is a minimal six-flag surface.
+//! One unified process: cycle loop + optional `/stats` endpoint. Configured by
+//! the manifest + per-role keyfile; CLI is a minimal four-flag surface
+//! (`--publisher`, `--once`, `--stats-bind`, `--slot`).
 //!
-//! Layout matches the TS daemon's invocation contract so existing systemd
-//! units (`ticker-node-bundled@N.service`, `ticker-node-pub@N.service`) can
-//! flip to this binary with only an `ExecStart` change.
+//! v13 dropped the notary tier — the `--notary` mode and `--notary-url` flags
+//! are gone. Each publisher fetches its assigned source in-process (see
+//! `cycle::step::attest`).
 
-mod notary_handler;
 mod real_env;
 mod stats_collector;
 
@@ -30,16 +29,12 @@ use ticker_core::identity::{
 };
 use ticker_core::log_error;
 use ticker_core::log_info;
-use ticker_core::notary::run_notary;
-use ticker_core::prover::HttpsPlainProver;
 use ticker_core::stats::run_stats;
 use ticker_core::tx::cashaddr::{encode_p2pkh_cashaddr, AddressPrefix};
 
-use notary_handler::{RealNotaryHandler, DEFAULT_PROVER_TIMEOUT};
 use real_env::RealEnv;
-use stats_collector::{NotaryIdentity, RealStatsCollector};
+use stats_collector::RealStatsCollector;
 
-const NOTARY_BASE_PORT: u16 = 8081;
 const TICKER_HOME_ENV: &str = "TICKER_HOME";
 
 /// Resolve a path inside `$TICKER_HOME/`. Defaults to `$HOME/.ticker/` if the
@@ -56,7 +51,6 @@ fn home_path(suffix: &str) -> PathBuf {
     PathBuf::from(base).join(suffix)
 }
 const ELECTRUM_TIMEOUT_SEC: u64 = 30;
-const NOTARY_HTTP_TIMEOUT_SEC: u64 = 10;
 const POLL_INTERVAL_SEC: u64 = 3;
 const QUORUM_WAIT_SEC: u64 = 25;
 
@@ -69,20 +63,14 @@ fn main() {
 
 fn real_main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = pico_args::Arguments::from_env();
-    let want_notary = args.contains("--notary");
     let want_publisher = args.contains("--publisher");
     let once = args.contains("--once");
     let stats_bind: Option<String> = args.opt_value_from_str("--stats-bind")?;
     let slot_flag: Option<u8> = args.opt_value_from_str("--slot")?;
-    let notary_port_flag: Option<u16> = args.opt_value_from_str("--notary-port")?;
-    let notary_urls: Vec<String> = collect_repeatable(&mut args, "--notary-url")?;
 
-    if !want_notary && !want_publisher {
-        eprintln!("ticker-node: must specify --notary and/or --publisher");
-        eprintln!("  examples:");
-        eprintln!("    ticker-node --notary");
-        eprintln!("    ticker-node --publisher");
-        eprintln!("    ticker-node --notary --publisher");
+    if !want_publisher {
+        eprintln!("ticker-node: must specify --publisher");
+        eprintln!("  example: ticker-node --publisher --slot 0");
         std::process::exit(2);
     }
 
@@ -95,91 +83,40 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut handles: Vec<std::thread::JoinHandle<()>> = Vec::new();
 
-    // Resolve identities up-front so we can fail fast on mismatch.
-    let notary_identity = if want_notary {
-        Some(resolve_identity(
-            Role::Notary,
-            &manifest_path,
-            home_path("notary.key"),
-            slot_flag,
-        )?)
-    } else {
-        None
-    };
-    let publisher_identity = if want_publisher {
-        Some(resolve_identity(
-            Role::Publisher,
-            &manifest_path,
-            home_path("publisher.key"),
-            slot_flag,
-        )?)
-    } else {
-        None
-    };
-
-    // ─── notary thread ──────────────────────────────────────────────────
-    let mut notary_listen_addr: Option<String> = None;
-    let mut notary_stats_identity: Option<NotaryIdentity> = None;
-    if let Some(id) = &notary_identity {
-        let port = notary_port_flag.unwrap_or(NOTARY_BASE_PORT + id.slot as u16);
-        let addr = format!("127.0.0.1:{port}");
-        notary_listen_addr = Some(addr.clone());
-        notary_stats_identity = Some(NotaryIdentity {
-            slot: id.slot,
-            port,
-            address: id.key.label.clone(), // see below — refined to CashAddr after manifest network derive
-            pubkey_hex: hex::encode(id.key.public_key),
-        });
-        let prefix = address_prefix_for(&manifest.network);
-        let cash_addr = encode_p2pkh_cashaddr(&id.key.pkh, prefix);
-        if let Some(stats) = notary_stats_identity.as_mut() {
-            stats.address = cash_addr.clone();
-        }
-        let handler = Arc::new(RealNotaryHandler {
-            slot: id.slot,
-            address: cash_addr,
-            privkey: id.key.private_key,
-            pubkey: id.key.public_key,
-            prover: HttpsPlainProver {
-                timeout: DEFAULT_PROVER_TIMEOUT,
-            },
-        });
-        let addr_c = addr.clone();
-        handles.push(std::thread::spawn(move || {
-            if let Err(e) = run_notary(&addr_c, handler) {
-                log_error!("notary server stopped", "msg" => e.to_string());
-            }
-        }));
-    }
+    let publisher_identity = resolve_identity(
+        Role::Publisher,
+        &manifest_path,
+        home_path("publisher.key"),
+        slot_flag,
+    )?;
 
     // ─── publisher thread ───────────────────────────────────────────────
-    if let Some(id) = publisher_identity {
-        let cfg = build_publisher_cfg(&manifest, &id.key, id.slot, &notary_urls)?;
-        let electrum = ElectrumClient::connect(
-            &manifest.electrum.host,
-            manifest.electrum.port,
-            Duration::from_secs(ELECTRUM_TIMEOUT_SEC),
-        )?;
-        let mut env = RealEnv {
-            electrum: Mutex::new(electrum),
-            state_dir: home_path(""),
-            notary_http_timeout: Duration::from_secs(NOTARY_HTTP_TIMEOUT_SEC),
-        };
-        let shutdown_c = shutdown.clone();
-        handles.push(std::thread::spawn(move || {
-            let opts = RunOpts { once };
-            match run_publisher(&mut env, &cfg, &shutdown_c, opts) {
-                Ok(()) => log_info!("publisher exited cleanly"),
-                Err(e) => log_error!("publisher fatal", "msg" => e.to_string()),
-            }
-        }));
-    }
+    let cfg = build_publisher_cfg(&manifest, &publisher_identity.key, publisher_identity.slot)?;
+    let electrum = ElectrumClient::connect(
+        &manifest.electrum.host,
+        manifest.electrum.port,
+        Duration::from_secs(ELECTRUM_TIMEOUT_SEC),
+    )?;
+    let mut env = RealEnv {
+        electrum: Mutex::new(electrum),
+        state_dir: home_path(""),
+        prover: ticker_core::prover::HttpsPlainProver {
+            timeout: Duration::from_secs(5),
+        },
+    };
+    let shutdown_c = shutdown.clone();
+    handles.push(std::thread::spawn(move || {
+        let opts = RunOpts { once };
+        match run_publisher(&mut env, &cfg, &shutdown_c, opts) {
+            Ok(()) => log_info!("publisher exited cleanly"),
+            Err(e) => log_error!("publisher fatal", "msg" => e.to_string()),
+        }
+    }));
 
     // ─── stats thread ───────────────────────────────────────────────────
     if let Some(bind) = stats_bind {
         let collector = Arc::new(RealStatsCollector {
             state_dir: home_path(""),
-            notary: notary_stats_identity.clone(),
         });
         let bind_c = bind.clone();
         handles.push(std::thread::spawn(move || {
@@ -194,19 +131,8 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
     for h in handles {
         let _ = h.join();
     }
-    log_info!("ticker-node exit", "notary_listen" => notary_listen_addr);
+    log_info!("ticker-node exit");
     Ok(())
-}
-
-fn collect_repeatable(
-    args: &mut pico_args::Arguments,
-    flag: &'static str,
-) -> Result<Vec<String>, pico_args::Error> {
-    let mut out = Vec::new();
-    while let Some(v) = args.opt_value_from_str::<&'static str, String>(flag)? {
-        out.push(v);
-    }
-    Ok(out)
 }
 
 fn install_signal_handlers(shutdown: Arc<AtomicBool>) {
@@ -253,7 +179,6 @@ fn build_publisher_cfg(
     m: &Manifest,
     key: &OperatorKey,
     slot: u8,
-    notary_urls_cli: &[String],
 ) -> Result<CycleConfig, Box<dyn std::error::Error>> {
     // Build redeem scripts from manifest fields and verify against lockingBytecode.
     let oracle_cat_be = hex::decode(&m.oracle.category)?;
@@ -279,14 +204,8 @@ fn build_publisher_cfg(
         return Err("oracle locking bytecode mismatch — wrong manifest?".into());
     }
 
-    let mut notary_pubkeys = [[0u8; 33]; 7];
-    for (i, hexk) in m.notary_pubkeys.iter().enumerate() {
-        let v = hex::decode(hexk)?;
-        notary_pubkeys[i].copy_from_slice(&v);
-    }
     let cn_hashes = ticker_core::chain::sources::packed_cn_hashes();
-    let slot_redeem =
-        redeem_publisher_slot(&notary_pubkeys, &cn_hashes, &oracle_cat_le, &oracle_lb)?;
+    let slot_redeem = redeem_publisher_slot(&cn_hashes, &oracle_cat_le, &oracle_lb)?;
     let slot_lb_derived = p2sh32_locking_bytecode(&slot_redeem);
     if slot_lb_derived != slot_lb_expected {
         return Err("slot locking bytecode mismatch — wrong manifest?".into());
@@ -297,14 +216,6 @@ fn build_publisher_cfg(
     let source = SOURCES
         .get(slot as usize)
         .ok_or("slot exceeds SOURCES length")?;
-
-    let notary_urls = if notary_urls_cli.is_empty() {
-        (0..7)
-            .map(|i| format!("http://127.0.0.1:{}", NOTARY_BASE_PORT + i))
-            .collect()
-    } else {
-        notary_urls_cli.to_vec()
-    };
 
     let prefix = address_prefix_for(&m.network);
     let publisher_address = encode_p2pkh_cashaddr(&key.pkh, prefix);
@@ -321,7 +232,6 @@ fn build_publisher_cfg(
         publisher_privkey: key.private_key,
         publisher_pubkey: key.public_key,
         source_id: source.id,
-        notary_urls,
         oracle_category_wire_le: oracle_cat_le,
         slot_category_wire_le: slot_cat_le,
         oracle_redeem_script: oracle_redeem,
@@ -339,4 +249,3 @@ fn build_publisher_cfg(
         quorum_wait: Duration::from_secs(QUORUM_WAIT_SEC),
     })
 }
-
