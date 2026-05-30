@@ -3,7 +3,7 @@
 
 use std::time::Duration;
 
-use ticker_core::crypto::{double_sha256, sign_schnorr};
+use ticker_core::crypto::{double_sha256, sign_ecdsa};
 use ticker_core::electrum::ElectrumClient;
 use ticker_core::identity::manifest::{load_manifest, Network};
 use ticker_core::identity::seed::{derive_wallet, load_seed};
@@ -86,8 +86,8 @@ pub fn fund(
     for (i, u) in non_token.iter().enumerate() {
         let preimage = p2pkh_sighash_preimage(&tx, i, &master_locking, u.value);
         let digest = double_sha256(&preimage);
-        let sig = sign_schnorr(&master.private_key, &digest)?;
-        let mut sig_with_sighash = Vec::with_capacity(65);
+        let sig = sign_ecdsa(&master.private_key, &digest)?;
+        let mut sig_with_sighash = Vec::with_capacity(sig.len() + 1);
         sig_with_sighash.extend_from_slice(&sig);
         sig_with_sighash.push(SIGHASH_BIT);
         let mut unlock = Vec::with_capacity(100);

@@ -27,12 +27,14 @@ use crate::chain::consts::{
 use crate::chain::oracle_commit::{encode_oracle_commit, OracleState};
 use crate::chain::ticker_commit::encode_ticker_commit;
 use crate::covenant::locking::p2sh32_locking_bytecode;
-use crate::crypto::{double_sha256, sign_schnorr, KeyError};
+use crate::crypto::{double_sha256, sign_ecdsa, KeyError};
 use crate::tx::encode::{
     encode_tx, Input, Output, TokenPrefix, Tx, TxOutpoint, DEFAULT_SEQUENCE,
 };
 use crate::tx::script::{p2pkh_locking_script, push_data, push_int};
-use crate::tx::sighash::{p2pkh_sighash_preimage, SIGHASH_BIT};
+use crate::tx::sighash::{
+    p2pkh_sighash_preimage_bch, SpentOutput, SIGHASH_BIT_TOKENS,
+};
 
 use super::attest::FunderUtxo;
 
@@ -284,22 +286,61 @@ pub fn build_oracle_update_tx(args: &UpdateArgs) -> Result<Vec<u8>, UpdateError>
 
     let mut tx = Tx::new(inputs, outputs);
 
-    // ─── 10. Sign funder inputs ────────────────────────────────────────────
+    // ─── 10. Build per-input spent-UTXO sources for hashUtxos / outputTokenPrefix
     let funder_locking = p2pkh_locking_script(&args.publisher_pkh).to_vec();
+    let mut sources: Vec<SpentOutput> = Vec::with_capacity(1 + slots.len() + args.funder_utxos.len());
+    // [0] Oracle input
+    sources.push(SpentOutput {
+        value: args.oracle_utxo.satoshis,
+        locking_script: oracle_locking.to_vec(),
+        token: Some(TokenPrefix {
+            category_le: args.oracle_category_wire_le,
+            capability: CAPABILITY_MINTING,
+            commitment: crate::chain::oracle_commit::encode_oracle_commit(
+                &args.oracle_utxo.prev_state,
+            )
+            .to_vec(),
+            amount: 0,
+        }),
+    });
+    // [1..N+1] Slot inputs
+    for s in &slots {
+        sources.push(SpentOutput {
+            value: s.satoshis,
+            locking_script: slot_locking.to_vec(),
+            token: Some(TokenPrefix {
+                category_le: args.slot_category_wire_le,
+                capability: CAPABILITY_MUTABLE,
+                commitment: s.commitment.to_vec(),
+                amount: 0,
+            }),
+        });
+    }
+    // [N+1..] Funder P2PKH inputs (no tokens)
+    for f in args.funder_utxos {
+        sources.push(SpentOutput {
+            value: f.satoshis,
+            locking_script: funder_locking.clone(),
+            token: None,
+        });
+    }
+
+    // ─── 11. Sign each funder input via the CashTokens (hashUtxos) sighash ──
     let funder_start = 1 + slots.len();
     for i in 0..args.funder_utxos.len() {
         let input_index = funder_start + i;
-        let preimage = p2pkh_sighash_preimage(
+        let preimage = p2pkh_sighash_preimage_bch(
             &tx,
             input_index,
             &funder_locking,
-            args.funder_utxos[i].satoshis,
+            &sources,
+            SIGHASH_BIT_TOKENS,
         );
         let digest = double_sha256(&preimage);
-        let sig = sign_schnorr(&args.publisher_privkey, &digest)?;
-        let mut sig_with_sighash = Vec::with_capacity(65);
+        let sig = sign_ecdsa(&args.publisher_privkey, &digest)?;
+        let mut sig_with_sighash = Vec::with_capacity(sig.len() + 1);
         sig_with_sighash.extend_from_slice(&sig);
-        sig_with_sighash.push(SIGHASH_BIT);
+        sig_with_sighash.push(SIGHASH_BIT_TOKENS);
         let mut unlock = Vec::with_capacity(100);
         push_data(&mut unlock, &sig_with_sighash);
         push_data(&mut unlock, &args.publisher_pubkey);

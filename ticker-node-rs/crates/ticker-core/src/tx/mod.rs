@@ -23,4 +23,7 @@ pub use encode::{
     MINTING_CAPABILITY, NO_CAPABILITY,
 };
 pub use script::{push_data, push_int, p2pkh_locking_script};
-pub use sighash::{p2pkh_sighash_preimage, SIGHASH_ALL_BIP143, SIGHASH_FORKID, SIGHASH_BIT};
+pub use sighash::{
+    p2pkh_sighash_preimage, p2pkh_sighash_preimage_bch, SpentOutput, SIGHASH_ALL_BIP143,
+    SIGHASH_BIT, SIGHASH_BIT_TOKENS, SIGHASH_FORKID, SIGHASH_UTXOS,
+};

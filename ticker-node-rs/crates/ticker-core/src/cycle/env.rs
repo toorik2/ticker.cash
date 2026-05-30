@@ -45,7 +45,7 @@ pub struct NotaryResponse {
     pub price: u64,
     pub timestamp: u32,
     pub server_name: String,
-    pub notary_sig: [u8; 64],
+    pub notary_sig: Vec<u8>,
 }
 
 /// Trait abstracting every I/O point the cycle touches.

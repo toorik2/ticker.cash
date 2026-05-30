@@ -40,15 +40,31 @@ pub fn derive_pubkey(privkey: &[u8; 32]) -> Result<[u8; 33], KeyError> {
 
 /// BIP-340 Schnorr-sign a 32-byte digest with deterministic nonce.
 ///
-/// Matches `libauth.signMessageHashSchnorr(privateKey, digest)` semantics:
-/// the BCH `checkDataSig` opcode accepts the produced 64-byte sig.
+/// **Compatibility note**: BCH does NOT use BIP-340 Schnorr — it uses the
+/// 2019 BCH-Schnorr scheme (`e = sha256(R || P || m)` plain, vs BIP-340's
+/// tagged-hash challenge). BCH's `OP_CHECKSIG` / `OP_CHECKDATASIG` therefore
+/// REJECT BIP-340 sigs. Use [`sign_ecdsa`] for anything that crosses the
+/// covenant or P2PKH boundary; this function is kept for completeness only.
 pub fn sign_schnorr(privkey: &[u8; 32], digest: &[u8; 32]) -> Result<[u8; 64], KeyError> {
     let sk = SecretKey::from_slice(privkey)?;
     let kp = Keypair::from_secret_key(SECP256K1, &sk);
     let msg = secp256k1::Message::from_digest(*digest);
-    // No-aux-rand → BIP-340 deterministic nonce, byte-stable across signers.
     let sig = SECP256K1.sign_schnorr_no_aux_rand(&msg, &kp);
     Ok(*sig.as_ref())
+}
+
+/// ECDSA-sign a 32-byte digest with deterministic nonce (RFC-6979 via libsecp256k1).
+///
+/// Returns the DER-encoded signature (~70-72 bytes). BCH's `OP_CHECKSIG` and
+/// `OP_CHECKDATASIG` opcodes accept this universally. Used for:
+///   * Publisher data sigs in `slot.attest` (`checkDataSig`).
+///   * Notary data sigs in `slot.attest` (`checkDataSig`).
+///   * P2PKH funder input sigs (`checkSig` after sighash byte appended).
+pub fn sign_ecdsa(privkey: &[u8; 32], digest: &[u8; 32]) -> Result<Vec<u8>, KeyError> {
+    let sk = SecretKey::from_slice(privkey)?;
+    let msg = secp256k1::Message::from_digest(*digest);
+    let sig = SECP256K1.sign_ecdsa(&msg, &sk);
+    Ok(sig.serialize_der().to_vec())
 }
 
 #[cfg(test)]

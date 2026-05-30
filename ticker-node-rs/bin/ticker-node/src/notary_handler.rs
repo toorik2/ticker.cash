@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use ticker_core::chain::digest::notary_sig_digest;
 use ticker_core::chain::sources::SOURCES;
-use ticker_core::crypto::sign_schnorr;
+use ticker_core::crypto::sign_ecdsa;
 use ticker_core::notary_server::{NotaryHandler, SignRequest, SignResponse};
 use ticker_core::prover::{HttpsPlainProver, PriceProver};
 
@@ -48,7 +48,7 @@ impl NotaryHandler for RealNotaryHandler {
             req.cycle_seq,
             &pkh,
         );
-        let sig = sign_schnorr(&self.privkey, &digest).map_err(|e| format!("sign: {e}"))?;
+        let sig = sign_ecdsa(&self.privkey, &digest).map_err(|e| format!("sign: {e}"))?;
 
         Ok(SignResponse {
             source_id: req.source_id,

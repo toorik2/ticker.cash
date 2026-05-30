@@ -266,12 +266,7 @@ fn replay_attest(
         .get("notarySig")
         .and_then(|v| v.as_str())
         .ok_or("attest: missing notarySig")?;
-    let notary_sig_bytes = hex::decode(notary_sig_hex)?;
-    if notary_sig_bytes.len() != 64 {
-        return Err(format!("notarySig must be 64 B, got {}", notary_sig_bytes.len()).into());
-    }
-    let mut notary_sig = [0u8; 64];
-    notary_sig.copy_from_slice(&notary_sig_bytes);
+    let notary_sig = hex::decode(notary_sig_hex)?;
     let notary_idx = rec
         .get("notaryIdx")
         .and_then(|v| v.as_u64())
@@ -282,9 +277,16 @@ fn replay_attest(
         .ok_or("attest: missing cycleSeq")? as u32;
 
     let my_slot = rec.get("mySlot").ok_or("attest: missing mySlot")?;
+    let slot_commitment_hex = my_slot
+        .get("commitment")
+        .and_then(|v| v.as_str())
+        .ok_or("mySlot.commitment")?;
+    let mut commitment_raw = [0u8; 39];
+    commitment_raw.copy_from_slice(&hex::decode(slot_commitment_hex)?);
     let slot_utxo = SlotUtxo {
         txid_be: txid_be(my_slot.get("txid"))?,
         vout: my_slot.get("vout").and_then(|v| v.as_u64()).ok_or("mySlot.vout")? as u32,
+        commitment_raw,
         satoshis: my_slot
             .get("satoshis")
             .and_then(|v| v.as_str())

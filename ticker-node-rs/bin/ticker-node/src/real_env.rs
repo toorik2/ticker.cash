@@ -207,10 +207,15 @@ impl Env for RealEnv {
     ) -> Result<NotaryResponse, CycleError> {
         // Hand-rolled HTTP/1.0 POST. Notary URLs are loopback-only by default
         // (http://127.0.0.1:PORT) — no TLS for the local case.
-        let (host, port, path) = parse_url(url).map_err(|e| CycleError::NotaryUnreachable {
+        let (host, port, path_prefix) = parse_url(url).map_err(|e| CycleError::NotaryUnreachable {
             url: url.to_string(),
             reason: e,
         })?;
+        let path = if path_prefix == "/" {
+            "/sign".to_string()
+        } else {
+            format!("{path_prefix}/sign")
+        };
         let body = serde_json::json!({
             "sourceId": source_id,
             "cycleSeq": cycle_seq,
@@ -251,7 +256,13 @@ impl Env for RealEnv {
         let parsed: serde_json::Value =
             serde_json::from_str(body_str).map_err(|e| CycleError::NotaryUnreachable {
                 url: url.to_string(),
-                reason: format!("parse: {e}"),
+                reason: format!(
+                    "parse: {e} | body_start={} resp_len={} preview={:?}",
+                    body_start,
+                    resp.len(),
+                    std::str::from_utf8(&resp[..resp.len().min(80)])
+                        .unwrap_or("<non-utf8>")
+                ),
             })?;
         let price: u64 = parsed
             .get("price")
@@ -287,18 +298,18 @@ impl Env for RealEnv {
                 url: url.to_string(),
                 reason: "missing notarySig".to_string(),
             })?;
-        let sig_bytes = hex::decode(sig_hex).map_err(|e| CycleError::NotaryUnreachable {
+        let notary_sig = hex::decode(sig_hex).map_err(|e| CycleError::NotaryUnreachable {
             url: url.to_string(),
             reason: format!("sig hex: {e}"),
         })?;
-        if sig_bytes.len() != 64 {
+        // ECDSA-DER signatures are 70-72 bytes typically; covenant `checkDataSig`
+        // accepts any valid DER. We don't enforce a fixed length client-side.
+        if notary_sig.len() < 64 || notary_sig.len() > 80 {
             return Err(CycleError::NotaryUnreachable {
                 url: url.to_string(),
-                reason: format!("notarySig len {} != 64", sig_bytes.len()),
+                reason: format!("notarySig length {} outside 64..80", notary_sig.len()),
             });
         }
-        let mut notary_sig = [0u8; 64];
-        notary_sig.copy_from_slice(&sig_bytes);
         Ok(NotaryResponse {
             price,
             timestamp,

@@ -84,6 +84,7 @@ fn idle<E: Env>(env: &mut E, cfg: &CycleConfig) -> Result<CycleState, CycleError
         mine_slot_vout: mine.vout,
         mine_slot_satoshis: mine.satoshis,
         mine_slot_commit: mine.commit,
+        mine_slot_commitment_raw: mine.commitment_raw,
     };
 
     Ok(if snap.already_attested() {
@@ -133,6 +134,7 @@ fn attest<E: Env>(
             txid_be: snap.mine_slot_txid_be,
             vout: snap.mine_slot_vout,
             satoshis: snap.mine_slot_satoshis,
+            commitment_raw: snap.mine_slot_commitment_raw,
         },
         source_id: snap.mine_slot_commit.source_id,
         publisher_pkh: cfg.my_pkh,
@@ -583,7 +585,7 @@ mod tests {
             price: 350_000_000,
             timestamp: 1_700_000_200,
             server_name: "api.kraken.com".to_string(),
-            notary_sig: [0xee; 64],
+            notary_sig: vec![0xee; 70],
         });
         env.funder.borrow_mut().push(FunderInfo {
             txid_be: [0x33; 32],

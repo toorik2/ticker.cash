@@ -18,12 +18,14 @@
 use crate::chain::consts::{CAPABILITY_MUTABLE, DUST_THRESHOLD, TX_FEE_BUFFER_ATTEST};
 use crate::chain::digest::publisher_sig_digest;
 use crate::chain::slot_commit::{encode_slot_commit, SlotCommit};
-use crate::crypto::{double_sha256, hash160, sign_schnorr, KeyError};
+use crate::crypto::{double_sha256, hash160, sign_ecdsa, KeyError};
 use crate::tx::encode::{
     encode_tx, Input, Output, TokenPrefix, Tx, TxOutpoint, DEFAULT_SEQUENCE,
 };
 use crate::tx::script::{p2pkh_locking_script, push_data, push_int};
-use crate::tx::sighash::{p2pkh_sighash_preimage, SIGHASH_BIT};
+use crate::tx::sighash::{
+    p2pkh_sighash_preimage_bch, SpentOutput, SIGHASH_BIT_TOKENS,
+};
 
 /// PublisherSlot UTXO being spent.
 #[derive(Debug, Clone)]
@@ -31,6 +33,10 @@ pub struct SlotUtxo {
     pub txid_be: [u8; 32],
     pub vout: u32,
     pub satoshis: u64,
+    /// Raw 39-byte commitment of the slot UTXO being spent (the OLD commit,
+    /// before this attest rewrites it). Needed to construct the CashTokens
+    /// `hashUtxos` field of the funder input sighash.
+    pub commitment_raw: [u8; 39],
 }
 
 /// Funder UTXO (P2PKH) being spent.
@@ -47,7 +53,7 @@ pub struct NotaryAttestation {
     pub price: u64,
     pub timestamp: u32,
     pub server_name: String,
-    pub notary_sig: [u8; 64],
+    pub notary_sig: Vec<u8>,
     pub notary_idx: u32, // 0..6
 }
 
@@ -114,7 +120,7 @@ pub fn build_attest_tx(args: &AttestArgs) -> Result<Vec<u8>, AttestError> {
         args.new_cycle_seq,
         &cn_hash20,
     );
-    let publisher_sig = sign_schnorr(&args.publisher_privkey, &publisher_digest)?;
+    let publisher_sig = sign_ecdsa(&args.publisher_privkey, &publisher_digest)?;
 
     let slot_unlock = build_attest_unlock_script(
         args.new_cycle_seq,
@@ -182,17 +188,42 @@ pub fn build_attest_tx(args: &AttestArgs) -> Result<Vec<u8>, AttestError> {
 
     let mut tx = Tx::new(inputs, outputs);
 
-    // ─── 5. Sign each funder input via BIP-143 P2PKH sighash ───────────────
+    // ─── 5. Build per-input spent-UTXO sources for hashUtxos / outputTokenPrefix
     let funder_locking = p2pkh_locking_script(&args.publisher_pkh).to_vec();
+    let mut sources: Vec<SpentOutput> = Vec::with_capacity(1 + args.funder_utxos.len());
+    sources.push(SpentOutput {
+        value: args.slot_utxo.satoshis,
+        locking_script: slot_locking.to_vec(),
+        token: Some(TokenPrefix {
+            category_le: args.slot_category_wire_le,
+            capability: CAPABILITY_MUTABLE,
+            commitment: args.slot_utxo.commitment_raw.to_vec(),
+            amount: 0,
+        }),
+    });
+    for f in args.funder_utxos {
+        sources.push(SpentOutput {
+            value: f.satoshis,
+            locking_script: funder_locking.clone(),
+            token: None,
+        });
+    }
+
+    // ─── 6. Sign each funder input via the CashTokens (hashUtxos) sighash ───
     for i in 0..args.funder_utxos.len() {
         let input_index = i + 1; // [0] is the slot input
-        let preimage =
-            p2pkh_sighash_preimage(&tx, input_index, &funder_locking, args.funder_utxos[i].satoshis);
+        let preimage = p2pkh_sighash_preimage_bch(
+            &tx,
+            input_index,
+            &funder_locking,
+            &sources,
+            SIGHASH_BIT_TOKENS,
+        );
         let digest = double_sha256(&preimage);
-        let sig = sign_schnorr(&args.publisher_privkey, &digest)?;
-        let mut sig_with_sighash = Vec::with_capacity(65);
+        let sig = sign_ecdsa(&args.publisher_privkey, &digest)?;
+        let mut sig_with_sighash = Vec::with_capacity(sig.len() + 1);
         sig_with_sighash.extend_from_slice(&sig);
-        sig_with_sighash.push(SIGHASH_BIT);
+        sig_with_sighash.push(SIGHASH_BIT_TOKENS);
         let mut unlock = Vec::with_capacity(100);
         push_data(&mut unlock, &sig_with_sighash);
         push_data(&mut unlock, &args.publisher_pubkey);
@@ -209,12 +240,12 @@ pub fn build_attest_tx(args: &AttestArgs) -> Result<Vec<u8>, AttestError> {
 ///   serverName → notarySig → notaryIdx → fn-selector(0) → redeem-script
 fn build_attest_unlock_script(
     cycle_seq: u32,
-    publisher_sig: &[u8; 64],
+    publisher_sig: &[u8],
     publisher_pubkey: &[u8; 33],
     timestamp: u32,
     price: u64,
     server_name: &[u8],
-    notary_sig: &[u8; 64],
+    notary_sig: &[u8],
     notary_idx: u32,
     redeem_script: &[u8],
 ) -> Vec<u8> {
@@ -250,6 +281,7 @@ mod tests {
                 txid_be: [0x11; 32],
                 vout: 7,
                 satoshis: 1000,
+                commitment_raw: [0u8; 39],
             },
             source_id: 1,
             publisher_pkh: [0x42; 20],
@@ -262,7 +294,7 @@ mod tests {
                 price: 350_000_000,
                 timestamp: 1_780_000_000,
                 server_name: "api.kraken.com".to_string(),
-                notary_sig: [0xee; 64],
+                notary_sig: vec![0xee; 70],
                 notary_idx: 3,
             },
             new_cycle_seq: 42,
