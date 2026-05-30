@@ -56,13 +56,34 @@ pub const CAPABILITY_MUTABLE: u8 = 0x01;
 /// CashTokens capability byte for a minting NFT.
 pub const CAPABILITY_MINTING: u8 = 0x02;
 
-// ─── Fee buffers (sats) ────────────────────────────────────────────────────
+// ─── Fee policy ────────────────────────────────────────────────────────────
 
-/// Funder sats reserved for `slot.attest` tx (miner fee + dust margin).
-pub const TX_FEE_BUFFER_ATTEST: u64 = 2_000;
+/// Worst-case `slot.attest` fee budget — used only as the pre-broadcast
+/// "do I have enough to even try?" gate. The actual fee paid is computed
+/// dynamically from the encoded tx size (see `tx::attest::build_attest_tx`).
+///
+/// `slot.attest` is ~2.2 KB at 1 sat/byte (1,656-byte PublisherSlot redeem
+/// dominates). 3,000 covers worst-case sizes (multi-funder, max server name)
+/// without false-rejecting publishers whose balance is just-above-fee-but-
+/// below-buffer.
+pub const MAX_ATTEST_FEE_HINT: u64 = 3_000;
 
-/// Funder sats reserved for `Oracle.update` tx (miner fee + dust margin; covers up to 13 slot inputs).
-pub const TX_FEE_BUFFER_UPDATE: u64 = 20_000;
+/// Worst-case `Oracle.update` fee budget — used only as the pre-broadcast
+/// "do I have enough to even try?" gate. The actual fee paid is computed
+/// dynamically from the encoded tx size (see `tx::update::build_oracle_update_tx`).
+///
+/// `Oracle.update` size varies 8–14 KB (7 vs 13 slot inputs), so a static
+/// budget would either over-tip for small cycles or under-tip for large ones.
+/// 8_000 covers the largest realistic case at 1 sat/byte without false-rejecting
+/// publishers whose balance is just-above-fee-but-below-buffer.
+pub const MAX_UPDATE_FEE_HINT: u64 = 8_000;
+
+/// BCH relay-floor minimum fee rate (sats per encoded byte).
+pub const SAT_PER_BYTE: u64 = 1;
+
+/// Small additive margin on top of `size × SAT_PER_BYTE` — absorbs the 1-byte
+/// variance in ECDSA-DER signature length per funder input.
+pub const FEE_EPSILON_SATS: u64 = 50;
 
 /// Bitcoin Cash dust threshold (sats). Outputs below this are not produced.
 pub const DUST_THRESHOLD: u64 = 546;

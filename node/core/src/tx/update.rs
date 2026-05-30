@@ -21,8 +21,9 @@
 //!   push(1, fn selector) push(redeem_script)
 
 use crate::chain::consts::{
-    BUDGET_PAD_LEN, CAPABILITY_MINTING, CAPABILITY_MUTABLE, DUST_THRESHOLD, ORACLE_DUST,
-    STRIDE_FLOOR_SEC, THR_FLOOR, TICKER_DUST, TICKER_HEAD_COUNT, TX_FEE_BUFFER_UPDATE,
+    BUDGET_PAD_LEN, CAPABILITY_MINTING, CAPABILITY_MUTABLE, DUST_THRESHOLD, FEE_EPSILON_SATS,
+    MAX_UPDATE_FEE_HINT, ORACLE_DUST, SAT_PER_BYTE, STRIDE_FLOOR_SEC, THR_FLOOR, TICKER_DUST,
+    TICKER_HEAD_COUNT,
 };
 use crate::chain::oracle_commit::{encode_oracle_commit, OracleState};
 use crate::chain::ticker_commit::encode_ticker_commit;
@@ -157,16 +158,18 @@ pub fn build_oracle_update_tx(args: &UpdateArgs) -> Result<Vec<u8>, UpdateError>
     }
     let new_active = new_active.min(u16::MAX as u64) as u16;
 
-    // ─── 4. Funder balance ──────────────────────────────────────────────────
+    // ─── 4. Funder balance (gate on worst-case hint; actual fee comes from
+    //         the dynamic-size pass below) ─────────────────────────────────
     let funder_balance: u64 = args.funder_utxos.iter().map(|u| u.satoshis).sum();
-    let min_update_funds = (TICKER_HEAD_COUNT as u64) * TICKER_DUST + TX_FEE_BUFFER_UPDATE;
+    let min_update_funds = (TICKER_HEAD_COUNT as u64) * TICKER_DUST + MAX_UPDATE_FEE_HINT;
     if funder_balance < min_update_funds {
         return Err(UpdateError::InsufficientFunds {
             have: funder_balance,
             need: min_update_funds,
         });
     }
-    let change = funder_balance - (TICKER_HEAD_COUNT as u64) * TICKER_DUST - TX_FEE_BUFFER_UPDATE;
+    // Placeholder change for the first encode pass; corrected below.
+    let change = funder_balance - (TICKER_HEAD_COUNT as u64) * TICKER_DUST - MAX_UPDATE_FEE_HINT;
 
     // ─── 5. Build pricesBlob = concat(u64LE(price) for each slot) ──────────
     let mut prices_blob = Vec::with_capacity(slots.len() * 8);
@@ -325,29 +328,92 @@ pub fn build_oracle_update_tx(args: &UpdateArgs) -> Result<Vec<u8>, UpdateError>
         });
     }
 
-    // ─── 11. Sign each funder input via the CashTokens (hashUtxos) sighash ──
+    // ─── 11. First pass: sign funders with the placeholder change, measure
+    //          actual tx size to derive the right fee. ────────────────────
     let funder_start = 1 + slots.len();
-    for i in 0..args.funder_utxos.len() {
+    sign_all_funders(
+        &mut tx,
+        funder_start,
+        args.funder_utxos.len(),
+        &funder_locking,
+        &sources,
+        &args.publisher_privkey,
+        &args.publisher_pubkey,
+    )?;
+    let measured_size = encode_tx(&tx).len() as u64;
+    let target_fee = measured_size * SAT_PER_BYTE + FEE_EPSILON_SATS;
+    let _ = change; // initial placeholder, superseded below
+
+    // ─── 12. Recompute change with the measured fee, adjust the change
+    //          output in place, re-sign funders. ────────────────────────
+    let target_change = funder_balance
+        .saturating_sub((TICKER_HEAD_COUNT as u64) * TICKER_DUST)
+        .saturating_sub(target_fee);
+    let had_change_output = matches!(tx.outputs.last(), Some(o) if o.token.is_none());
+    let need_change_output = target_change >= DUST_THRESHOLD;
+
+    match (had_change_output, need_change_output) {
+        (true, true) => {
+            tx.outputs.last_mut().unwrap().value = target_change;
+        }
+        (true, false) => {
+            tx.outputs.pop();
+        }
+        (false, true) => {
+            tx.outputs.push(Output {
+                value: target_change,
+                locking_script: p2pkh_locking_script(&args.publisher_pkh).to_vec(),
+                token: None,
+            });
+        }
+        (false, false) => {}
+    }
+
+    // Re-sign — the sighash commits to hashOutputs, which we just changed.
+    sign_all_funders(
+        &mut tx,
+        funder_start,
+        args.funder_utxos.len(),
+        &funder_locking,
+        &sources,
+        &args.publisher_privkey,
+        &args.publisher_pubkey,
+    )?;
+
+    Ok(encode_tx(&tx))
+}
+
+/// Build and write the unlock script for every funder input.
+/// Used twice — once with the placeholder change, once with the size-corrected change.
+fn sign_all_funders(
+    tx: &mut Tx,
+    funder_start: usize,
+    funder_count: usize,
+    funder_locking: &[u8],
+    sources: &[SpentOutput],
+    privkey: &[u8; 32],
+    pubkey: &[u8; 33],
+) -> Result<(), UpdateError> {
+    for i in 0..funder_count {
         let input_index = funder_start + i;
         let preimage = p2pkh_sighash_preimage_bch(
-            &tx,
+            tx,
             input_index,
-            &funder_locking,
-            &sources,
+            funder_locking,
+            sources,
             SIGHASH_BIT_TOKENS,
         );
         let digest = double_sha256(&preimage);
-        let sig = sign_ecdsa(&args.publisher_privkey, &digest)?;
+        let sig = sign_ecdsa(privkey, &digest)?;
         let mut sig_with_sighash = Vec::with_capacity(sig.len() + 1);
         sig_with_sighash.extend_from_slice(&sig);
         sig_with_sighash.push(SIGHASH_BIT_TOKENS);
         let mut unlock = Vec::with_capacity(100);
         push_data(&mut unlock, &sig_with_sighash);
-        push_data(&mut unlock, &args.publisher_pubkey);
+        push_data(&mut unlock, pubkey);
         tx.inputs[input_index].unlock_script = unlock;
     }
-
-    Ok(encode_tx(&tx))
+    Ok(())
 }
 
 /// Compose Oracle.update unlock script.
@@ -479,7 +545,7 @@ mod tests {
 
     #[test]
     fn rejects_insufficient_funder() {
-        // 2× TICKER_DUST + TX_FEE_BUFFER_UPDATE = 2×1500 + 20000 = 23000 minimum.
+        // 2× TICKER_DUST + MAX_UPDATE_FEE_HINT = 2×1500 + 8000 = 11000 minimum.
         let slots: Vec<CycleSlotUtxo> = (0..7).map(|i| slot(i as u8, 1_780_000_100, 100)).collect();
         let funders = funders(1, 10_000);
         let redeem = vec![0u8; 500];

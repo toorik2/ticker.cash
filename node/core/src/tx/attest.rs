@@ -15,7 +15,9 @@
 //! Per cashscript convention, declaration order of args is REVERSED before
 //! pushing — last declared arg is pushed first.
 
-use crate::chain::consts::{CAPABILITY_MUTABLE, DUST_THRESHOLD, TX_FEE_BUFFER_ATTEST};
+use crate::chain::consts::{
+    CAPABILITY_MUTABLE, DUST_THRESHOLD, FEE_EPSILON_SATS, MAX_ATTEST_FEE_HINT, SAT_PER_BYTE,
+};
 use crate::chain::digest::publisher_sig_digest;
 use crate::chain::slot_commit::{encode_slot_commit, SlotCommit};
 use crate::crypto::{double_sha256, hash160, sign_ecdsa, KeyError};
@@ -97,15 +99,17 @@ pub fn build_attest_tx(args: &AttestArgs) -> Result<Vec<u8>, AttestError> {
         return Err(AttestError::NotaryIdxOutOfRange(args.notary.notary_idx));
     }
 
-    // ─── 1. Funder accounting ──────────────────────────────────────────────
+    // ─── 1. Funder accounting (gate on worst-case hint; actual fee comes
+    //         from the dynamic-size pass below) ─────────────────────────────
     let funder_balance: u64 = args.funder_utxos.iter().map(|u| u.satoshis).sum();
-    if funder_balance < TX_FEE_BUFFER_ATTEST {
+    if funder_balance < MAX_ATTEST_FEE_HINT {
         return Err(AttestError::InsufficientFunds {
             have: funder_balance,
-            need: TX_FEE_BUFFER_ATTEST,
+            need: MAX_ATTEST_FEE_HINT,
         });
     }
-    let change = funder_balance - TX_FEE_BUFFER_ATTEST;
+    // Placeholder change for the first encode pass; corrected below.
+    let change = funder_balance - MAX_ATTEST_FEE_HINT;
 
     // ─── 2. Build the slot input's covenant unlock script ──────────────────
     let server_name_bytes = args.notary.server_name.as_bytes();
@@ -209,28 +213,89 @@ pub fn build_attest_tx(args: &AttestArgs) -> Result<Vec<u8>, AttestError> {
         });
     }
 
-    // ─── 6. Sign each funder input via the CashTokens (hashUtxos) sighash ───
-    for i in 0..args.funder_utxos.len() {
-        let input_index = i + 1; // [0] is the slot input
+    // ─── 6. First pass: sign funders with the placeholder change, measure
+    //         actual tx size to derive the right fee. ─────────────────────
+    sign_all_funders(
+        &mut tx,
+        1,
+        args.funder_utxos.len(),
+        &funder_locking,
+        &sources,
+        &args.publisher_privkey,
+        &args.publisher_pubkey,
+    )?;
+    let measured_size = encode_tx(&tx).len() as u64;
+    let target_fee = measured_size * SAT_PER_BYTE + FEE_EPSILON_SATS;
+    let _ = change; // initial placeholder, superseded below
+
+    // ─── 7. Recompute change with the measured fee, adjust the change
+    //         output in place, re-sign funders. ────────────────────────
+    let target_change = funder_balance.saturating_sub(target_fee);
+    let had_change_output = matches!(tx.outputs.last(), Some(o) if o.token.is_none());
+    let need_change_output = target_change >= DUST_THRESHOLD;
+
+    match (had_change_output, need_change_output) {
+        (true, true) => {
+            tx.outputs.last_mut().unwrap().value = target_change;
+        }
+        (true, false) => {
+            tx.outputs.pop();
+        }
+        (false, true) => {
+            tx.outputs.push(Output {
+                value: target_change,
+                locking_script: p2pkh_locking_script(&args.publisher_pkh).to_vec(),
+                token: None,
+            });
+        }
+        (false, false) => {}
+    }
+
+    // Re-sign — the sighash commits to hashOutputs, which we just changed.
+    sign_all_funders(
+        &mut tx,
+        1,
+        args.funder_utxos.len(),
+        &funder_locking,
+        &sources,
+        &args.publisher_privkey,
+        &args.publisher_pubkey,
+    )?;
+
+    Ok(encode_tx(&tx))
+}
+
+/// Build and write the unlock script for every funder input.
+/// Used twice — once with the placeholder change, once with the size-corrected change.
+fn sign_all_funders(
+    tx: &mut Tx,
+    funder_start: usize,
+    funder_count: usize,
+    funder_locking: &[u8],
+    sources: &[SpentOutput],
+    privkey: &[u8; 32],
+    pubkey: &[u8; 33],
+) -> Result<(), AttestError> {
+    for i in 0..funder_count {
+        let input_index = funder_start + i;
         let preimage = p2pkh_sighash_preimage_bch(
-            &tx,
+            tx,
             input_index,
-            &funder_locking,
-            &sources,
+            funder_locking,
+            sources,
             SIGHASH_BIT_TOKENS,
         );
         let digest = double_sha256(&preimage);
-        let sig = sign_ecdsa(&args.publisher_privkey, &digest)?;
+        let sig = sign_ecdsa(privkey, &digest)?;
         let mut sig_with_sighash = Vec::with_capacity(sig.len() + 1);
         sig_with_sighash.extend_from_slice(&sig);
         sig_with_sighash.push(SIGHASH_BIT_TOKENS);
         let mut unlock = Vec::with_capacity(100);
         push_data(&mut unlock, &sig_with_sighash);
-        push_data(&mut unlock, &args.publisher_pubkey);
+        push_data(&mut unlock, pubkey);
         tx.inputs[input_index].unlock_script = unlock;
     }
-
-    Ok(encode_tx(&tx))
+    Ok(())
 }
 
 /// Compose the slot.attest unlock script bytes.
@@ -319,14 +384,14 @@ mod tests {
     #[test]
     fn rejects_insufficient_funds() {
         let (mut args, redeem, mut funders) = dummy_args(1);
-        funders[0].satoshis = 100; // below TX_FEE_BUFFER_ATTEST = 2000
+        funders[0].satoshis = 100; // below MAX_ATTEST_FEE_HINT = 3000
         let redeem_ref: &'static [u8] = Box::leak(redeem.into_boxed_slice());
         let funders_ref: &'static [FunderUtxo] = Box::leak(funders.into_boxed_slice());
         args.slot_redeem_script = redeem_ref;
         args.funder_utxos = funders_ref;
         assert!(matches!(
             build_attest_tx(&args),
-            Err(AttestError::InsufficientFunds { have: 100, need: 2000 })
+            Err(AttestError::InsufficientFunds { have: 100, need: 3000 })
         ));
     }
 
@@ -350,7 +415,10 @@ mod tests {
     #[test]
     fn omits_change_below_dust() {
         let (mut args, redeem, mut funders) = dummy_args(1);
-        funders[0].satoshis = 2_000 + 100; // change after fee = 100, < 546
+        // Funder = hint + tiny remainder. After the dynamic-fee pass the
+        // measured fee ≈ 1.6 KB (700-byte dummy redeem) so change ≈ funder
+        // − fee, which lands well below 546.
+        funders[0].satoshis = 3_000 + 100;
         let redeem_ref: &'static [u8] = Box::leak(redeem.into_boxed_slice());
         let funders_ref: &'static [FunderUtxo] = Box::leak(funders.into_boxed_slice());
         args.slot_redeem_script = redeem_ref;

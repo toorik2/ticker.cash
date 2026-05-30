@@ -7,8 +7,8 @@
 use std::time::Instant;
 
 use crate::chain::consts::{
-    BUDGET_PAD_LEN, STRIDE_FLOOR_SEC, THR_FLOOR, TICKER_DUST, TICKER_HEAD_COUNT,
-    TX_FEE_BUFFER_ATTEST, TX_FEE_BUFFER_UPDATE,
+    BUDGET_PAD_LEN, MAX_ATTEST_FEE_HINT, MAX_UPDATE_FEE_HINT, STRIDE_FLOOR_SEC, THR_FLOOR,
+    TICKER_DUST, TICKER_HEAD_COUNT,
 };
 use crate::cycle::env::Env;
 use crate::cycle::error::CycleError;
@@ -113,10 +113,10 @@ fn attest<E: Env>(
 
     let all_funder = env.get_funder_utxos(cfg)?;
     let funder_balance: u64 = all_funder.iter().map(|u| u.satoshis).sum();
-    if funder_balance < TX_FEE_BUFFER_ATTEST {
+    if funder_balance < MAX_ATTEST_FEE_HINT {
         return Err(CycleError::InsufficientFunds {
             have: funder_balance,
-            need: TX_FEE_BUFFER_ATTEST,
+            need: MAX_ATTEST_FEE_HINT,
         });
     }
 
@@ -240,7 +240,7 @@ fn update_oracle<E: Env>(
 ) -> Result<CycleState, CycleError> {
     let all_funder = env.get_funder_utxos(cfg)?;
     let funder_balance: u64 = all_funder.iter().map(|u| u.satoshis).sum();
-    let min_update_funds = (TICKER_HEAD_COUNT as u64) * TICKER_DUST + TX_FEE_BUFFER_UPDATE;
+    let min_update_funds = (TICKER_HEAD_COUNT as u64) * TICKER_DUST + MAX_UPDATE_FEE_HINT;
     if funder_balance < min_update_funds {
         return Err(CycleError::InsufficientFunds {
             have: funder_balance,
@@ -590,7 +590,7 @@ mod tests {
         env.funder.borrow_mut().push(FunderInfo {
             txid_be: [0x33; 32],
             vout: 0,
-            satoshis: 100, // < TX_FEE_BUFFER_ATTEST = 2000
+            satoshis: 100, // < MAX_ATTEST_FEE_HINT = 3000
         });
         let cfg = fixture_cfg();
         let snap = match step(CycleState::Idle, &mut env, &cfg, 1).unwrap() {
@@ -600,7 +600,7 @@ mod tests {
         let r = step(CycleState::Snapshotted { snap }, &mut env, &cfg, 1);
         assert!(matches!(
             r,
-            Err(CycleError::InsufficientFunds { have: 100, need: 2000 })
+            Err(CycleError::InsufficientFunds { have: 100, need: 3000 })
         ));
     }
 }
