@@ -54,8 +54,16 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
             let manifest: String = args
                 .opt_value_from_str("--manifest")?
                 .unwrap_or_else(|| ".ticker/manifest.json".to_string());
+            let only_slots: Option<Vec<u8>> = args
+                .opt_value_from_str::<&'static str, String>("--slots")?
+                .map(|s| -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+                    s.split(',')
+                        .map(|n| n.trim().parse::<u8>().map_err(|e| e.into()))
+                        .collect::<Result<Vec<u8>, _>>()
+                })
+                .transpose()?;
             let broadcast = args.contains("--broadcast");
-            fund::fund(&seed, &manifest, per_publisher, broadcast)
+            fund::fund(&seed, &manifest, per_publisher, only_slots, broadcast)
         }
         "bake" => {
             let output: String = args.value_from_str("--output")?;

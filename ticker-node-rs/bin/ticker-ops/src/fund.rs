@@ -19,6 +19,7 @@ pub fn fund(
     seed_path: &str,
     manifest_path: &str,
     per_publisher_sats: u64,
+    only_slots: Option<Vec<u8>>,
     broadcast: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let seed = load_seed(seed_path)?;
@@ -31,6 +32,21 @@ pub fn fund(
     let master_addr = encode_p2pkh_cashaddr(&master.pkh, prefix);
     println!("master address: {master_addr}");
 
+    let slots: Vec<u8> = match only_slots {
+        Some(v) if !v.is_empty() => {
+            let mut v = v;
+            v.sort_unstable();
+            v.dedup();
+            for s in &v {
+                if *s > 12 {
+                    return Err(format!("slot {s} out of range 0..=12").into());
+                }
+            }
+            v
+        }
+        _ => (0..13).collect(),
+    };
+
     let mut electrum = ElectrumClient::connect(
         &manifest.electrum.host,
         manifest.electrum.port,
@@ -39,14 +55,15 @@ pub fn fund(
     let master_utxos = electrum.list_unspent(&master_addr)?;
     let non_token: Vec<_> = master_utxos.into_iter().filter(|u| u.token_data.is_none()).collect();
     let total: u64 = non_token.iter().map(|u| u.value).sum();
-    let need = per_publisher_sats * 13 + TX_FEE_BUFFER;
+    let need = per_publisher_sats * slots.len() as u64 + TX_FEE_BUFFER;
     if total < need {
         return Err(format!("master too low: have {total} sats, need {need}").into());
     }
 
-    // Derive each publisher's pkh + locking script.
-    let mut outputs = Vec::with_capacity(14);
-    for i in 0..13 {
+    println!("funding {} slot(s): {:?}", slots.len(), slots);
+    // Derive each targeted publisher's pkh + locking script.
+    let mut outputs = Vec::with_capacity(slots.len() + 1);
+    for i in &slots {
         let pub_w = derive_wallet(&seed, &format!("publisher-{i}"))?;
         let pub_addr = encode_p2pkh_cashaddr(&pub_w.pkh, prefix);
         println!("  publisher-{i}: {pub_addr} → {per_publisher_sats} sats");
@@ -56,7 +73,7 @@ pub fn fund(
             token: None,
         });
     }
-    let change = total - per_publisher_sats * 13 - TX_FEE_BUFFER;
+    let change = total - per_publisher_sats * slots.len() as u64 - TX_FEE_BUFFER;
     if change >= 546 {
         outputs.push(Output {
             value: change,
