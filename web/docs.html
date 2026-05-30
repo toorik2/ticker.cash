@@ -71,7 +71,7 @@
 <body>
 <header class="head">
   <div class="l"><a href="/">▌ TICKER</a> <span class="pair">BCH / USD · chipnet · docs</span></div>
-  <div class="r"><a href="/">price</a><a href="/docs" class="active">docs</a><a href="/stats">stats</a><a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github</a></div>
+  <div class="r"><a href="/">home</a><a href="/docs" class="active">docs</a><a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github</a></div>
 </header>
 <div class="doc">
   <aside class="toc">
@@ -257,9 +257,9 @@
 
     <section class="chapter" id="integrate">
       <h2><span class="num">§06</span><span>Integrate</span></h2>
-      <p>Two paths.</p>
+      <p>One path: spend a Ticker NFT as an input in your transaction.</p>
 
-      <h3>On-chain (atomic, recommended for dApps)</h3>
+      <h3>On-chain</h3>
       <p>Spend a Ticker NFT as an input in your transaction. The Ticker is mutable, anyone-can-spend, and self-replicates via the Ticker covenant. Your tx becomes a chain-descendant of the <code>Oracle.update</code> that minted the Ticker — BCH consensus refuses to confirm your tx in any chain history that excludes the update.</p>
 <pre><code>input[0]   your consumer covenant
 input[1]   Ticker NFT (from the pinned Oracle category)
@@ -271,10 +271,6 @@ output[2]  optional change</code></pre>
       <p>Little-endian throughout. <code>medianPrice / 10⁸</code> = USD. Pin the Oracle category (LE-reversed) as a covenant arg so an attacker can't feed you a Ticker from a different oracle.</p>
       <p>Reference covenant: <code>contracts/examples/PriceGatedRelease.cash</code> — locks BCH, releases on <code>price ≥ strike</code>. ~64 B script body.</p>
       <div class="callout"><b>Barrier semantics caveat.</b> The reference example takes a constructor-baked <code>minLastTs</code> floor and rejects any Ticker older than that — but the floor is fixed at deploy time, not a rolling "current price" window. Once the gate has been historically reachable (any Ticker at or after <code>minLastTs</code> cleared the strike), it stays open until spent. For sliding-window "tx.locktime − lastTs ≤ N" freshness, the consumer covenant has to add that check itself; a generic freshness witness for that use case is planned.</div>
-
-      <h3>Off-chain (JSON)</h3>
-<pre><code>$ curl -s https://usd.ticker.cash/api/v1/price</code></pre>
-      <p>No auth, CORS open. Full payload schema in <a href="#reference">§08</a>.</p>
     </section>
 
     <section class="chapter" id="operate">
@@ -327,42 +323,6 @@ output[2]  optional change</code></pre>
           <tr><td>Slot genesis tx</td><td><code><a href="https://bchexplorer.cash/chipnet/tx/db31991af473cae192595e2ffe0b1a9c4b964b2524cbe2a4356076cf61e5d4bd" target="_blank" rel="noopener">db31991a…61e5d4bd</a></code></td></tr>
         </tbody>
       </table>
-
-      <h3><code>GET /api/v1/price</code></h3>
-<pre><code>{
-  "medianUsd":    305.90,                          // float USD; null if stub branch (a)
-  "scale":        "usd-e8",
-  "scaledValue":  "30590000000",                   // raw u64 from on-chain commit
-  "lastLocktime": 1780155775,                      // u32 unix seconds — median publisher-attested ts of last cycle
-  "seq":          37,                              // monotonic cycle counter
-  "activeCount":  12,                              // distinct publishers in last cycle
-  "network":      "chipnet",
-  "deployedAt":   "2026-05-30T15:05:00.000Z",      // ISO-8601 string from contracts.json
-  "fetchedAt":    1780155810585,                   // Date.now() — milliseconds, not seconds
-  "ageSec":       35,                              // ≥ 300 → stub: true, branch (b)
-  "stub":         false
-}</code></pre>
-      <p><code>stub:true</code> has two branches: (a) backend couldn't read Oracle UTXO — <code>medianUsd: null</code>, HTTP 503; (b) cycle age ≥ 300 s — value is real but stale, HTTP 200.</p>
-
-      <h3><code>GET /api/v1/health</code></h3>
-<pre><code>{
-  "healthy":               true,
-  "stalenessThresholdSec": 300,
-  "node":     { "ok": true, "blockHeight": 308029 },
-  "fulcrum":  { "ok": true, "tipHeight":   308029 },
-  "lastCycle": {
-    "seq":         37,
-    "locktime":    1780155775,                     // u32 unix seconds
-    "ageSec":      41,
-    "activeCount": 12
-  },
-  "network":      "chipnet",
-  "deployedAt":   "2026-05-30T15:05:00.000Z",      // ISO-8601 string
-  "fetchedAt":    1780155816080,                   // Date.now() — milliseconds
-  "stub":         false,
-  "errors":       []
-}</code></pre>
-      <p><code>healthy</code> is true iff the Fulcrum tip read succeeded, the Oracle UTXO decoded, and <code>lastCycle.ageSec &lt; stalenessThresholdSec</code>. (<code>node.ok</code> and <code>fulcrum.ok</code> in the payload are both derived from the same Fulcrum-tip read — there is no separate node-RPC probe.)</p>
     </section>
 
     <section class="chapter" id="faq">

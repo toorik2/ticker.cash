@@ -1,225 +1,29 @@
 /**
- * Ticker web server — serves the static SPA(s) + a minimal JSON API.
+ * Ticker web server — serves the static dashboard pages.
  *
- * Endpoints:
- *   GET /api/v1/price   — current Oracle snapshot
- *   GET /api/v1/health  — component health + staleness flag
- *   GET /api/v1/stats   — chain-derived observability snapshot
- *                          (per-slot freshness, balances, runway)
- *   GET /              — static page (any non-/api/* path)
- *
- * Host-header routing for the static fallback:
- *   Host: usd.ticker.cash   →  index.html  (the public price page)
- *   Host: stats.ticker.cash →  stats.html  (the observability dashboard)
- *   anything else           →  index.html  (default; covers local dev)
+ * The site is now fully on-chain-consumed: there is no JSON API. The
+ * server's only job is to ship `dist/index.html`, `dist/docs.html`, and
+ * the `public/` assets. Live oracle data is read directly from BCH
+ * Chipnet by clients; current contract addresses are published in
+ * docs.html and the GitHub repo.
  */
 import express from 'express';
-import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-import { electrumPing } from './electrum.js';
-import { getOracleState } from './oracle-state.js';
-import { getStats } from './stats.js';
-import contracts from './contracts.json' with { type: 'json' };
-
 const PORT = Number(process.env.PORT ?? 3001);
 const HOST = process.env.HOST ?? '127.0.0.1';
-const TTL_MS = Number(process.env.TICKER_SNAPSHOT_TTL_MS ?? 5000);
-// Sub-minute cadence (30s minimum stride) → 5 min is loose enough to
-// handle brief jitter but tight enough to catch real publisher/chain
-// outages.
-const STALENESS_THRESHOLD_SEC = 300;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = join(__dirname, '..', 'dist');
 
-// ─── snapshot cache ────────────────────────────────────────────────────
-
-interface Snapshot {
-  fetchedAt: number;
-  network: string;
-  deployedAt: string;
-  tipHeight: number | null;
-  oracleLive: Awaited<ReturnType<typeof getOracleState>>['decoded'] | null;
-  errors: string[];
-}
-
-let cached: { snapshot: Snapshot; at: number } | null = null;
-let inFlight: Promise<Snapshot> | null = null;
-
-function errorMessage(e: unknown): string {
-  if (e instanceof Error) return e.message;
-  return String(e ?? 'unknown');
-}
-
-async function build(): Promise<Snapshot> {
-  const errors: string[] = [];
-  const fetchedAt = Date.now();
-
-  let tipHeight: number | null = null;
-  try {
-    const ping = await electrumPing();
-    tipHeight = ping.tip;
-  } catch (e) {
-    errors.push(`fulcrum-ping: ${errorMessage(e)}`);
-  }
-
-  let oracleLive: Snapshot['oracleLive'] = null;
-  try {
-    const { decoded } = await getOracleState();
-    oracleLive = decoded;
-  } catch (e) {
-    errors.push(`oracle: ${errorMessage(e)}`);
-  }
-
-  return {
-    fetchedAt,
-    network: 'chipnet',
-    deployedAt: contracts.deployedAt,
-    tipHeight,
-    oracleLive,
-    errors,
-  };
-}
-
-async function getSnapshot(): Promise<Snapshot> {
-  const now = Date.now();
-  if (cached && now - cached.at < TTL_MS) return cached.snapshot;
-  if (inFlight) return inFlight;
-  inFlight = build()
-    .then((snapshot) => {
-      cached = { snapshot, at: Date.now() };
-      return snapshot;
-    })
-    .finally(() => {
-      inFlight = null;
-    });
-  return inFlight;
-}
-
-// ─── app ───────────────────────────────────────────────────────────────
-
 const app = express();
-
 app.disable('x-powered-by');
-app.use((_req, res, next) => {
-  res.setHeader('access-control-allow-origin', '*');
-  res.setHeader('access-control-allow-methods', 'GET, OPTIONS');
-  next();
-});
-
-app.get('/api/v1/price', async (_req, res) => {
-  try {
-    const snap = await getSnapshot();
-    const o = snap.oracleLive;
-    if (o == null) {
-      res.status(503).json({
-        medianUsd: null,
-        seq: null,
-        lastLocktime: null,
-        activeCount: null,
-        scaledValue: null,
-        network: snap.network,
-        deployedAt: snap.deployedAt,
-        fetchedAt: snap.fetchedAt,
-        ageSec: null,
-        stub: true,
-        errors: snap.errors,
-      });
-      return;
-    }
-    // A cached snapshot whose `oracleLive` is non-null but ageing past
-    // STALENESS_THRESHOLD_SEC must NOT be served as `stub: false`. The docs
-    // tell consumers to trust prices when `stub` is false, so we promote
-    // stale-but-readable Oracle UTXOs to stub:true to honour that contract.
-    const nowSec = Math.floor(Date.now() / 1000);
-    const ageSec = nowSec - o.lastLocktime;
-    const stale = ageSec >= STALENESS_THRESHOLD_SEC;
-    res.setHeader('cache-control', 'no-store');
-    res.json({
-      medianUsd: o.medianUsd,
-      scale: 'usd-e8',
-      scaledValue: o.medianPriceScaled.toString(),
-      lastLocktime: o.lastLocktime,
-      seq: o.seq,
-      activeCount: o.activeCount,
-      deployedAt: snap.deployedAt,
-      fetchedAt: snap.fetchedAt,
-      network: snap.network,
-      ageSec,
-      stub: stale,
-    });
-  } catch (e) {
-    res.status(500).json({ error: errorMessage(e) });
-  }
-});
-
-app.get('/api/v1/health', async (_req, res) => {
-  try {
-    const snap = await getSnapshot();
-    const nowSec = Math.floor(Date.now() / 1000);
-    const ageSec = snap.oracleLive != null ? nowSec - snap.oracleLive.lastLocktime : null;
-    const healthy =
-      snap.tipHeight != null &&
-      snap.oracleLive != null &&
-      ageSec != null &&
-      ageSec < STALENESS_THRESHOLD_SEC;
-    res.setHeader('cache-control', 'no-store');
-    res.json({
-      healthy,
-      stalenessThresholdSec: STALENESS_THRESHOLD_SEC,
-      node: { ok: snap.tipHeight != null, blockHeight: snap.tipHeight },
-      fulcrum: { ok: snap.tipHeight != null, tipHeight: snap.tipHeight },
-      lastCycle: {
-        seq: snap.oracleLive?.seq ?? null,
-        locktime: snap.oracleLive?.lastLocktime ?? null,
-        ageSec,
-        activeCount: snap.oracleLive?.activeCount ?? null,
-      },
-      network: snap.network,
-      deployedAt: snap.deployedAt,
-      fetchedAt: snap.fetchedAt,
-      stub: snap.oracleLive == null,
-      errors: snap.errors,
-    });
-  } catch (e) {
-    res.status(500).json({ error: errorMessage(e) });
-  }
-});
-
-app.get('/api/v1/stats', async (_req, res) => {
-  try {
-    const stats = await getStats();
-    res.setHeader('cache-control', 'no-store');
-    res.json(stats);
-  } catch (e) {
-    res.status(500).json({ error: errorMessage(e) });
-  }
-});
-
-// ─── static pages ──────────────────────────────────────────────────────
-
-// Per-Host index: /  on stats.ticker.cash → stats.html; everywhere else
-// the regular index.html. Must run BEFORE express.static, otherwise the
-// static middleware's `index: 'index.html'` intercepts "/" first.
-const STATS_HOSTS = new Set(['stats.ticker.cash']);
-app.get('/', (req, res, next) => {
-  if (
-    STATS_HOSTS.has(req.hostname.toLowerCase()) &&
-    existsSync(join(DIST_DIR, 'stats.html'))
-  ) {
-    res.setHeader('cache-control', 'no-store');
-    res.sendFile(join(DIST_DIR, 'stats.html'));
-    return;
-  }
-  next();
-});
 
 app.use(express.static(DIST_DIR, {
   index: 'index.html',
-  // extensions: ['html'] lets /docs serve dist/docs.html without the URL
-  // suffix. Same revalidation policy applies to all .html pages.
+  // extensions: ['html'] lets /docs serve dist/docs.html without the
+  // .html suffix.
   extensions: ['html'],
   maxAge: '1h',
   setHeaders(res, path) {
@@ -229,17 +33,10 @@ app.use(express.static(DIST_DIR, {
   },
 }));
 
-// Final fallback for any non-/api path that didn't match a static file —
-// honors the same per-Host rule so a 404 on stats.ticker.cash returns
-// the stats page (SPA-style) instead of the home page.
-app.get(/^(?!\/api\/).*/, (req, res) => {
+// SPA-style fallback: any unmatched path returns index.html.
+app.get(/.*/, (_req, res) => {
   res.setHeader('cache-control', 'no-store');
-  const target =
-    STATS_HOSTS.has(req.hostname.toLowerCase()) &&
-    existsSync(join(DIST_DIR, 'stats.html'))
-      ? 'stats.html'
-      : 'index.html';
-  res.sendFile(join(DIST_DIR, target));
+  res.sendFile(join(DIST_DIR, 'index.html'));
 });
 
 app.listen(PORT, HOST, () => {

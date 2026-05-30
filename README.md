@@ -15,7 +15,7 @@ Live at [usd.ticker.cash](https://usd.ticker.cash). Reference docs at
 ```
 contracts/           CashScript covenants + compiled artifacts (.cash + .json)
 node/                Rust runtime — operator daemon, coordinator tooling, systemd
-web/                 Public dashboard (Express JSON API + static SPA)
+web/                 Public dashboard (static HTML — on-chain consumption only)
 references/          External knowledge base mirror (gitignored)
 .ticker-coordinator/ Coordinator-only state (gitignored)
 ```
@@ -104,13 +104,16 @@ to a per-slot path.
 
 ### Reading the price
 
-```
-curl https://usd.ticker.cash/api/v1/price
-```
+On-chain only. Spend a `Ticker` NFT in your transaction; the covenant's
+17-byte NFT commitment is `0x80 | seq(4) | lastTs(4) | medianPrice(8)`
+(version byte, big-endian cycle sequence, big-endian last-locktime,
+big-endian price in 1e-8 USD/satoshi units). Decode `lastTs` + `price`
+straight from the commit.
 
-On-chain (atomic): spend a `Ticker` NFT in your tx; read `price` + `lastTs`
-from its 17-byte commit. Full guide at
-[/docs#integrate](https://usd.ticker.cash/docs#integrate).
+No off-chain JSON API. The on-chain commit is the source of truth — read
+it via any BCH-aware library or explorer. Full integration guide,
+including the canonical Ticker NFT category id and worked decode
+examples, in [/docs §06 Integrate](https://usd.ticker.cash/docs#integrate).
 
 ### Building from source
 

@@ -5,7 +5,7 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="theme-color" content="#f3efe4" />
-<meta name="description" content="A decentralized BCH/USD ticker on chipnet. 13 publishers, 13 exchanges, on-chain median per cycle." />
+<meta name="description" content="A decentralized BCH/USD ticker on chipnet. 13 publishers, 13 exchanges, on-chain median per cycle. Read the price on chain." />
 <meta property="og:title" content="Ticker · BCH/USD on chain" />
 <meta property="og:description" content="A decentralized BCH/USD ticker. 13 publishers, 13 exchanges, on-chain median per cycle. No admin keys." />
 <meta property="og:type" content="website" />
@@ -30,20 +30,15 @@
   .doc{max-width:1180px;margin:0 auto;padding:3rem 1.75rem 5rem;display:grid;grid-template-columns:1fr 300px;gap:3rem;align-items:start}
   @media(max-width:880px){.doc{grid-template-columns:1fr;gap:2.5rem}}
   .main{min-width:0}
-  .price-panel{border:1px solid #1a1a18;display:grid;grid-template-columns:auto 1fr;background:#fffcf0}
+  .read-panel{border:1px solid #1a1a18;display:grid;grid-template-columns:auto 1fr;background:#fffcf0}
   .vtag{background:#1a1a18;color:#fffcf0;writing-mode:vertical-rl;transform:rotate(180deg);padding:1rem 0.55rem;font-size:10.5px;font-weight:600;letter-spacing:0.4em;text-transform:uppercase;display:flex;align-items:center;justify-content:center}
-  .price-body{padding:2.25rem 2.25rem 1.5rem}
-  .price-big{font-size:clamp(3rem,9vw,5.5rem);font-weight:300;line-height:0.9;letter-spacing:-0.055em;font-variant-numeric:tabular-nums;color:#1a1a18}
-  .price-big .d{font-weight:300;color:#8a8472;margin-right:0.04em}
-  .price-trust{margin-top:0.65rem;font-size:11.5px;color:#6a6457;letter-spacing:0.04em}
-  .price-trust b{color:#1a1a18;font-weight:600}
-  .price-stats{margin-top:1.5rem;display:flex;flex-direction:column;border-top:1px solid #ecebe0}
-  .price-stats .row{display:grid;grid-template-columns:8.5rem 1fr auto;align-items:baseline;gap:1rem;padding:0.5rem 0;border-bottom:1px solid #ecebe0;font-size:12.5px}
-  .price-stats .row:last-child{border-bottom:none}
-  .price-stats .k{color:#6a6457;text-transform:uppercase;font-size:10.5px;letter-spacing:0.1em;font-weight:500}
-  .price-stats .v{font-weight:600;font-variant-numeric:tabular-nums;color:#1a1a18;grid-column:3;text-align:right}
-  .price-stats .v.warn{color:#a02010}
-  .price-stats .v.ok{color:#1a7b3b}
+  .read-body{padding:2rem 2.25rem}
+  .read-body h2{font-size:1.4rem;font-weight:300;line-height:1.15;letter-spacing:-0.02em;color:#1a1a18;margin-bottom:1rem}
+  .read-body p{font-size:13px;line-height:1.7;color:#3a3a32;margin-bottom:0.8rem}
+  .read-body p:last-child{margin-bottom:0}
+  .read-body b{color:#1a1a18;font-weight:600}
+  .read-body code{font-family:inherit;font-size:0.92em;background:#ecebe0;padding:0.05em 0.35em;border-radius:2px;word-break:break-word}
+  .read-body a{font-weight:500}
   .lead{font-size:14px;line-height:1.75;color:#3a3a32;margin:2.5rem 0 0}
   .lead p{margin-bottom:0.85rem}
   .lead p:last-child{margin-bottom:0}
@@ -72,19 +67,14 @@
 <body>
 <header class="head">
   <div class="l">▌ TICKER <span class="pair">BCH / USD · chipnet</span></div>
-  <div class="r"><a href="/docs">docs</a><a href="/stats">stats</a><a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github</a></div>
+  <div class="r"><a href="/docs">docs</a><a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github</a></div>
 </header>
 <div class="doc">
   <div class="main">
-    <div class="price-panel">
-      <div class="vtag">Median</div>
-      <div class="price-body">
-        <div class="price-big"><span class="d">$</span><span id="price">———</span></div>
-        <div class="price-stats">
-          <div class="row"><span class="k">Updated</span><span class="v" id="age">—</span></div>
-          <div class="row"><span class="k">Status</span><span class="v ok" id="status">—</span></div>
-        </div>
-      </div>
+    <div class="lead">
+      <p>A <b>decentralized BCH/USD price feed</b> on Bitcoin Cash chipnet. A smart contract takes the median of ≥ 7 of 13 publisher attestations and commits it on chain. Every 60s.</p>
+      <p>The trust root is the <b>7-of-13 publisher quorum</b>: corrupting fewer than 7 publishers can't move the median; the covenant absorbs ≤ 6 outliers without bias. No admin keys, no upgrade path.</p>
+      <p><b>Read the price on chain.</b> Spend a Ticker NFT as an input in your transaction and decode its 17-byte commit. Full integration guide, signature inventory, and operator playbook in the <a href="/docs">docs</a>.</p>
     </div>
 
     <div class="specs">
@@ -93,10 +83,16 @@
       <div class="spec"><div class="h">Cycle</div><div class="v">60<small>s</small></div></div>
     </div>
 
-    <div class="lead">
-      <p>A <b>decentralized BCH/USD price feed</b> on Bitcoin Cash chipnet. A smart contract takes the median of ≥ 7 of 13 publisher attestations and commits it on chain. Every 60s.</p>
-      <p>The trust root is the <b>7-of-13 publisher quorum</b>: corrupting fewer than 7 publishers can't move the median; the covenant absorbs ≤ 6 outliers without bias. No admin keys, no upgrade path.</p>
-      <p><b>Read the price.</b> On-chain: spend a Ticker NFT as an input, decode its 17-byte commit. Off-chain: <code>GET /api/v1/price</code>. Full integration guide, signature inventory, and operator playbook in the <a href="/docs">docs</a> · live federation state at <a href="/stats">stats</a>.</p>
+    <div class="read-panel" style="margin-top:2.5rem">
+      <div class="vtag">Read</div>
+      <div class="read-body">
+        <h2>Reading the price</h2>
+        <p>There is one path: <b>on chain</b>. Spend any of the live Ticker NFTs (minted by the Oracle covenant, anyone-can-spend, self-replicating via <code>Ticker.cash</code>) as an input in your transaction. Your tx becomes a chain-descendant of the <code>Oracle.update</code> that minted that Ticker — BCH consensus refuses to confirm it in any history that excludes the update.</p>
+        <p>Decode <code>tx.inputs[N].nftCommitment</code> as the 17-byte commit:</p>
+        <p><code>0x80 | seq(4) | lastTs(4) | medianPrice(8)</code></p>
+        <p>Little-endian throughout. <code>medianPrice / 10⁸</code> = USD. Pin the Oracle category (see the <b>Contracts</b> sidebar) as a covenant arg so an attacker can't feed you a Ticker from a different oracle.</p>
+        <p>Full guide — reference covenant, freshness gates, verifying the median — in <a href="/docs#integrate">docs §06 Integrate</a>.</p>
+      </div>
     </div>
 
   </div>
@@ -110,64 +106,11 @@
         <div class="row"><span class="k">Ticker</span><span class="v"><a href="https://bchexplorer.cash/chipnet/address/bchtest:p0r403dhnnahycepwklerew4js0q6t2eme69ex3vvgkuk7jps8hdc3qhh23cu" target="_blank" rel="noopener"><code>p0r403dh…3qhh23cu ↗</code></a></span></div>
       </div>
     </div>
-    <div>
-      <h3>Endpoints</h3>
-      <div class="kv">
-        <div class="row"><span class="k">Price</span><span class="v"><a href="/api/v1/price"><code>/api/v1/price</code></a></span></div>
-        <div class="row"><span class="k">Health</span><span class="v"><a href="/api/v1/health"><code>/api/v1/health</code></a></span></div>
-        <div class="row"><span class="k">Stats</span><span class="v"><a href="/api/v1/stats"><code>/api/v1/stats</code></a></span></div>
-      </div>
-    </div>
   </aside>
 </div>
 <div class="foot" style="max-width:1180px;margin:3rem auto 0;padding:0.8rem 1.75rem 1.5rem">
   <div>usd.ticker.cash · chipnet</div>
   <div><a href="/docs">docs</a> · <a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github</a></div>
 </div>
-<script>
-const STALE_SEC = 300;
-
-function fmtUsd(n) {
-  if (n == null || !isFinite(n)) return '———';
-  return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-function fmtAge(s) {
-  if (s == null) return '—';
-  if (s < 60)    return s + 's';
-  if (s < 3600)  return Math.floor(s / 60) + 'm ' + (s % 60) + 's';
-  if (s < 86400) return Math.floor(s / 3600) + 'h ' + Math.floor((s % 3600) / 60) + 'm';
-  return Math.floor(s / 86400) + 'd ' + Math.floor((s % 86400) / 3600) + 'h';
-}
-
-let lastLockSec = null;
-
-function refreshAge() {
-  if (lastLockSec == null) return;
-  const age = Math.max(0, Math.floor(Date.now() / 1000) - lastLockSec);
-  document.getElementById('age').textContent = fmtAge(age);
-  const sv = document.getElementById('status');
-  if (age > STALE_SEC) { sv.textContent = 'Stale'; sv.className = 'v warn'; }
-  else { sv.textContent = 'Live'; sv.className = 'v ok'; }
-}
-
-async function poll() {
-  try {
-    const r = await fetch('/api/v1/price', { cache: 'no-store' });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const d = await r.json();
-    document.getElementById('price').textContent = fmtUsd(d.medianUsd);
-    if (typeof d.lastLocktime === 'number') lastLockSec = d.lastLocktime;
-    refreshAge();
-  } catch (e) {
-    // Silently ignore — keep prior frame visible. The "Updated" age + Status
-    // chip will surface staleness if it gets bad.
-  }
-}
-
-poll();
-setInterval(poll, 12000);
-setInterval(refreshAge, 1000);
-</script>
 </body>
 </html>

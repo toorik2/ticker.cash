@@ -1,5 +1,5 @@
 [Unit]
-Description=ticker.cash web (Express JSON API + static SPA)
+Description=ticker.cash web (static HTML dashboard — on-chain consumption only)
 After=network.target
 
 [Service]
