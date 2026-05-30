@@ -31,8 +31,7 @@ import {
 import { electrumRequest, electrumPing } from './electrum.js';
 import { decodeOracleCommitment } from './oracle-state.js';
 import { fetchAllOperatorStats } from './operator-stats-poll.js';
-import { decodeSlotCommit } from '../../daemon/src/slot-commit.js';
-import { SOURCES } from '../../daemon/src/helpers.js';
+import { decodeSlotCommit, SOURCES } from './protocol.js';
 import contracts from './contracts.json';
 
 // ─── inline script parser — extract notaryIdx from a slot.attest unlock ──
