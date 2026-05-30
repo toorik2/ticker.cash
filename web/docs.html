@@ -122,7 +122,7 @@
         <li>Run the chain faster than the 60 s minimum stride enforced by <code>Oracle.cash</code>.</li>
       </ul>
       <p>No admin keys. No upgrade path. Changing the publisher set requires a fresh PublisherSlot covenant, new genesis, and a slot fleet migration. The new address coexists with the old.</p>
-      <div class="callout"><b>Collapsed-trust note.</b> All 13 publisher slots currently run under a single operator on shared infrastructure. The 7-of-13 quorum is structurally enforced by the covenant, but its security only realises its full value once the federation is split across independent operators. The path to that split — manifest distribution, per-operator key custody, joint genesis ceremony — is on the roadmap (<a href="#faq">§09</a>).</div>
+      <div class="callout"><b>Collapsed-trust note.</b> All 13 publisher slots currently run under a single operator on shared infrastructure. The 7-of-13 quorum is structurally enforced by the covenant, but its security only realises its full value once the federation is split across independent operators — manifest distribution, per-operator key custody, joint genesis ceremony.</div>
     </section>
 
     <section class="chapter" id="flow">
@@ -244,7 +244,7 @@
       <div class="callout"><b>The CashTokens consensus rules already enforce this.</b> A tx that violated any of these checks would not have been accepted by miners; the on-chain state you see has already cleared them. Re-doing the math is verification of the chain, not of an oracle's word.</div>
 
       <h3>Tooling</h3>
-      <p>A reference verifier is on the roadmap (<code>ticker-verify</code> — single-purpose Rust binary that pulls the chain via Electrum and runs the four steps above, exiting non-zero on any mismatch). Until then, the steps above can be scripted with any cashscript-aware tooling.</p>
+      <p>A reference verifier is planned (<code>ticker-verify</code> — single-purpose Rust binary that pulls the chain via Electrum and runs the four steps above, exiting non-zero on any mismatch). Until then, the steps above can be scripted with any cashscript-aware tooling.</p>
     </section>
 
     <section class="chapter" id="integrate">
@@ -262,7 +262,7 @@ output[2]  optional change</code></pre>
 <pre><code>0x80 | seq(4) | lastTs(4) | medianPrice(8)</code></pre>
       <p>Little-endian throughout. <code>medianPrice / 10⁸</code> = USD. Pin the Oracle category (LE-reversed) as a covenant arg so an attacker can't feed you a Ticker from a different oracle.</p>
       <p>Reference covenant: <code>contracts/examples/PriceGatedRelease.cash</code> — locks BCH, releases on <code>price ≥ strike</code>. ~64 B script body.</p>
-      <div class="callout"><b>Barrier semantics caveat.</b> The reference example accepts any past Ticker that ever cleared the strike — once the gate has been historically reachable, it stays open. For "current price ≥ strike" semantics, the protocol needs a freshness witness (on the roadmap, see <a href="#faq">§09</a>).</div>
+      <div class="callout"><b>Barrier semantics caveat.</b> The reference example accepts any past Ticker that ever cleared the strike — once the gate has been historically reachable, it stays open. For "current price ≥ strike" semantics, the protocol needs a freshness witness (planned).</div>
 
       <h3>Off-chain (JSON)</h3>
 <pre><code>$ curl -s https://usd.ticker.cash/api/v1/price</code></pre>
@@ -378,18 +378,11 @@ output[2]  optional change</code></pre>
       <p>Yes, the binary is the same (<code>ticker-node --publisher --slot N</code>) — but slot identity is pinned at genesis to a specific pubkey hash, and adding a 14th slot is a hard cutover (new covenant, new genesis, slot fleet migration). For now there's no open process to join the federation; the structure exists for when there is.</p>
 
       <h3>How do consumers handle freshness?</h3>
-      <p>The Ticker NFT's commit carries <code>lastTs</code>. A consumer's covenant can require <code>tx.locktime - lastTs ≤ N</code> for any freshness window <i>N</i>. The reference example <code>contracts/examples/PriceGatedRelease.cash</code> doesn't do this — it accepts any past Ticker — which is fine for "anytime-after-strike" semantics but wrong for "current price ≥ strike". A freshness witness is on the roadmap.</p>
+      <p>The Ticker NFT's commit carries <code>lastTs</code>. A consumer's covenant can require <code>tx.locktime - lastTs ≤ N</code> for any freshness window <i>N</i>. The reference example <code>contracts/examples/PriceGatedRelease.cash</code> doesn't do this — it accepts any past Ticker — which is fine for "anytime-after-strike" semantics but wrong for "current price ≥ strike". A freshness witness is planned.</p>
 
       <h3>What does it cost to operate?</h3>
       <p>About 3–4k sats per cycle per publisher: ~2.2 k for the <code>slot.attest</code> tx (1 sat/byte × ~2.2 KB) plus a 1/13 amortized share of the <code>Oracle.update</code> fee (~8 k for the race winner). At ~60 cycles/hour federation-wide that works out to roughly 5–6 M sats/day per slot in steady state. The protocol burns sats; it doesn't earn them.</p>
 
-      <h3>What's on the roadmap?</h3>
-      <ul>
-        <li>Verifier sidecar (<code>ticker-verify</code>) — fully scripted version of <a href="#verify">§05</a></li>
-        <li>Freshness witness for consumer covenants</li>
-        <li>Multi-operator federation split (manifest distribution, per-operator key custody, joint genesis ceremony)</li>
-        <li>Mainnet, after a chipnet-stable soak period</li>
-      </ul>
     </section>
 
     <div class="foot">
