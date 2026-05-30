@@ -92,9 +92,6 @@
   .status-lagging{color:#b88800}
   .status-unfunded{color:#c84800}
   .status-stalled{color:#a02010}
-  .op-cell{color:#8a8472;font-style:italic;font-size:11px}
-  .op-cell .err{color:#a02010;font-style:normal;margin-left:0.4em}
-
   /* Copy-to-clipboard button beside the source name. */
   .copy-btn{
     background:transparent;border:1px solid #c8c2b3;border-radius:2px;
@@ -192,11 +189,10 @@
         <th class="r" title="Estimated time until wallet depletes at ~3.8k sats/cycle.">Runway</th>
         <th class="r" title="Current publisher wallet balance in sats. Top up via the copy button next to Source.">Balance</th>
         <th class="r" title="ok = caught up + funded. lagging = 1-3 cycles behind. unfunded = <5 cycles of runway. stalled = >3 cycles behind.">Status</th>
-        <th class="r" title="Self-reported by the slot's operator (opt-in via TICKER_OPERATOR_STATS_URLS). Muted styling = self-reported, not chain-derived.">Operator</th>
       </tr>
     </thead>
     <tbody id="slot-rows">
-      <tr><td colspan="8" style="text-align:center;padding:1.5rem;color:#6a6457">loading…</td></tr>
+      <tr><td colspan="7" style="text-align:center;padding:1.5rem;color:#6a6457">loading…</td></tr>
     </tbody>
   </table>
   </div>
@@ -370,30 +366,6 @@ function makeStatusCell(status){
   return td;
 }
 
-function makeOperatorCell(op){
-  const td = document.createElement('td');
-  td.classList.add('r', 'op-cell');
-  if (!op) { td.textContent = '—'; return td; }
-  td.appendChild(document.createTextNode('up ' + fmtAge(op.uptimeSec)));
-  if (op.errorsSinceStart > 0) {
-    const err = document.createElement('span');
-    err.className = 'err';
-    err.textContent = '· ' + op.errorsSinceStart + ' err';
-    td.appendChild(err);
-  }
-  if (op.fetchedAt) {
-    const lag = Math.max(0, Math.floor(Date.now() / 1000) - op.fetchedAt);
-    if (lag > 15) {
-      const stale = document.createElement('span');
-      stale.className = 'sub';
-      stale.style.marginLeft = '0.4em';
-      stale.textContent = '(' + fmtAge(lag) + ' old)';
-      td.appendChild(stale);
-    }
-  }
-  return td;
-}
-
 function makeRow(s, slotErrorSet){
   const tr = document.createElement('tr');
   const nowSec = Math.floor(Date.now() / 1000);
@@ -415,7 +387,6 @@ function makeRow(s, slotErrorSet){
   tr.appendChild(makeRunwayCell(s.runwayDurationSec, s.cyclesOfRunway));
   tr.appendChild(makeTd(fmtSats(s.walletBalanceSats), { right: true }));
   tr.appendChild(makeStatusCell(s.status));
-  tr.appendChild(makeOperatorCell(s.operatorReported));
   return tr;
 }
 
@@ -512,7 +483,7 @@ function render(d){
   if (!d.slots || d.slots.length === 0) {
     const tr = document.createElement('tr');
     const td = document.createElement('td');
-    td.colSpan = 8;
+    td.colSpan = 7;
     td.style.textAlign = 'center';
     td.style.padding  = '1.5rem';
     td.style.color    = '#a02010';
