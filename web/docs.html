@@ -130,7 +130,7 @@
       <ol class="body">
         <li>Publisher polls the Oracle UTXO for <code>prevTs</code> and <code>cycleSeq</code>.</li>
         <li>Publisher fetches the price from its pinned CEX over TLS.</li>
-        <li>Publisher broadcasts <code>PublisherSlot.attest</code>. The slot covenant verifies the publisher Schnorr sig, the CN/SAN hash, and the monotonic cycleSeq advance, then rewrites the slot commit in place.</li>
+        <li>Publisher broadcasts <code>PublisherSlot.attest</code>. The slot covenant verifies the publisher ECDSA-DER sig, the CN/SAN hash, and the monotonic cycleSeq advance, then rewrites the slot commit in place.</li>
         <li>Publisher waits ~25 s for peer slot refreshes to appear in mempool.</li>
         <li>Once ≥ 7 slots carry the current cycleSeq, any publisher builds <code>Oracle.update</code> consuming the Oracle UTXO + ≥ 7 slot inputs, re-emits each slot unchanged at its matching output index, and mints 2 mutable Ticker NFTs.</li>
         <li>First publisher to broadcast wins. Losers retry on the new tip.</li>
@@ -150,7 +150,7 @@
         │ ◄─── TLS ────────────┤                  │
         ├── price ────────────► │                  │
         │                       │                  │
-        │                       │ Schnorr sig 1    │
+        │                       │ ECDSA-DER sig 1  │
         │                       │ signs:           │
         │                       │   sourceId       │
         │                       │   ‖ price        │
@@ -177,7 +177,7 @@
        │                  │                              │
        │                  │                  position-checks median,
        │                  │                  verifies ≥ 7 distinct + sorted pkhs,
-       │                  │                  enforces newTs - prevTs ≥ 30,
+       │                  │                  enforces newTs - prevTs ≥ 60,
        │                  │                  re-emits slots unchanged,
        │                  │                  mints 2 mutable Tickers
 </code></pre>
@@ -202,7 +202,7 @@
         <thead><tr><th>#</th><th>Signer</th><th>Algorithm</th><th>Signs</th><th>Verified by</th></tr></thead>
         <tbody>
           <tr><td>0</td><td>Exchange TLS cert</td><td>TLS</td><td>The TLS session</td><td>Publisher's TLS client, CN/SAN pinned</td></tr>
-          <tr><td>1</td><td>Publisher (1 of 13)</td><td>Schnorr</td><td><code>sourceId ‖ price ‖ ts ‖ publisherPkh ‖ cycleSeq ‖ hash160(serverName)</code></td><td><code>PublisherSlot.attest()</code> slot-pinned key</td></tr>
+          <tr><td>1</td><td>Publisher (1 of 13)</td><td>ECDSA-DER</td><td><code>sourceId ‖ price ‖ ts ‖ publisherPkh ‖ cycleSeq ‖ hash160(serverName)</code></td><td><code>PublisherSlot.attest()</code> slot-pinned key</td></tr>
           <tr><td>2</td><td>Publisher wallet</td><td>P2PKH</td><td>The <code>slot.attest</code> tx</td><td>BCH consensus</td></tr>
           <tr><td>3</td><td>Race-winner wallet</td><td>P2PKH</td><td>The <code>Oracle.update</code> tx</td><td>BCH consensus</td></tr>
           <tr><td>4</td><td>Consumer wallet</td><td>P2PKH</td><td>The consumer's own tx</td><td>BCH consensus + consumer covenant gate</td></tr>
@@ -237,7 +237,7 @@
       <p>Take the <code>price</code> field from each of the 7-13 slot inputs. Sort ascending. The covenant uses "lower-middle" median: index <code>floor((N - 1) / 2)</code>. For N=13 that's index 6 — the 7th smallest. The Oracle commit's <code>medianUsd</code> must equal that value.</p>
 
       <h3>Step 4 · Verify each publisher signature</h3>
-      <p>For deeper assurance: look up each slot input's <i>birthing tx</i> — the prior <code>slot.attest</code> that wrote the commit you just read. That tx's input[0] unlock script contains the publisher's Schnorr/ECDSA signature plus the raw <code>serverName</code> and <code>price</code>/<code>ts</code>/<code>cycleSeq</code> pushes. Recompute the publisher digest:</p>
+      <p>For deeper assurance: look up each slot input's <i>birthing tx</i> — the prior <code>slot.attest</code> that wrote the commit you just read. That tx's input[0] unlock script contains the publisher's ECDSA-DER signature (70–72 B) plus the raw <code>serverName</code> and <code>price</code>/<code>ts</code>/<code>cycleSeq</code> pushes. (The covenant's <code>checkDataSig</code> accepts a 64 B Schnorr signature too, but the deployed publisher fleet signs ECDSA.) Recompute the publisher digest:</p>
 <pre><code>sha256( u16LE(sourceId) ‖ u64LE(price) ‖ u32LE(ts) ‖ pkh20 ‖ u32LE(cycleSeq) ‖ hash160(serverName) )</code></pre>
       <p>Verify it against the publisher's pubkey (also pushed in the unlock script). And verify <code>hash160(serverName)</code> matches the slot covenant's pinned <code>sourceCNHashes[sourceId]</code> entry.</p>
 
@@ -274,9 +274,9 @@ output[2]  optional change</code></pre>
       <p>One stateless daemon, <code>ticker-node</code>. Each operator runs one process per slot.</p>
 
       <h3>Publisher</h3>
-      <p>Polls the Oracle UTXO, fetches its pinned source over TLS, refreshes its slot via <code>slot.attest()</code>, waits ~25 s for peers, then races to broadcast <code>Oracle.update</code>. ~4-15 k sats per cycle depending on race-winner share.</p>
+      <p>Polls the Oracle UTXO, fetches its pinned source over TLS, refreshes its slot via <code>slot.attest()</code>, waits ~25 s for peers, then races to broadcast <code>Oracle.update</code>. ~2.2 k sats per cycle just for <code>slot.attest</code>, plus ~8 k more on the cycles the publisher wins the <code>Oracle.update</code> race — averages to ~3–4 k sats per cycle per slot.</p>
 <pre><code>$ ticker-node --publisher --slot 0</code></pre>
-      <p>Source pin and chain reads come from the manifest at <code>$TICKER_HOME/manifest.json</code>; the per-slot Schnorr key is loaded from <code>$TICKER_HOME/publisher.key</code> (mode 0600).</p>
+      <p>Source pin and chain reads come from the manifest at <code>$TICKER_HOME/manifest.json</code>; the per-slot secp256k1 publisher key is loaded from <code>$TICKER_HOME/publisher.key</code> (mode 0600).</p>
 
       <div class="callout"><b>Source.</b> <a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github.com/toorik2/ticker.cash</a>. Federation setup uses <code>ticker-ops setup-all</code> after generating a 32-byte seed.</div>
     </section>
@@ -291,7 +291,7 @@ output[2]  optional change</code></pre>
           <tr><td>Source count</td><td>13</td><td>9 USD + 2 USDC + 2 USDT, operator-diverse.</td></tr>
           <tr><td>Quorum floor (T<sub>floor</sub>)</td><td>7</td><td>Minimum distinct publishers per cycle.</td></tr>
           <tr><td>Quorum ratchet</td><td>~50%</td><td>Threshold = max(T<sub>floor</sub>, ⌈0.5 × oldActive⌉). Active count decays 10%/cycle on participation drop.</td></tr>
-          <tr><td>Cycle stride (min)</td><td>60 s</td><td>Enforced by the covenant (<code>Oracle.cash:73-74</code>: <code>require(newTs - prevTs &gt;= 60)</code>); publisher daemon races to broadcast as soon as the floor elapses + quorum forms.</td></tr>
+          <tr><td>Cycle stride (min)</td><td>60 s</td><td>Enforced by the covenant (<code>Oracle.cash:76</code>: <code>require(newTs - prevTs &gt;= 60)</code>); publisher daemon races to broadcast as soon as the floor elapses + quorum forms.</td></tr>
           <tr><td>Tickers per cycle (K)</td><td>2</td><td>Mutable; anyone-can-spend; self-replicate.</td></tr>
           <tr><td>Price scale</td><td>USD × 10<sup>8</sup></td><td><code>medianPrice / 1e8</code> = USD.</td></tr>
           <tr><td>Network</td><td>chipnet</td><td>Mainnet follows after stability period.</td></tr>
@@ -322,16 +322,16 @@ output[2]  optional change</code></pre>
 
       <h3><code>GET /api/v1/price</code></h3>
 <pre><code>{
-  "medianUsd":    344.94,         // float USD; null if stub branch (a)
+  "medianUsd":    305.90,                          // float USD; null if stub branch (a)
   "scale":        "usd-e8",
-  "scaledValue":  "34494000000",  // raw u64 from on-chain commit
-  "lastLocktime": 1779818724,     // median publisher-attested ts of last cycle
-  "seq":          11,             // monotonic cycle counter
-  "activeCount":  7,              // distinct publishers in last cycle
+  "scaledValue":  "30590000000",                   // raw u64 from on-chain commit
+  "lastLocktime": 1780155775,                      // u32 unix seconds — median publisher-attested ts of last cycle
+  "seq":          37,                              // monotonic cycle counter
+  "activeCount":  12,                              // distinct publishers in last cycle
   "network":      "chipnet",
-  "deployedAt":   1779210000,
-  "fetchedAt":    1779818790,
-  "ageSec":       66,             // ≥ 300 → stub: true, branch (b)
+  "deployedAt":   "2026-05-30T15:05:00.000Z",      // ISO-8601 string from contracts.json
+  "fetchedAt":    1780155810585,                   // Date.now() — milliseconds, not seconds
+  "ageSec":       35,                              // ≥ 300 → stub: true, branch (b)
   "stub":         false
 }</code></pre>
       <p><code>stub:true</code> has two branches: (a) backend couldn't read Oracle UTXO — <code>medianUsd: null</code>, HTTP 503; (b) cycle age ≥ 300 s — value is real but stale, HTTP 200.</p>
@@ -340,15 +340,19 @@ output[2]  optional change</code></pre>
 <pre><code>{
   "healthy":               true,
   "stalenessThresholdSec": 300,
-  "node":     { "ok": true, "blockHeight": 224801 },
-  "fulcrum":  { "ok": true, "tipHeight":   224801 },
+  "node":     { "ok": true, "blockHeight": 308029 },
+  "fulcrum":  { "ok": true, "tipHeight":   308029 },
   "lastCycle": {
-    "seq":         11,
-    "locktime":    1779818724,
-    "ageSec":      66,
-    "activeCount": 7
+    "seq":         37,
+    "locktime":    1780155775,                     // u32 unix seconds
+    "ageSec":      41,
+    "activeCount": 12
   },
-  "errors": []
+  "network":      "chipnet",
+  "deployedAt":   "2026-05-30T15:05:00.000Z",      // ISO-8601 string
+  "fetchedAt":    1780155816080,                   // Date.now() — milliseconds
+  "stub":         false,
+  "errors":       []
 }</code></pre>
       <p><code>healthy</code> is true iff node + fulcrum reachable AND <code>lastCycle.ageSec &lt; stalenessThresholdSec</code>.</p>
     </section>
@@ -366,7 +370,7 @@ output[2]  optional change</code></pre>
       <p>The covenant's quorum floor blocks <code>Oracle.update</code> below 7 distinct slot inputs at the matching cycleSeq. The chain pauses. Once enough publishers come back online, the next <code>Oracle.update</code> resumes the stream — same Oracle UTXO, new median, advancing seq. No state is lost. The last published cycle is still spendable as a Ticker NFT, just stale.</p>
 
       <h3>Why 60-second cycles? Could it go faster?</h3>
-      <p>60 seconds is the covenant's enforced minimum stride (<code>Oracle.cash:73-74</code>): <code>require(newTs - prevTs &gt;= 60)</code>. Picked to balance CEX rate limits and per-day sat burn against consumer latency. The actual measured stride hovers slightly above 60 s depending on quorum-wait + propagation. Faster would require a covenant migration.</p>
+      <p>60 seconds is the covenant's enforced minimum stride (<code>Oracle.cash:76</code>): <code>require(newTs - prevTs &gt;= 60)</code>. Picked to balance CEX rate limits and per-day sat burn against consumer latency. The actual measured stride hovers slightly above 60 s depending on quorum-wait + propagation. Faster would require a covenant migration.</p>
 
       <h3>Why CashTokens, not OP_RETURN / sidechains / etc.?</h3>
       <p>CashTokens NFTs give us four properties that nothing else on BCH provides together: (1) a slot's identity is enforced by covenant + consensus, not by a script we wrote, (2) the slot category is closed forever after genesis, so no one can mint new slots, (3) tickers self-replicate via the Ticker covenant so consumers don't need to re-mint anything, (4) on-chain composability — a consumer's covenant can spend a Ticker as a price gate without intermediate trust. OP_RETURN lacks all of these.</p>
