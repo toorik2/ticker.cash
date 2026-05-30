@@ -2,36 +2,45 @@ pragma cashscript >= 0.13.0;
 
 // Oracle v14 — PublisherSlot-based attestation aggregator.
 //
-// ── Diff from v11 ──────────────────────────────────────────────────────
-// v11 walked VA inputs and BURNED each one (consumed without re-emit). VAs
-// not selected for the cycle's quorum became permanent orphans (~8.6k/day
-// at the shared VA address).
+// ── Version history (most recent first) ────────────────────────────────
+// v14 — Stride floor raised from 30 s to 60 s (see require at line ~76
+//       and the inline rationale just above it). Median, ratchet, and
+//       slot-walk structure are unchanged. New on-chain addresses because
+//       the bytecode changed.
+// v13 — No change to THIS file. The notary tier was dropped in
+//       `PublisherSlot.cash` only; slot commit version byte 0x72 → 0x73,
+//       so the body's `require(slotCommit.slice(0, 1) == 0x73)` reflects
+//       v13's tag. Constructor args, output layout, and median logic
+//       all unchanged in this file.
+// v12 — Switched from v11's burn-on-consume VA inputs to PublisherSlot
+//       inputs that re-emit unchanged at the matching output index.
+//       Persistent per-publisher mutable NFTs. Set of attestation-
+//       category UTXOs fixed at 13 forever.
+// v11 — Walked VA inputs and BURNED each one (consumed without re-emit).
+//       VAs not selected for the cycle's quorum became permanent orphans
+//       (~8.6k/day at the shared VA address).
 //
-// v12 walks PublisherSlot inputs and RE-EMITS each one unchanged at the
-// matching output index. Slots are persistent per-publisher mutable NFTs.
-// The set of attestation-category UTXOs is fixed at 13 forever.
-//
-// ── Other changes ──────────────────────────────────────────────────────
+// ── Other v11→v12 structural changes (carried unchanged into v13/v14) ──
 //   - VA category check (32-byte equality) → slot category check + mutable
 //     capability byte (0x01) check
-//   - VA commitment layout (51 B at v11) → slot layout (39 B at v12);
+//   - VA commitment layout (51 B at v11) → slot layout (39 B at v12+);
 //     read positions shift accordingly
 //   - Ticker mint outputs move from [1, 2] → [numAttestations+1, +2] so
 //     they sit after the slot re-emits at [1..numAttestations+1)
 //   - K=2 Ticker count unchanged from v11
-//   - Median / ratchet / time-stride logic identical to v11
+//   - Median + activeCount ratchet logic unchanged from v11
 //
 // ── Commitment layouts ─────────────────────────────────────────────────
-// Oracle (19 B, version 0x60) — UNCHANGED from v11:
+// Oracle (19 B, version 0x60) — UNCHANGED since v11:
 //   [0]       0x60                          1 B
 //   [1..5)    seq                          4 B   u32 LE  +1 per cycle
 //   [5..9)    lastTs                       4 B   u32 LE  publisher-attested median time
 //   [9..17)   medianPrice                  8 B   u64 LE  sat-scaled USD/BCH
 //   [17..19)  activeCount                  2 B   u16 LE  threshold ratchet
 //
-// Slot (39 B, version 0x73 in v13) — see PublisherSlot.cash for full layout.
+// Slot (39 B, version 0x73 since v13) — see PublisherSlot.cash for full layout.
 //
-// Ticker (17 B, version 0x80) — UNCHANGED from v11.
+// Ticker (17 B, version 0x80) — UNCHANGED since v11.
 
 contract Oracle(
     bytes35 tickerLockingBytecode,

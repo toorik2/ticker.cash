@@ -1,6 +1,9 @@
 pragma cashscript >= 0.13.0;
 
-// PublisherSlot v13 — drop the notary tier.
+// PublisherSlot — covenant body unchanged since v13. v14 reuses this same
+// bytecode (still slot commit version 0x73); the v14 cutover only touched
+// `Oracle.cash` (stride floor 30→60 s). The header below describes the v13
+// design change vs v12 because that's the most recent change to THIS file.
 //
 // v13 is a trust-model simplification of v12, not a feature change. The
 // 7-notary OR-list is removed:
