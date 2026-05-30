@@ -92,8 +92,6 @@
   .status-lagging{color:#b88800}
   .status-unfunded{color:#c84800}
   .status-stalled{color:#a02010}
-  .notary-cell{font-variant-numeric:tabular-nums;font-weight:600}
-  .notary-cell.unknown{color:#b6b1a3;font-weight:400}
   .op-cell{color:#8a8472;font-style:italic;font-size:11px}
   .op-cell .err{color:#a02010;font-style:normal;margin-left:0.4em}
 
@@ -107,7 +105,7 @@
   .copy-btn:hover{color:#1a1a18;border-color:#1a1a18;background:#fffcf0}
   .copy-btn.copied{color:#1a7b3b;border-color:#1a7b3b}
 
-  /* ─── Foldouts (Trends / Notary detail / Errors). ──────────────────── */
+  /* ─── Foldouts (Trends / Errors). ──────────────────── */
   .foldout{
     border:1px solid #c8c2b3;background:#fffcf0;margin-bottom:0.75rem;
   }
@@ -140,15 +138,6 @@
   .spark .h{font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:#6a6457;font-weight:500;display:flex;justify-content:space-between;gap:0.5rem}
   .spark .h .v{color:#1a1a18;font-weight:600;letter-spacing:0;text-transform:none;font-variant-numeric:tabular-nums}
   .spark svg{display:block;width:100%;height:34px}
-
-  /* Notary detail panel inside the foldout. */
-  .notary-bars{display:grid;grid-template-columns:repeat(7,1fr);gap:0.65rem;align-items:end}
-  .notary-bar{display:flex;flex-direction:column;align-items:center;gap:0.3rem}
-  .notary-bar .col{width:100%;background:#ecebe0;position:relative;border:1px solid #c8c2b3;height:54px;display:flex;align-items:flex-end;overflow:hidden}
-  .notary-bar .col .fill{width:100%;background:#1a1a18;transition:height 0.25s ease}
-  .notary-bar.zero .col .fill{background:#b6b1a3}
-  .notary-bar .lbl{font-size:10px;letter-spacing:0.04em;color:#6a6457;font-weight:500}
-  .notary-bar .ct{font-size:11px;font-weight:600;font-variant-numeric:tabular-nums;color:#1a1a18}
 
   /* Errors list inside the errors foldout. */
   .errors-list{margin:0 0 0 1.25rem;padding:0;list-style:disc;color:#a02010;font-size:11.5px;line-height:1.7}
@@ -186,8 +175,6 @@
     <span class="metric" id="ss-quorum-metric"><span class="k">quorum</span><span class="v" id="ss-quorum">—</span></span>
     <span class="sep">·</span>
     <span class="metric"><span class="k">stride</span><span class="v" id="ss-stride">—</span></span>
-    <span class="sep">·</span>
-    <span class="metric notaries"><span class="k">notaries</span><span class="v" id="ss-notaries">—</span></span>
   </div>
 
   <!-- THE TABLE — page primary content. -->
@@ -198,7 +185,6 @@
       <tr>
         <th title="Slot index (0..12). Stable across cycles. Slot 0 = kraken, slot 12 = htx.">#</th>
         <th title="The CEX this slot fetches its price from. Click 'copy' to grab the publisher's full P2PKH address for top-ups.">Source</th>
-        <th class="r" title="The notary (0..6) the publisher picked for the most recent attest. Publishers round-robin across all 7.">Notary</th>
         <th class="r" title="Wall-clock age of the slot's most recent attest. For an active publisher this should stay below ~60s.">Last attest</th>
         <th class="r" title="Cycles behind oracle.seq. 0 = caught up. 1-3 = lagging. >3 = stalled.">Behind</th>
         <th class="r" title="Estimated time until wallet depletes at ~3.8k sats/cycle.">Runway</th>
@@ -208,7 +194,7 @@
       </tr>
     </thead>
     <tbody id="slot-rows">
-      <tr><td colspan="9" style="text-align:center;padding:1.5rem;color:#6a6457">loading…</td></tr>
+      <tr><td colspan="8" style="text-align:center;padding:1.5rem;color:#6a6457">loading…</td></tr>
     </tbody>
   </table>
   </div>
@@ -222,13 +208,6 @@
         <div class="spark"><div class="h"><span>Slots current / 13</span><span class="v" id="spark-quorum-v">—</span></div><svg id="spark-quorum"></svg></div>
         <div class="spark"><div class="h"><span>Stride (s)</span><span class="v" id="spark-stride-v">—</span></div><svg id="spark-stride"></svg></div>
       </div>
-    </div>
-  </details>
-
-  <details class="foldout" id="fold-notaries">
-    <summary>Notary participation <span class="ct" id="notary-coverage">—</span></summary>
-    <div class="foldout-body">
-      <div class="notary-bars" id="notary-bars"></div>
     </div>
   </details>
 
@@ -284,8 +263,6 @@ function updateStatusStripe(d){
   document.getElementById('ss-age').textContent    = o ? fmtAge(o.ageSec) : '—';
   document.getElementById('ss-quorum').textContent = q.slotsCurrent + ' / 13';
   document.getElementById('ss-stride').textContent = d.cycleStrideSec + 's';
-  document.getElementById('ss-notaries').textContent =
-    (q.notaryHistogram || []).join(' ') || '—';
 
   // Per-metric warn coloring (within an otherwise-OK stripe, surface the
   // specific bad number).
@@ -357,18 +334,6 @@ function makeSourceCell(sourceName, pkhShort, fullAddress){
   return td;
 }
 
-function makeNotaryCell(notaryIdx){
-  const td = document.createElement('td');
-  td.classList.add('r', 'notary-cell');
-  if (notaryIdx === null || notaryIdx === undefined) {
-    td.classList.add('unknown');
-    td.textContent = '—';
-  } else {
-    td.textContent = '#' + notaryIdx;
-  }
-  return td;
-}
-
 function makeRunwayCell(runwaySec, cyclesOfRunway){
   const td = document.createElement('td');
   td.classList.add('r');
@@ -426,7 +391,6 @@ function makeRow(s, slotErrorSet){
   if (slotErrorSet && slotErrorSet.has(s.slot)) tr.classList.add('has-error');
   tr.appendChild(makeTd(String(s.slot)));
   tr.appendChild(makeSourceCell(s.sourceName, fmtPkh(s.publisherPkh), s.publisherAddress));
-  tr.appendChild(makeNotaryCell(s.currentCycleNotaryIdx));
   const ageTd = document.createElement('td');
   ageTd.classList.add('r', 'age-attest');
   ageTd.appendChild(document.createTextNode(fmtAge(ageAttest) + ' '));
@@ -443,7 +407,7 @@ function makeRow(s, slotErrorSet){
   return tr;
 }
 
-// ─── foldout content: sparklines + notary panel + errors ───────────────
+// ─── foldout content: sparklines + errors ─────────────────────────────
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -484,35 +448,6 @@ function renderSparklines(recent){
   document.getElementById('spark-seq-v').textContent    = '#' + last.seq.toLocaleString('en-US');
   document.getElementById('spark-quorum-v').textContent = last.slotsCurrent + ' / 13';
   document.getElementById('spark-stride-v').textContent = last.cycleStrideSec + 's';
-}
-
-function renderNotaryPanel(histogram, coverage){
-  const wrap = document.getElementById('notary-bars');
-  while (wrap.firstChild) wrap.removeChild(wrap.firstChild);
-  if (!histogram || histogram.length !== 7) return;
-  const maxCount = Math.max(1, ...histogram);
-  histogram.forEach((count, i) => {
-    const bar = document.createElement('div');
-    bar.className = 'notary-bar' + (count === 0 ? ' zero' : '');
-    const col = document.createElement('div');
-    col.className = 'col';
-    const fill = document.createElement('div');
-    fill.className = 'fill';
-    fill.style.height = (count / maxCount * 100).toFixed(1) + '%';
-    col.appendChild(fill);
-    const lbl = document.createElement('div');
-    lbl.className = 'lbl';
-    lbl.textContent = '#' + i;
-    const ct = document.createElement('div');
-    ct.className = 'ct';
-    ct.textContent = String(count);
-    bar.appendChild(col);
-    bar.appendChild(ct);
-    bar.appendChild(lbl);
-    wrap.appendChild(bar);
-  });
-  const cov = document.getElementById('notary-coverage');
-  if (cov) cov.textContent = coverage != null ? coverage + ' / 13 reporting' : '—';
 }
 
 function renderErrors(errors){
@@ -565,7 +500,7 @@ function render(d){
   if (!d.slots || d.slots.length === 0) {
     const tr = document.createElement('tr');
     const td = document.createElement('td');
-    td.colSpan = 9;
+    td.colSpan = 8;
     td.style.textAlign = 'center';
     td.style.padding  = '1.5rem';
     td.style.color    = '#a02010';
@@ -577,7 +512,6 @@ function render(d){
   }
 
   renderSparklines(d.recent || []);
-  renderNotaryPanel(d.aggregate.notaryHistogram, d.aggregate.slotsWithNotaryIdx);
   renderErrors(d.errors);
 }
 

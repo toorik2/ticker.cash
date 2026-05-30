@@ -93,42 +93,42 @@
       <div>chipnet</div>
     </div>
     <h1 class="doc-title">Decentralized BCH/USD ticker.</h1>
-    <p class="doc-lead">Seven notaries co-witness prices from thirteen operator-diverse exchanges; any publisher relays them to a covenant on Bitcoin Cash that commits the per-cycle median on chain. No admin keys; the covenant is the only on-chain rule.</p>
+    <p class="doc-lead">Thirteen publishers, each pinned to one operator-diverse exchange, attest prices to a covenant on Bitcoin Cash. The covenant commits the per-cycle median on chain. No admin keys; the covenant is the only on-chain rule.</p>
 
     <section class="chapter" id="overview">
       <h2><span class="num">§01</span><span>Overview</span></h2>
-      <p>ticker.cash is a BCH/USD price feed that lives entirely on Bitcoin Cash chipnet. Every ~60 s, a new on-chain commitment is signed by at least 7 of 13 publishers and the median price is written to a covenant. The trust root is a 7-key notary federation; everything else is covenant-enforced.</p>
+      <p>ticker.cash is a BCH/USD price feed that lives entirely on Bitcoin Cash chipnet. Every ~30 s, ≥ 7 of 13 publishers refresh their slot commits with a fresh price observation; whichever publisher wins the race broadcasts <code>Oracle.update</code>, which commits the per-cycle median to chain.</p>
       <p>The on-chain code is three CashScript covenants: <code>Oracle</code>, <code>PublisherSlot</code>, <code>Ticker</code>. No proxies, no admin paths, no off-chain governance signers. The Oracle covenant address is permanent for the life of the deploy; behavioural changes require a fresh genesis at a new address.</p>
     </section>
 
     <section class="chapter" id="trust">
       <h2><span class="num">§02</span><span>Trust model</span></h2>
-      <p>The 7-key notary federation is the only off-chain trust assumption. Each notary independently fetches the price from its pinned CEX over TLS and signs <code>(serverName, sourceId, price, ts, cycleSeq)</code> with its Schnorr key.</p>
-      <p><b>Publishers are interchangeable relays.</b> They can't fake notary sigs, alter prices, or skip quorum. A single publisher's only adversarial power is to pick which subset of slot inputs goes into their <code>Oracle.update</code> — but the covenant position-checks the median across ≥ 7 distinct publishers, absorbing ≤ 6 outliers without bias.</p>
+      <p>The trust root is a <b>7-of-13 publisher quorum</b>. Each publisher fetches the price from its pinned CEX over TLS, signs <code>(sourceId, price, ts, publisherPkh, cycleSeq, hash160(serverName))</code> with its slot-pinned key, and the covenant commits the result. The Oracle.update median absorbs ≤ 6 misbehaving publishers per cycle without bias.</p>
       <p><b>Sources are operator-diverse.</b> 9 USD spot markets (Kraken, Coinbase, Gemini, Binance.US, Bitstamp, Crypto.com, Bitfinex, EXMO, Independent Reserve — 4 US, 5 non-US), 2 USDC (OKX, KuCoin), 2 USDT (Bybit, HTX). No operator family appears twice; no quote-currency dominates. Both stablecoin clusters could depeg the same direction simultaneously and the median still lands in the 9-USD cluster.</p>
 
-      <h3>Federation collusion model</h3>
-      <p>What a colluding <b>≥ 4 of 7</b> notaries <i>can</i> do:</p>
+      <h3>Publisher collusion model</h3>
+      <p>What a colluding <b>≥ 7 of 13</b> publishers <i>can</i> do:</p>
       <ul>
-        <li>Sign attestations for arbitrary prices the publishers will propagate.</li>
+        <li>Move the on-chain median to any value they all agree to sign.</li>
       </ul>
       <p>What no collusion can do:</p>
       <ul>
         <li>Skip the ≥ 7 distinct-publisher quorum check — enforced in script.</li>
-        <li>Replay a stale notary signature — <code>PublisherSlot.attest()</code> requires <code>newCycleSeq &gt; slot.cycleSeq</code> (strict-greater).</li>
+        <li>Replay a stale attestation — <code>PublisherSlot.attest()</code> requires <code>newCycleSeq &gt; slot.cycleSeq</code> (strict-greater).</li>
         <li>Hide a cycle from observers — every state transition is an on-chain tx.</li>
         <li>Mint new slots after genesis — slot category closed forever by CashTokens consensus.</li>
         <li>Run the chain faster than the 30 s minimum stride enforced by <code>Oracle.cash</code>.</li>
       </ul>
-      <p>No admin keys. No upgrade path. Adding an 8th notary is a hard cutover: fresh PublisherSlot covenant, new genesis, slot fleet migration. The new address coexists with the old.</p>
+      <p>No admin keys. No upgrade path. Changing the publisher set requires a fresh PublisherSlot covenant, new genesis, and a slot fleet migration. The new address coexists with the old.</p>
+      <div class="callout"><b>Why no notary tier?</b> Earlier versions (v12) carried a 7-key "notary" federation that signed prices for publishers to relay. In our single-operator deployment notaries and publishers shared boxes, the covenant only required a 1-of-7 notary signature, and the tier added no real attacker cost beyond the 7-of-13 publisher quorum. v13 removed it. A future multi-operator deployment would need to either reintroduce the tier or adopt a real TLS-attestation protocol (e.g. TLSNotary once it ships a stable release with public notary services).</div>
     </section>
 
     <section class="chapter" id="flow">
       <h2><span class="num">§03</span><span>Cycle flow</span></h2>
       <ol class="body">
         <li>Publisher polls the Oracle UTXO for <code>prevTs</code> and <code>cycleSeq</code>.</li>
-        <li>Publisher requests a Schnorr signature from one of the 7 notaries.</li>
-        <li>Publisher broadcasts <code>PublisherSlot.attest</code>. The slot covenant verifies both Schnorr sigs, the CN/SAN hash, and the monotonic cycleSeq advance, then rewrites the slot commit in place.</li>
+        <li>Publisher fetches the price from its pinned CEX over TLS.</li>
+        <li>Publisher broadcasts <code>PublisherSlot.attest</code>. The slot covenant verifies the publisher Schnorr sig, the CN/SAN hash, and the monotonic cycleSeq advance, then rewrites the slot commit in place.</li>
         <li>Publisher waits ~25 s for peer slot refreshes to appear in mempool.</li>
         <li>Once ≥ 7 slots carry the current cycleSeq, any publisher builds <code>Oracle.update</code> consuming the Oracle UTXO + ≥ 7 slot inputs, re-emits each slot unchanged at its matching output index, and mints 2 mutable Ticker NFTs.</li>
         <li>First publisher to broadcast wins. Losers retry on the new tip.</li>
@@ -138,48 +138,38 @@
 
     <section class="chapter" id="signatures">
       <h2><span class="num">§04</span><span>Signatures</span></h2>
-      <p>Six signatures appear on the path from <i>"an exchange quoted a price"</i> to <i>"your dApp's tx settles."</i> Three are produced and verified per slot refresh — the heart of the trust model. The other three are standard BCH input sigs. Every signature ties to a specific publisher, source, and cycle.</p>
+      <p>Five signatures appear on the path from <i>"an exchange quoted a price"</i> to <i>"your dApp's tx settles."</i> One is produced and verified per slot refresh — the heart of the trust model. The rest are standard BCH input sigs. Every signature ties to a specific publisher, source, and cycle.</p>
 
-      <h3>Step 1 · Slot refresh (×13 publishers, ~60 s)</h3>
-<pre><code>   Exchange         Notary           Publisher       PublisherSlot
-   (1 of 13)        (1 of 7)         (1 of 13)       covenant
-   ─────────        ────────         ─────────       ─────────────
-        │                │                │                │
-        │ ◄── TLS ────── │                │                │
-        ├── price ─────► │                │                │
-        │                │                │                │
-        │                │  Schnorr sig 1 │                │
-        │                ├──────────────► │                │
-        │                │  signs:        │                │
-        │                │   serverName   │                │
-        │                │   ‖ sourceId   │                │
-        │                │   ‖ price      │                │
-        │                │   ‖ ts         │                │
-        │                │   ‖ cycleSeq   │                │
-        │                │   ‖ publisherPkh   ◄── binds to this publisher
-        │                │                │                │
-        │                │                │ Schnorr sig 2  │
-        │                │                │ signs:         │
-        │                │                │   sourceId     │
-        │                │                │   ‖ price      │
-        │                │                │   ‖ ts         │
-        │                │                │   ‖ publisherPkh
-        │                │                │   ‖ cycleSeq   │
-        │                │                │   ‖ hash160(serverName)
-        │                │                │                │
-        │                │                │  Tx sig 3 (P2PKH) on slot.attest
-        │                │                ├──────────────► │
-        │                │                │                │
-        │                │                │     verifies sigs 1 + 2,
-        │                │                │     cycleSeq strictly advances,
-        │                │                │     hash160(SN) matches sourceId
+      <h3>Step 1 · Slot refresh (×13 publishers, ~30 s)</h3>
+<pre><code>   Exchange                Publisher        PublisherSlot
+   (1 of 13)               (1 of 13)        covenant
+   ─────────               ─────────        ─────────────
+        │                       │                  │
+        │ ◄─── TLS ────────────┤                  │
+        ├── price ────────────► │                  │
+        │                       │                  │
+        │                       │ Schnorr sig 1    │
+        │                       │ signs:           │
+        │                       │   sourceId       │
+        │                       │   ‖ price        │
+        │                       │   ‖ ts           │
+        │                       │   ‖ publisherPkh │
+        │                       │   ‖ cycleSeq     │
+        │                       │   ‖ hash160(serverName)
+        │                       │                  │
+        │                       │ Tx sig 2 (P2PKH) on slot.attest
+        │                       ├────────────────► │
+        │                       │                  │
+        │                       │       verifies sig 1,
+        │                       │       cycleSeq strictly advances,
+        │                       │       hash160(SN) matches sourceId
 </code></pre>
 
       <h3>Step 2 · Oracle.update (race winner)</h3>
 <pre><code>   ≥ 7 slots      Race-winner publisher          Oracle covenant
    ─────────      ─────────────────────          ───────────────
        │                  │                              │
-       │                  │  Tx sig 4 (P2PKH)            │
+       │                  │  Tx sig 3 (P2PKH)            │
        │                  │  (no off-chain sig needed)   │
        │                  ├────────────────────────────► │
        │                  │                              │
@@ -194,7 +184,7 @@
 <pre><code>   Consumer dApp                    Ticker covenant + consumer's own gate
    ─────────────                    ──────────────────────────────────────
         │                                       │
-        │  Tx sig 5 (P2PKH)                      │
+        │  Tx sig 4 (P2PKH)                      │
         │  in[0] = consumer covenant            │
         │  in[1] = Ticker NFT                   │
         │  out[0] = business output             │
@@ -209,20 +199,19 @@
       <table>
         <thead><tr><th>#</th><th>Signer</th><th>Algorithm</th><th>Signs</th><th>Verified by</th></tr></thead>
         <tbody>
-          <tr><td>0</td><td>Exchange TLS cert</td><td>TLS</td><td>The TLS session</td><td>Notary's TLS client, CN/SAN pinned</td></tr>
-          <tr><td>1</td><td>Notary (1 of 7)</td><td>Schnorr</td><td><code>serverName ‖ sourceId ‖ price ‖ ts ‖ cycleSeq ‖ publisherPkh</code></td><td><code>PublisherSlot.attest()</code> OR-list</td></tr>
-          <tr><td>2</td><td>Publisher (1 of 13)</td><td>Schnorr</td><td><code>sourceId ‖ price ‖ ts ‖ publisherPkh ‖ cycleSeq ‖ hash160(serverName)</code></td><td><code>PublisherSlot.attest()</code> slot-pinned key</td></tr>
-          <tr><td>3</td><td>Publisher wallet</td><td>P2PKH</td><td>The <code>slot.attest</code> tx</td><td>BCH consensus</td></tr>
-          <tr><td>4</td><td>Race-winner wallet</td><td>P2PKH</td><td>The <code>Oracle.update</code> tx</td><td>BCH consensus</td></tr>
-          <tr><td>5</td><td>Consumer wallet</td><td>P2PKH</td><td>The consumer's own tx</td><td>BCH consensus + consumer covenant gate</td></tr>
+          <tr><td>0</td><td>Exchange TLS cert</td><td>TLS</td><td>The TLS session</td><td>Publisher's TLS client, CN/SAN pinned</td></tr>
+          <tr><td>1</td><td>Publisher (1 of 13)</td><td>Schnorr</td><td><code>sourceId ‖ price ‖ ts ‖ publisherPkh ‖ cycleSeq ‖ hash160(serverName)</code></td><td><code>PublisherSlot.attest()</code> slot-pinned key</td></tr>
+          <tr><td>2</td><td>Publisher wallet</td><td>P2PKH</td><td>The <code>slot.attest</code> tx</td><td>BCH consensus</td></tr>
+          <tr><td>3</td><td>Race-winner wallet</td><td>P2PKH</td><td>The <code>Oracle.update</code> tx</td><td>BCH consensus</td></tr>
+          <tr><td>4</td><td>Consumer wallet</td><td>P2PKH</td><td>The consumer's own tx</td><td>BCH consensus + consumer covenant gate</td></tr>
         </tbody>
       </table>
 
       <h3>Why each binding matters</h3>
       <ul>
-        <li><b><code>publisherPkh</code> in the notary sig.</b> A notary can't sign one bundle and have ten publishers reuse it.</li>
-        <li><b><code>hash160(serverName)</code> in the publisher sig.</b> A publisher can't ask the Coinbase-side notary and relabel the price as Kraken's.</li>
-        <li><b><code>cycleSeq</code> in both sigs.</b> A signature produced for cycle N can't be replayed at N+1; the slot's stored cycleSeq is strict-monotonic.</li>
+        <li><b><code>publisherPkh</code> in the publisher sig.</b> Locks the attestation to the slot's pinned identity — covenant rejects the sig if it doesn't match the on-chain pkh.</li>
+        <li><b><code>hash160(serverName)</code> in the publisher sig.</b> A publisher can't fetch from Coinbase and relabel the price as Kraken's — the covenant pins each <code>sourceId</code> to a specific CN hash at genesis.</li>
+        <li><b><code>cycleSeq</code> in the sig.</b> A signature produced for cycle N can't be replayed at N+1; the slot's stored cycleSeq is strict-monotonic.</li>
         <li><b>No off-chain sig on <code>Oracle.update</code>.</b> Anyone can broadcast it. The covenant is the only judge; the race winner just pays the fee.</li>
       </ul>
 
@@ -253,24 +242,14 @@ output[2]  optional change</code></pre>
 
     <section class="chapter" id="operate">
       <h2><span class="num">§06</span><span>Operate</span></h2>
-      <p>Two daemons, both stateless. The unified binary <code>scripts/ticker-node.ts</code> wraps either or both.</p>
-
-      <h3>Notary</h3>
-      <p>HTTP daemon holding one Schnorr key. Exposes <code>POST /sign</code>; on each request, fetches the price from its pinned CEX and signs <code>(serverName, sourceId, price, ts, cycleSeq)</code>.</p>
-<pre><code>$ ticker-node --notary --slot 0   # listens on 127.0.0.1:8081</code></pre>
+      <p>One stateless daemon, <code>ticker-node</code>. Each operator runs one process per slot.</p>
 
       <h3>Publisher</h3>
-      <p>Polls the Oracle UTXO, requests notary sigs, refreshes its slot via <code>slot.attest()</code>, waits ~25 s for peers, then races to broadcast <code>Oracle.update</code>. ~12 k sats per cycle.</p>
-<pre><code>$ ticker-node --publisher --slot 0 \
-  --notary-url https://notary-0.ticker.cash \
-  --notary-url https://notary-1.ticker.cash \
-  ...×5 more...</code></pre>
+      <p>Polls the Oracle UTXO, fetches its pinned source over TLS, refreshes its slot via <code>slot.attest()</code>, waits ~25 s for peers, then races to broadcast <code>Oracle.update</code>. ~4-15 k sats per cycle depending on race-winner share.</p>
+<pre><code>$ ticker-node --publisher --slot 0</code></pre>
+      <p>Source pin and chain reads come from the manifest at <code>$TICKER_HOME/manifest.json</code>; the per-slot Schnorr key is loaded from <code>$TICKER_HOME/publisher.key</code> (mode 0600).</p>
 
-      <h3>Bundled</h3>
-      <p>Federation operators usually bundle both for their slot (no HTTP roundtrip):</p>
-<pre><code>$ ticker-node --notary --publisher --slot 0</code></pre>
-
-      <div class="callout"><b>Source.</b> <a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github.com/toorik2/ticker.cash</a>. Run <code>npm run deploy</code> after generating a fresh 32-byte seed.</div>
+      <div class="callout"><b>Source.</b> <a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github.com/toorik2/ticker.cash</a>. Federation setup uses <code>ticker-ops setup-all</code> after generating a 32-byte seed.</div>
     </section>
 
     <section class="chapter" id="reference">
@@ -279,8 +258,8 @@ output[2]  optional change</code></pre>
       <h3>Parameters</h3>
       <table>
         <tbody>
-          <tr><td>Federation size (M)</td><td>7</td><td>OR-list of independent Schnorr keys. ⌈M/2⌉ = 4 keys required for majority bribery.</td></tr>
-          <tr><td>Source count (N)</td><td>13</td><td>9 USD + 2 USDC + 2 USDT, operator-diverse.</td></tr>
+          <tr><td>Publisher count (N)</td><td>13</td><td>One slot per (publisher, source). Closed at genesis.</td></tr>
+          <tr><td>Source count</td><td>13</td><td>9 USD + 2 USDC + 2 USDT, operator-diverse.</td></tr>
           <tr><td>Quorum floor (T<sub>floor</sub>)</td><td>7</td><td>Minimum distinct publishers per cycle.</td></tr>
           <tr><td>Quorum ratchet</td><td>~50%</td><td>Threshold = max(T<sub>floor</sub>, ⌈0.5 × oldActive⌉). Active count decays 10%/cycle on participation drop.</td></tr>
           <tr><td>Cycle stride (min)</td><td>30 s</td><td>Enforced by both the covenant (<code>Oracle.cash</code>) and the publisher daemon.</td></tr>
@@ -294,7 +273,7 @@ output[2]  optional change</code></pre>
       <table>
         <tbody>
           <tr><td>Oracle</td><td>19 B</td><td><code>0x60 | seq(4) | lastTs(4) | medianUsd(8) | activeCount(2)</code></td></tr>
-          <tr><td>Slot</td><td>39 B</td><td><code>0x72 | sourceId(2) | publisherPkh(20) | price(8) | timestamp(4) | cycleSeq(4)</code></td></tr>
+          <tr><td>Slot</td><td>39 B</td><td><code>0x73 | sourceId(2) | publisherPkh(20) | price(8) | timestamp(4) | cycleSeq(4)</code></td></tr>
           <tr><td>Ticker</td><td>17 B</td><td><code>0x80 | seq(4) | lastTs(4) | medianPrice(8)</code></td></tr>
         </tbody>
       </table>
@@ -314,7 +293,7 @@ output[2]  optional change</code></pre>
   "medianUsd":    344.94,         // float USD; null if stub branch (a)
   "scale":        "usd-e8",
   "scaledValue":  "34494000000",  // raw u64 from on-chain commit
-  "lastLocktime": 1779818724,     // notary-attested ts of last cycle
+  "lastLocktime": 1779818724,     // median publisher-attested ts of last cycle
   "seq":          11,             // monotonic cycle counter
   "activeCount":  7,              // distinct publishers in last cycle
   "network":      "chipnet",
