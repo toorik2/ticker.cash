@@ -20,6 +20,7 @@
 //!                   [--network chipnet|mainnet] [--broadcast]
 //!     Sweep / top-up from any labeled wallet to a P2PKH address.
 
+mod deploy;
 mod dump;
 mod fund;
 mod p2pkh;
@@ -38,8 +39,25 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = pico_args::Arguments::from_env();
     let subcmd = args
         .subcommand()?
-        .ok_or("ticker-ops: missing subcommand (setup-all|dump-state|fund|send)")?;
+        .ok_or("ticker-ops: missing subcommand (deploy|setup-all|dump-state|fund|send)")?;
     match subcmd.as_str() {
+        "deploy" => {
+            let seed: String = args
+                .opt_value_from_str("--seed")?
+                .unwrap_or_else(|| ".ticker/seed.hex".to_string());
+            let state: String = args
+                .opt_value_from_str("--state")?
+                .unwrap_or_else(|| ".ticker/deploy-state.json".to_string());
+            let network: String = args
+                .opt_value_from_str("--network")?
+                .unwrap_or_else(|| "chipnet".to_string());
+            let electrum_host: String = args
+                .opt_value_from_str("--electrum-host")?
+                .unwrap_or_else(|| "chipnet.bch.ninja".to_string());
+            let electrum_port: u16 = args.opt_value_from_str("--electrum-port")?.unwrap_or(50002);
+            let broadcast = args.contains("--broadcast");
+            deploy::deploy(&seed, &state, &network, &electrum_host, electrum_port, broadcast)
+        }
         "dump-state" => {
             let state_dir: String = args
                 .opt_value_from_str("--state-dir")?

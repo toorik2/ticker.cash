@@ -1,17 +1,18 @@
-//! CashAddr encoder for P2PKH addresses (BCH spec: https://reference.cash/protocol/blockchain/encoding/cashaddr).
+//! CashAddr encoder for P2PKH and P2SH-32 addresses (BCH spec:
+//! https://reference.cash/protocol/blockchain/encoding/cashaddr).
 //!
 //! NOT bech32 — CashAddr uses a different alphabet and a 40-bit BCH checksum
-//! polynomial. We only need P2PKH for funder/publisher wallet addresses; P2SH-32
-//! addresses for covenants are loaded as-is from the manifest, so no decoder needed.
+//! polynomial.
 //!
 //! Encoding:
-//!   payload = version_byte || pkh        (1 + 20 = 21 bytes)
+//!   payload = version_byte || hash       (1 + N bytes)
 //!   data    = base32(convertBits(payload, 8 -> 5))
 //!   checksum = 8-character base32 of the 40-bit BCH polynomial mod
 //!   address = prefix + ":" + data + checksum
 //!
 //! Version byte: high bit = 0 (reserved), next 4 bits = type, low 3 bits = hash-size code.
-//! For P2PKH with 20-byte hash: type=0 (P2PKH), size code=0 → version_byte = 0x00.
+//!   Type 0 (P2PKH) + size 0 (20 B) → 0x00
+//!   Type 1 (P2SH)  + size 3 (32 B) → 0x0b
 
 /// Address prefix selector.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,12 +34,24 @@ const ALPHABET: &[u8; 32] = b"qpzry9x8gf2tvdw0s3jn54khce6mua7l";
 
 /// Encode a 20-byte pkh as a CashAddr P2PKH address.
 pub fn encode_p2pkh_cashaddr(pkh: &[u8; 20], prefix: AddressPrefix) -> String {
+    encode_cashaddr(0x00, pkh, prefix)
+}
+
+/// Encode a 35-byte P2SH-32 locking bytecode (`aa20 <32-byte sha256> 87`) as
+/// a CashAddr P2SH-32 address. Extracts the middle 32 bytes (the script hash).
+pub fn encode_p2sh32_cashaddr(locking_bytecode: &[u8; 35], prefix: AddressPrefix) -> String {
+    // Locking bytecode layout: OP_HASH256 (0xaa), PUSHBYTES_32 (0x20), <hash>, OP_EQUAL (0x87).
+    // We need only the 32-byte hash for the address.
+    let hash: &[u8; 32] = locking_bytecode[2..34].try_into().expect("35 - 3 = 32");
+    encode_cashaddr(0x0b, hash, prefix)
+}
+
+fn encode_cashaddr(version_byte: u8, hash: &[u8], prefix: AddressPrefix) -> String {
     let prefix_str = prefix.as_str();
 
-    // Version byte: P2PKH (type 0) + 20-byte size code (0).
-    let mut payload = Vec::with_capacity(21);
-    payload.push(0x00);
-    payload.extend_from_slice(pkh);
+    let mut payload = Vec::with_capacity(1 + hash.len());
+    payload.push(version_byte);
+    payload.extend_from_slice(hash);
 
     // Convert 8-bit payload to 5-bit groups.
     let data5 = convert_bits(&payload, 8, 5, true);

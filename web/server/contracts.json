@@ -1,16 +1,16 @@
 {
   "network": "chipnet",
-  "version": "v12.1",
-  "deployedAt": "2026-05-28T01:38:00.000Z",
+  "version": "v13.0",
+  "deployedAt": "2026-05-30T12:55:00.000Z",
   "oracle": {
-    "address": "bchtest:rwgvjpjdcmlw342a4q0q02mtp0w4tenm46xnsdmrdrveww2h4ru060alut77s",
-    "category": "9880c31334f9f708e9e0a3cf956442290ae1a463bd806fd416a5ed10b40f0d17"
+    "address": "bchtest:pwjf7l2m6zaa0uk97vc733xrwhqm8dmrvtvfevpk0k8f8fd2nha6vluenzkqr",
+    "category": "47f9b06b7d65d7035f668868b708481131cfa73641ab8ca85fdad54e191ad43c"
   },
   "slot": {
-    "address": "bchtest:r0kguz7zfa5nfje32xr3fg2utsc5y3g5hwdume2h3csd4rfrrg2dkvcqr9pn9",
-    "category": "846b2ca944750af011fa41bb87f9fda1244090a63be2cc3286223551343020f7"
+    "address": "bchtest:pwuzaq3p0qw2dwh63d3vdede65pxf4e3evugkvf0ck6vvsqw4u7rsnm4r8j76",
+    "category": "d80f774212665ee25f4ab9a7f5d663c24d5f583f889967649f28c23e5efc8dca"
   },
   "ticker": {
-    "address": "bchtest:r0r403dhnnahycepwklerew4js0q6t2eme69ex3vvgkuk7jps8hdcrntknsph"
+    "address": "bchtest:p0r403dhnnahycepwklerew4js0q6t2eme69ex3vvgkuk7jps8hdc3qhh23cu"
   }
 }
