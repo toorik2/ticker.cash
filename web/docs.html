@@ -242,7 +242,7 @@
       <p>Each slot's <code>cycleSeq</code> must equal <code>oracle.seq</code> (the cycle's new sequence number, written by this update). If any slot's <code>cycleSeq</code> doesn't match, the covenant would have rejected the tx — but the check is also yours to confirm.</p>
 
       <h3>Step 3 · Recompute the median</h3>
-      <p>Take the <code>price</code> field from each of the 7-13 slot inputs. Sort ascending. The covenant uses "lower-middle" median: index <code>floor((N - 1) / 2)</code>. For N=13 that's index 6 — the 7th smallest. The Oracle commit's <code>medianUsd</code> must equal that value.</p>
+      <p>Take the <code>price</code> field from each of the 7-13 slot inputs. Sort ascending. The covenant uses "lower-middle" median: index <code>floor((N - 1) / 2)</code>. For N=13 that's index 6 — the 7th smallest. The Oracle commit's <code>medianPrice</code> must equal that value.</p>
 
       <h3>Step 4 · Verify each publisher signature</h3>
       <p>For deeper assurance: look up each slot input's <i>birthing tx</i> — the prior <code>slot.attest</code> that wrote the commit you just read. That tx's input[0] unlock script contains the publisher's ECDSA-DER signature (70–72 B) plus the raw <code>serverName</code> and <code>price</code>/<code>ts</code>/<code>cycleSeq</code> pushes. (The covenant's <code>checkDataSig</code> accepts a 64 B Schnorr signature too, but the deployed publisher fleet signs ECDSA.) Recompute the publisher digest:</p>
@@ -295,7 +295,7 @@ output[2]  optional change</code></pre>
           <tr><td>Source count</td><td>13</td><td>9 USD + 2 USDC + 2 USDT, operator-diverse.</td></tr>
           <tr><td>Quorum floor (T<sub>floor</sub>)</td><td>7</td><td>Minimum distinct publishers per cycle.</td></tr>
           <tr><td>Quorum ratchet</td><td>~50%</td><td>Threshold = max(T<sub>floor</sub>, ⌈0.5 × oldActive⌉). Active count decays 10%/cycle on participation drop.</td></tr>
-          <tr><td>Cycle stride (min)</td><td>60 s</td><td>Enforced by the covenant (<code>Oracle.cash:76</code>: <code>require(newTs - prevTs &gt;= 60)</code>); publisher daemon races to broadcast as soon as the floor elapses + quorum forms.</td></tr>
+          <tr><td>Cycle stride (min)</td><td>60 s</td><td>Enforced by the covenant (<code>Oracle.cash:85</code>: <code>require(newTs - prevTs &gt;= 60)</code>); publisher daemon races to broadcast as soon as the floor elapses + quorum forms.</td></tr>
           <tr><td>Tickers per cycle (K)</td><td>2</td><td>Mutable; anyone-can-spend; self-replicate.</td></tr>
           <tr><td>Price scale</td><td>USD × 10<sup>8</sup></td><td><code>medianPrice / 1e8</code> = USD.</td></tr>
           <tr><td>Network</td><td>chipnet</td><td>Mainnet follows after stability period.</td></tr>
@@ -338,7 +338,7 @@ output[2]  optional change</code></pre>
       <p>The covenant's quorum floor blocks <code>Oracle.update</code> below 7 distinct slot inputs at the matching cycleSeq. The chain pauses. Once enough publishers come back online, the next <code>Oracle.update</code> resumes the stream — same Oracle UTXO, new median, advancing seq. No state is lost. The last published cycle is still spendable as a Ticker NFT, just stale.</p>
 
       <h3>Why 60-second cycles? Could it go faster?</h3>
-      <p>60 seconds is the covenant's enforced minimum stride (<code>Oracle.cash:76</code>): <code>require(newTs - prevTs &gt;= 60)</code>. Picked to balance CEX rate limits and per-day sat burn against consumer latency. The actual measured stride hovers slightly above 60 s depending on quorum-wait + propagation. Faster would require a covenant migration.</p>
+      <p>60 seconds is the covenant's enforced minimum stride (<code>Oracle.cash:85</code>): <code>require(newTs - prevTs &gt;= 60)</code>. Picked to balance CEX rate limits and per-day sat burn against consumer latency. The actual measured stride hovers slightly above 60 s depending on quorum-wait + propagation. Faster would require a covenant migration.</p>
 
       <h3>Why CashTokens, not OP_RETURN / sidechains / etc.?</h3>
       <p>CashTokens NFTs give us four properties that nothing else on BCH provides together: (1) a slot's identity is enforced by covenant + consensus, not by a script we wrote, (2) the slot category is closed forever after genesis, so no one can mint new slots, (3) tickers self-replicate via the Ticker covenant so consumers don't need to re-mint anything, (4) on-chain composability — a consumer's covenant can spend a Ticker as a price gate without intermediate trust. OP_RETURN lacks all of these.</p>
