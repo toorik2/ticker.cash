@@ -28,6 +28,7 @@ pub fn setup_all(
     electrum_host: &str,
     electrum_port: u16,
     electrum_tls: bool,
+    electrum_fallbacks: &[(String, u16)],
 ) -> Result<(), Box<dyn std::error::Error>> {
     if network != "chipnet" && network != "mainnet" {
         return Err("--network must be 'chipnet' or 'mainnet'".into());
@@ -58,6 +59,13 @@ pub fn setup_all(
         })
         .collect::<Result<_, _>>()?;
 
+    // Fallback endpoints get serialized in the same shape as the primary so
+    // operators can promote one by editing the manifest.
+    let fallbacks_json: Vec<serde_json::Value> = electrum_fallbacks
+        .iter()
+        .map(|(h, p)| json!({ "host": h, "port": p, "tls": true }))
+        .collect();
+
     // Single canonical manifest content shared across all 13 slot dirs.
     let manifest = json!({
         "version": 1,
@@ -68,7 +76,12 @@ pub fn setup_all(
             "slot":   { "address": slot_addr,    "lockingBytecodeHex": slot_lb,   "category": slot_cat   },
         },
         "publisherPkhs": publisher_pkhs,
-        "electrum": { "host": electrum_host, "port": electrum_port, "tls": electrum_tls },
+        "electrum": {
+            "host": electrum_host,
+            "port": electrum_port,
+            "tls": electrum_tls,
+            "fallbacks": fallbacks_json,
+        },
     });
     let manifest_text = serde_json::to_string_pretty(&manifest)?;
 

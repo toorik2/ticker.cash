@@ -48,6 +48,38 @@ pub struct ElectrumDefault {
     pub host: String,
     pub port: u16,
     pub tls: bool,
+    /// Optional fallback endpoints, tried in order when the primary fails.
+    /// Each entry follows the same `{host, port, tls}` shape as the primary.
+    /// Missing field → empty vec (publisher runs single-endpoint).
+    #[serde(default)]
+    pub fallbacks: Vec<ElectrumFallback>,
+}
+
+/// Fallback endpoint shape — must mirror `ElectrumDefault` so operators can
+/// promote a fallback to primary by editing the manifest.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ElectrumFallback {
+    pub host: String,
+    pub port: u16,
+    #[serde(default = "default_tls")]
+    pub tls: bool,
+}
+
+fn default_tls() -> bool {
+    true
+}
+
+impl ElectrumDefault {
+    /// Produce the ordered endpoint pool: primary first, then fallbacks.
+    /// All entries use TLS (the publisher daemon does not support plain TCP).
+    pub fn endpoint_pool(&self) -> Vec<crate::electrum::Endpoint> {
+        let mut out = Vec::with_capacity(1 + self.fallbacks.len());
+        out.push(crate::electrum::Endpoint::new(&self.host, self.port));
+        for f in &self.fallbacks {
+            out.push(crate::electrum::Endpoint::new(&f.host, f.port));
+        }
+        out
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]

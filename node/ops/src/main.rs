@@ -6,7 +6,11 @@
 //!                       [--network chipnet|mainnet]
 //!                       [--electrum-host HOST] [--electrum-port PORT]
 //!                       [--electrum-tls BOOL]
+//!                       [--electrum-fallbacks "host:port,host:port,…"]
 //!     Generate 13 per-slot install directories from seed + deploy-state.
+//!     `--electrum-fallbacks` (default: two well-known public chipnet
+//!     Fulcrums) populates the manifest's fallback pool; publishers fail
+//!     over to these when the primary endpoint is unreachable.
 //!
 //!   ticker-ops dump-state [--state-dir .ticker]
 //!     Print manifest + deploy-state + per-publisher state as JSON.
@@ -125,6 +129,29 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
                 .unwrap_or_else(|| "chipnet.bch.ninja".to_string());
             let electrum_port: u16 = args.opt_value_from_str("--electrum-port")?.unwrap_or(50002);
             let electrum_tls: bool = args.opt_value_from_str("--electrum-tls")?.unwrap_or(true);
+            // --electrum-fallbacks: comma-separated "host:port,host:port,…"
+            // Defaults to two well-known public chipnet Fulcrums for failover
+            // when the primary (operator's own Fulcrum) is down. Set to empty
+            // string to disable.
+            let raw_fallbacks: String = args
+                .opt_value_from_str("--electrum-fallbacks")?
+                .unwrap_or_else(|| {
+                    "chipnet.bch.ninja:50002,chipnet.imaginary.cash:50002".to_string()
+                });
+            let electrum_fallbacks: Vec<(String, u16)> = raw_fallbacks
+                .split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(|s| {
+                    let (h, p) = s.split_once(':').ok_or_else(|| {
+                        format!("--electrum-fallbacks entry '{s}' must be host:port")
+                    })?;
+                    let port: u16 = p.parse().map_err(|e| {
+                        format!("--electrum-fallbacks entry '{s}' has bad port: {e}")
+                    })?;
+                    Ok::<(String, u16), String>((h.to_string(), port))
+                })
+                .collect::<Result<_, _>>()?;
             setup::setup_all(
                 &seed,
                 &state,
@@ -133,6 +160,7 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
                 &electrum_host,
                 electrum_port,
                 electrum_tls,
+                &electrum_fallbacks,
             )
         }
         other => Err(format!("ticker-ops: unknown subcommand '{other}'").into()),

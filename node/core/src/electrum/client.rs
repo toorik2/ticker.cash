@@ -1,12 +1,19 @@
-//! TLS Electrum/Fulcrum JSON-RPC client (blocking I/O, single-thread).
+//! TLS Electrum/Fulcrum JSON-RPC client with auto-reconnect + multi-endpoint
+//! failover.
 //!
-//! Connection lifecycle: on construction, dial TCP → wrap in TLS → ready.
-//! Per request: append `{...}\n` to the wire, then `read_line` for the response.
-//! Auto-reconnect on disconnect is the caller's responsibility (the cycle
-//! orchestrator catches `Disconnected` and retries).
+//! Holds an ordered pool of endpoints (primary first, then fallbacks). Each
+//! request goes to the currently-connected endpoint; on any I/O failure
+//! (broken pipe, EOF, timeout, reset, …) the client transparently dials the
+//! next endpoint in the pool and retries the same request once. Caller code
+//! sees either a successful response or `AllEndpointsDown` after the full
+//! pool has been tried.
+//!
+//! Reconnect/failover happens inside `call()` — callers do not need to catch
+//! disconnect errors and recreate the client.
 
 use super::tls::tls_client_config_from_env;
 use super::types::Utxo;
+use crate::log_warn;
 use rustls::pki_types::ServerName;
 use rustls::{ClientConnection, StreamOwned};
 use serde::Serialize;
@@ -45,11 +52,32 @@ pub enum ElectrumError {
     Rpc(String),
     #[error("unexpected response shape")]
     BadShape,
+    #[error("all {tried} endpoints unreachable: {last}")]
+    AllEndpointsDown { tried: usize, last: String },
 }
 
-/// Blocking JSON-RPC client over a single persistent TLS socket.
+/// One TLS-wrapped Fulcrum endpoint in the failover pool.
+#[derive(Debug, Clone)]
+pub struct Endpoint {
+    pub host: String,
+    pub port: u16,
+}
+
+impl Endpoint {
+    pub fn new(host: impl Into<String>, port: u16) -> Self {
+        Self { host: host.into(), port }
+    }
+}
+
+type Stream = BufReader<StreamOwned<ClientConnection, TcpStream>>;
+
+/// Blocking JSON-RPC client with an ordered endpoint pool.
 pub struct ElectrumClient {
-    reader: BufReader<StreamOwned<ClientConnection, TcpStream>>,
+    endpoints: Vec<Endpoint>,
+    /// Index of the currently-connected endpoint (when `conn.is_some()`).
+    current: usize,
+    timeout: Duration,
+    conn: Option<Stream>,
     next_id: AtomicU64,
 }
 
@@ -62,10 +90,56 @@ struct RpcRequest<'a, P: Serialize> {
 }
 
 impl ElectrumClient {
-    /// Open a TLS-wrapped JSON-RPC connection to a Fulcrum server. Blocks until
-    /// the TLS handshake completes (or fails). Read/write timeouts apply to
-    /// every subsequent request via the underlying TCP socket.
-    pub fn connect(host: &str, port: u16, read_timeout: Duration) -> Result<Self, ElectrumError> {
+    /// Single-endpoint convenience: dial one Fulcrum, no fallbacks. Kept for
+    /// ops/* tools whose use is one-shot.
+    pub fn connect(host: &str, port: u16, timeout: Duration) -> Result<Self, ElectrumError> {
+        Self::connect_pool(vec![Endpoint::new(host, port)], timeout)
+    }
+
+    /// Multi-endpoint constructor. Tries endpoints in order; the first one
+    /// that dials successfully becomes the active connection. Errors with
+    /// `AllEndpointsDown` if every endpoint fails.
+    pub fn connect_pool(
+        endpoints: Vec<Endpoint>,
+        timeout: Duration,
+    ) -> Result<Self, ElectrumError> {
+        if endpoints.is_empty() {
+            return Err(ElectrumError::AllEndpointsDown {
+                tried: 0,
+                last: "empty endpoint pool".to_string(),
+            });
+        }
+        let mut last_err: Option<String> = None;
+        for (idx, ep) in endpoints.iter().enumerate() {
+            match Self::dial(&ep.host, ep.port, timeout) {
+                Ok(conn) => {
+                    return Ok(Self {
+                        endpoints,
+                        current: idx,
+                        timeout,
+                        conn: Some(conn),
+                        next_id: AtomicU64::new(1),
+                    });
+                }
+                Err(e) => {
+                    log_warn!(
+                        "electrum: endpoint dial failed",
+                        "host" => &ep.host,
+                        "port" => ep.port,
+                        "err" => e.to_string(),
+                    );
+                    last_err = Some(e.to_string());
+                }
+            }
+        }
+        Err(ElectrumError::AllEndpointsDown {
+            tried: endpoints.len(),
+            last: last_err.unwrap_or_else(|| "no error captured".to_string()),
+        })
+    }
+
+    /// Open a single TLS-wrapped connection. No state changes; pure factory.
+    fn dial(host: &str, port: u16, timeout: Duration) -> Result<Stream, ElectrumError> {
         let addrs: Vec<_> = (host, port)
             .to_socket_addrs_compat()
             .map_err(|source| ElectrumError::Dns {
@@ -78,27 +152,26 @@ impl ElectrumClient {
                 host: host.to_string(),
                 source: std::io::Error::new(std::io::ErrorKind::NotFound, "no address"),
             })?,
-            read_timeout,
+            timeout,
         )
         .map_err(|source| ElectrumError::Tcp {
             host: host.to_string(),
             port,
             source,
         })?;
-        tcp.set_read_timeout(Some(read_timeout))?;
-        tcp.set_write_timeout(Some(read_timeout))?;
-
+        tcp.set_read_timeout(Some(timeout))?;
+        tcp.set_write_timeout(Some(timeout))?;
         let config = tls_client_config_from_env();
         let server_name = ServerName::try_from(host.to_string())
             .map_err(|_| ElectrumError::InvalidServerName(host.to_string()))?;
         let conn = ClientConnection::new(config, server_name)?;
-        let tls = StreamOwned::new(conn, tcp);
-        Ok(ElectrumClient {
-            reader: BufReader::new(tls),
-            next_id: AtomicU64::new(1),
-        })
+        Ok(BufReader::new(StreamOwned::new(conn, tcp)))
     }
 
+    /// Send a request on the current connection; if it fails with a
+    /// connection-fatal error, fail over through the endpoint pool starting
+    /// at the next endpoint and retry the same wire bytes once. Returns the
+    /// successful response, or `AllEndpointsDown` if every endpoint fails.
     fn call<P: Serialize>(&mut self, method: &str, params: P) -> Result<Value, ElectrumError> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let req = RpcRequest {
@@ -109,10 +182,67 @@ impl ElectrumClient {
         };
         let mut buf = serde_json::to_vec(&req)?;
         buf.push(b'\n');
-        self.reader.get_mut().write_all(&buf)?;
 
+        // First attempt — current connection.
+        match self.send_recv(&buf) {
+            Ok(v) => return Ok(v),
+            Err(e) if !is_connection_error(&e) => return Err(e),
+            Err(e) => {
+                log_warn!(
+                    "electrum: request failed, will fail over",
+                    "method" => method,
+                    "host" => &self.endpoints[self.current].host,
+                    "err" => e.to_string(),
+                );
+                self.conn = None;
+            }
+        }
+
+        // Reconnect path: try every endpoint, starting from the one AFTER
+        // the failing current (so we don't immediately re-hit the bad host).
+        let n = self.endpoints.len();
+        let mut last_err: Option<String> = None;
+        for offset in 1..=n {
+            let idx = (self.current + offset) % n;
+            let ep = self.endpoints[idx].clone();
+            match Self::dial(&ep.host, ep.port, self.timeout) {
+                Ok(conn) => {
+                    self.conn = Some(conn);
+                    self.current = idx;
+                    if idx != 0 {
+                        log_warn!(
+                            "electrum: failed over to fallback",
+                            "host" => &ep.host,
+                            "port" => ep.port,
+                            "primary" => &self.endpoints[0].host,
+                        );
+                    }
+                    // Retry the original request on the new connection.
+                    return self.send_recv(&buf);
+                }
+                Err(e) => {
+                    log_warn!(
+                        "electrum: failover dial failed",
+                        "host" => &ep.host,
+                        "port" => ep.port,
+                        "err" => e.to_string(),
+                    );
+                    last_err = Some(e.to_string());
+                }
+            }
+        }
+        Err(ElectrumError::AllEndpointsDown {
+            tried: n,
+            last: last_err.unwrap_or_else(|| "no error captured".to_string()),
+        })
+    }
+
+    /// Wire-level send + receive on the current connection. No retry logic.
+    fn send_recv(&mut self, buf: &[u8]) -> Result<Value, ElectrumError> {
+        let reader = self.conn.as_mut().ok_or(ElectrumError::Disconnected)?;
+        reader.get_mut().write_all(buf)?;
         let mut line = String::new();
-        let n = self.reader.read_line(&mut line)?;
+        let n = reader.read_line(&mut line)?;
         if n == 0 {
             return Err(ElectrumError::Disconnected);
         }
@@ -122,9 +252,14 @@ impl ElectrumClient {
                 return Err(ElectrumError::Rpc(err.to_string()));
             }
         }
-        resp.get("result")
-            .cloned()
-            .ok_or(ElectrumError::BadShape)
+        resp.get("result").cloned().ok_or(ElectrumError::BadShape)
+    }
+
+    /// Returns `(host, port)` of the endpoint currently bearing traffic.
+    /// Useful for diagnostics and tests.
+    pub fn current_endpoint(&self) -> (&str, u16) {
+        let ep = &self.endpoints[self.current];
+        (&ep.host, ep.port)
     }
 
     /// `blockchain.address.listunspent` — BCH-Fulcrum extension returning UTXOs
@@ -152,7 +287,10 @@ impl ElectrumClient {
     /// `blockchain.transaction.broadcast` — submit a raw tx hex; returns txid.
     pub fn broadcast_raw_hex(&mut self, raw_hex: &str) -> Result<String, ElectrumError> {
         let result = self.call("blockchain.transaction.broadcast", [raw_hex])?;
-        result.as_str().map(str::to_string).ok_or(ElectrumError::BadShape)
+        result
+            .as_str()
+            .map(str::to_string)
+            .ok_or(ElectrumError::BadShape)
     }
 
     /// Convenience: `blockchain.transaction.broadcast` over a raw byte buffer.
@@ -162,9 +300,26 @@ impl ElectrumClient {
     }
 }
 
+/// Classify an error as connection-fatal (warrants reconnect/failover) vs
+/// caller-fatal (warrants bubbling up unchanged). I/O errors of any kind,
+/// EOF (`Disconnected`), and JSON-parse errors (often a sign the response
+/// was truncated mid-flight) trigger the reconnect path. RPC-level errors
+/// (server understood and rejected the request) and shape errors stay.
+fn is_connection_error(e: &ElectrumError) -> bool {
+    matches!(
+        e,
+        ElectrumError::Disconnected
+            | ElectrumError::Io(_)
+            | ElectrumError::Json(_)
+            | ElectrumError::Tcp { .. }
+            | ElectrumError::Dns { .. }
+            | ElectrumError::Tls(_)
+    )
+}
+
 // std's ToSocketAddrs is in `std::net::ToSocketAddrs`, but the trait method
 // is `to_socket_addrs(&self)` — give it a friendlier alias to avoid the import
-// gymnastics in `connect`.
+// gymnastics in `dial`.
 trait ToSocketAddrsCompat {
     fn to_socket_addrs_compat(self) -> std::io::Result<std::vec::IntoIter<std::net::SocketAddr>>;
 }
@@ -186,19 +341,58 @@ mod tests {
     fn error_construction_smoke() {
         let _ = ElectrumError::InvalidServerName("x".to_string());
         let _ = ElectrumError::Rpc("err".to_string());
+        let _ = ElectrumError::AllEndpointsDown {
+            tried: 3,
+            last: "x".to_string(),
+        };
     }
 
-    /// Connection to a non-existent host fails with `Dns` or `Tcp` — no panic.
+    /// Single-endpoint connect to a non-existent host fails with
+    /// `AllEndpointsDown` (the new constructor wraps the underlying
+    /// Dns/Tcp error).
     #[test]
-    fn unreachable_host_fails_cleanly() {
+    fn unreachable_host_fails_with_pool_error() {
         let r = ElectrumClient::connect(
             "this-host-does-not-exist.invalid",
             50002,
             Duration::from_millis(500),
         );
-        assert!(matches!(
-            r,
-            Err(ElectrumError::Dns { .. }) | Err(ElectrumError::Tcp { .. })
-        ));
+        assert!(matches!(r, Err(ElectrumError::AllEndpointsDown { tried: 1, .. })));
+    }
+
+    /// Pool of all-unreachable hosts reports `AllEndpointsDown` with
+    /// `tried = pool_size`.
+    #[test]
+    fn pool_all_unreachable() {
+        let pool = vec![
+            Endpoint::new("nope-1.invalid", 50002),
+            Endpoint::new("nope-2.invalid", 50002),
+            Endpoint::new("nope-3.invalid", 50002),
+        ];
+        let r = ElectrumClient::connect_pool(pool, Duration::from_millis(300));
+        match r {
+            Err(ElectrumError::AllEndpointsDown { tried, .. }) => assert_eq!(tried, 3),
+            Err(e) => panic!("expected AllEndpointsDown(3), got Err({e})"),
+            Ok(_) => panic!("expected AllEndpointsDown(3), got Ok"),
+        }
+    }
+
+    /// Empty pool rejected immediately.
+    #[test]
+    fn empty_pool_rejected() {
+        let r = ElectrumClient::connect_pool(vec![], Duration::from_millis(100));
+        assert!(matches!(r, Err(ElectrumError::AllEndpointsDown { tried: 0, .. })));
+    }
+
+    /// Connection-error classifier — sanity-check the matrix.
+    #[test]
+    fn classifier_matrix() {
+        assert!(is_connection_error(&ElectrumError::Disconnected));
+        assert!(is_connection_error(&ElectrumError::Io(std::io::Error::from(
+            std::io::ErrorKind::BrokenPipe
+        ))));
+        assert!(!is_connection_error(&ElectrumError::Rpc("x".into())));
+        assert!(!is_connection_error(&ElectrumError::BadShape));
+        assert!(!is_connection_error(&ElectrumError::InvalidServerName("x".into())));
     }
 }

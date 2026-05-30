@@ -12,6 +12,6 @@ pub mod client;
 pub mod tls;
 pub mod types;
 
-pub use client::{ElectrumClient, ElectrumError};
+pub use client::{ElectrumClient, ElectrumError, Endpoint};
 pub use tls::tls_client_config;
 pub use types::{NftCapability, TokenData, Utxo};

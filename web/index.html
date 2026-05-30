@@ -117,7 +117,14 @@
   <div><a href="/docs">docs</a> · <a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github</a></div>
 </div>
 <script>
-const FULCRUM_WSS = 'wss://fulcrum.layer1.cash:50004';
+// Endpoint pool: primary first, fallbacks tried in order on connection
+// failure. Browser fails over transparently — same model as the publisher
+// daemon's Rust ElectrumClient.
+const FULCRUM_WSS_POOL = [
+  'wss://fulcrum.layer1.cash:50004',
+  'wss://chipnet.bch.ninja:50004',
+  'wss://chipnet.imaginary.cash:50004',
+];
 const ORACLE_ADDR = 'bchtest:pwc6n79kccw4my9hy9umvr0qmpzf5pf5kg0sl293z38cmvxmnd08zpch7papm';
 const ORACLE_CATEGORY = '4c435bb6dfc372a0dcc050f5a14a76054a70e869d4b8f591f221f829bdec99cc';
 const STALE_SEC = 300;
@@ -154,22 +161,45 @@ function decodeOracleCommit(hex){
 }
 
 class ElectrumWS {
-  constructor(url){
-    this.url = url; this.ws = null; this.nextId = 1;
-    this.pending = new Map(); this.buffer = ''; this.connecting = null;
+  constructor(urls){
+    this.urls = urls;        // ordered endpoint pool
+    this.current = 0;        // index of the URL we're currently connected to
+    this.ws = null; this.nextId = 1;
+    this.pending = new Map(); this.connecting = null;
   }
   async connect(){
     if (this.ws && this.ws.readyState === WebSocket.OPEN) return;
     if (this.connecting) return this.connecting;
-    this.connecting = new Promise((resolve, reject) => {
-      const ws = new WebSocket(this.url);
-      const timer = setTimeout(() => { try { ws.close(); } catch{} this.connecting = null; reject(new Error('ws connect timeout')); }, 10000);
-      ws.onopen = () => { clearTimeout(timer); this.ws = ws; this.connecting = null; resolve(); };
-      ws.onerror = () => { clearTimeout(timer); this.connecting = null; reject(new Error('ws error')); };
-      ws.onclose = () => { this.ws = null; this.connecting = null; this.failAll(new Error('ws closed')); };
+    // Try endpoints in order, starting from this.current. Advance index
+    // on each failure so a permanent outage of one endpoint doesn't keep
+    // costing a connect attempt before we get to the working one.
+    this.connecting = (async () => {
+      const n = this.urls.length;
+      let lastErr;
+      for (let offset = 0; offset < n; offset++) {
+        const idx = (this.current + offset) % n;
+        try {
+          await this.dial(this.urls[idx]);
+          this.current = idx;
+          return;
+        } catch (e) {
+          lastErr = e;
+        }
+      }
+      throw lastErr || new Error('no endpoints');
+    })();
+    try { return await this.connecting; }
+    finally { this.connecting = null; }
+  }
+  dial(url){
+    return new Promise((resolve, reject) => {
+      const ws = new WebSocket(url);
+      const timer = setTimeout(() => { try { ws.close(); } catch{} reject(new Error('ws connect timeout: ' + url)); }, 10000);
+      ws.onopen = () => { clearTimeout(timer); this.ws = ws; resolve(); };
+      ws.onerror = () => { clearTimeout(timer); reject(new Error('ws error: ' + url)); };
+      ws.onclose = () => { this.ws = null; this.failAll(new Error('ws closed: ' + url)); };
       ws.onmessage = (ev) => this.onMessage(ev.data);
     });
-    return this.connecting;
   }
   failAll(err){ for (const [,p] of this.pending) p.reject(err); this.pending.clear(); }
   onMessage(data){
@@ -199,7 +229,7 @@ class ElectrumWS {
   }
 }
 
-const client = new ElectrumWS(FULCRUM_WSS);
+const client = new ElectrumWS(FULCRUM_WSS_POOL);
 let lastLockSec = null;
 
 function refreshAge(){

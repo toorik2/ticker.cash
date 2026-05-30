@@ -92,9 +92,14 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ─── publisher thread ───────────────────────────────────────────────
     let cfg = build_publisher_cfg(&manifest, &publisher_identity.key, publisher_identity.slot)?;
-    let electrum = ElectrumClient::connect(
-        &manifest.electrum.host,
-        manifest.electrum.port,
+    let endpoints = manifest.electrum.endpoint_pool();
+    log_info!(
+        "publisher: electrum pool",
+        "primary" => format!("{}:{}", endpoints[0].host, endpoints[0].port),
+        "fallback_count" => endpoints.len() - 1,
+    );
+    let electrum = ElectrumClient::connect_pool(
+        endpoints,
         Duration::from_secs(ELECTRUM_TIMEOUT_SEC),
     )?;
     let mut env = RealEnv {
