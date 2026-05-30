@@ -91,11 +91,11 @@
     <div class="specs">
       <div class="spec"><div class="h">Publishers</div><div class="v">13</div></div>
       <div class="spec"><div class="h">Quorum</div><div class="v">≥7</div></div>
-      <div class="spec"><div class="h">Cycle</div><div class="v">~30<small>s</small></div></div>
+      <div class="spec"><div class="h">Cycle</div><div class="v">60<small>s</small></div></div>
     </div>
 
     <div class="lead">
-      <p>A <b>decentralized BCH/USD price feed</b> on Bitcoin Cash chipnet. Thirteen publishers, each pinned to one operator-diverse exchange (9 USD spot markets, 2 USDC, 2 USDT), fetch prices independently and attest them to a CashTokens covenant. Every ~30 s, whichever publisher wins the race broadcasts <code>Oracle.update</code> — the covenant verifies that ≥ 7 distinct publishers agreed on the cycle, computes the median on chain, and commits the result.</p>
+      <p>A <b>decentralized BCH/USD price feed</b> on Bitcoin Cash chipnet. A smart contract takes the median of ≥ 7 of 13 publisher attestations and commits it on chain. Every 60s.</p>
       <p>The trust root is the <b>7-of-13 publisher quorum</b>: corrupting fewer than 7 publishers can't move the median; the covenant absorbs ≤ 6 outliers without bias. No admin keys, no upgrade path, no governance signers — the rules are in <code>Oracle.cash</code> + <code>PublisherSlot.cash</code>, deployed once, immutable.</p>
       <p><b>Read the price.</b> On-chain: spend a Ticker NFT as an input, decode its 17-byte commit. Off-chain: <code>GET /api/v1/price</code>. Full integration guide, signature inventory, and operator playbook in the <a href="/docs">docs</a> · live federation state at <a href="/stats">stats</a>.</p>
     </div>

@@ -10,9 +10,6 @@ pub const TICKER_DUST: u64 = 1_500;
 /// `Oracle.cash:82-86`: `if (thr < 7) thr = 7;`.
 pub const THR_FLOOR: usize = 7;
 
-/// Federation size: 7 notary Schnorr keys in the slot covenant's OR-list.
-pub const NOTARY_COUNT: usize = 7;
-
 /// Federation size: 13 publishers, each pinned to one of [`SOURCES`](super::sources::SOURCES).
 pub const PUBLISHER_COUNT: usize = 13;
 
@@ -20,8 +17,8 @@ pub const PUBLISHER_COUNT: usize = 13;
 pub const TICKER_HEAD_COUNT: usize = 2;
 
 /// Stride floor between Oracle.update transactions, seconds.
-/// `Oracle.cash:73-74`: `require(newTs - prevTs >= 30)`.
-pub const STRIDE_FLOOR_SEC: u32 = 30;
+/// `Oracle.cash:73-74`: `require(newTs - prevTs >= 60)`.
+pub const STRIDE_FLOOR_SEC: u32 = 60;
 
 // ─── Commit lengths ────────────────────────────────────────────────────────
 

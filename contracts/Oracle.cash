@@ -1,6 +1,6 @@
 pragma cashscript >= 0.13.0;
 
-// Oracle v12 — RFC-013: PublisherSlot-based attestation aggregator.
+// Oracle v14 — PublisherSlot-based attestation aggregator.
 //
 // ── Diff from v11 ──────────────────────────────────────────────────────
 // v11 walked VA inputs and BURNED each one (consumed without re-emit). VAs
@@ -65,13 +65,15 @@ contract Oracle(
         int prevTs = int(oldCommit.slice(5, 9));
         int newTs  = int(claimedNewTs);
 
-        // ── Time stride (notary-attested, monotonic) ─────────────────
+        // ── Time stride (publisher-attested median, monotonic) ───────
         // No upper bound on stride: upperVotes pins newTs to median(slotTs)
-        // + 120, honest notaries cap at ≈ wall_clock. Removing the upper
+        // + 120, honest publishers cap at ≈ wall_clock. Removing the upper
         // ceiling lets the chain self-heal from any idle duration in a
-        // single catch-up cycle.
+        // single catch-up cycle. v14 raised the floor from 30 to 60 — same
+        // CEX-rate-limit / consumer-latency trade rebalanced toward fewer
+        // sats burned per day.
         require(newTs > prevTs);
-        require(newTs - prevTs >= 30);
+        require(newTs - prevTs >= 60);
 
         int newSeq    = int(oldCommit.slice(1, 5)) + 1;
         int oldActive = int(oldCommit.slice(17, 19));
