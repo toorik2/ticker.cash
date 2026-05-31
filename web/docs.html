@@ -278,9 +278,58 @@ output[2]  optional change</code></pre>
       <p>One stateless daemon, <code>ticker-node</code>. Each operator runs one process per slot.</p>
 
       <h3>Publisher</h3>
-      <p>Polls the Oracle UTXO, fetches its pinned source over TLS, refreshes its slot via <code>slot.attest()</code>, waits ~25 s for peers, then races to broadcast <code>Oracle.update</code>. ~2.2 k sats per cycle just for <code>slot.attest</code>, plus ~8 k more on the cycles the publisher wins the <code>Oracle.update</code> race — averages to ~2.8 k sats per cycle per slot (see <a href="#faq">§09</a> for the full breakdown).</p>
+      <p>Polls the Oracle UTXO, fetches its pinned source over TLS, refreshes its slot via <code>slot.attest()</code>, waits ~25 s for peers, then races to broadcast <code>Oracle.update</code>. ~2.2 k sats per cycle just for <code>slot.attest</code>, plus a share of the ~12.8 k <code>Oracle.update</code> tx fee averaged across racers — works out to ~3.2 k sats per cycle per slot (see <a href="#faq">§09</a> for the full breakdown).</p>
 <pre><code>$ ticker-node --publisher --slot 0</code></pre>
       <p>Contract addresses, publisher pkhs, and Electrum endpoints come from the manifest at <code>$TICKER_HOME/manifest.json</code>; the source pin is positional (slot <em>i</em> → <code>SOURCES[i]</code>, baked into the binary); the per-slot secp256k1 publisher key is loaded from <code>$TICKER_HOME/publisher.key</code> (mode 0600).</p>
+
+      <h3>Resource cost (per publisher, measured live)</h3>
+      <p>One <code>ticker-node</code> process. Numbers below are from the running chipnet deploy (slot 0, &gt; 1 hour uptime, single-process measurement on Linux x86-64).</p>
+      <table>
+        <tbody>
+          <tr><td>Memory</td><td><strong>~4 MiB RSS</strong></td><td><code>VmRSS = 4160 KiB</code>, of which only 624 KiB is anonymous heap; the rest is shared file mappings (binary, glibc, CA bundle). 13 co-located publishers fit in ~60 MiB total.</td></tr>
+          <tr><td>CPU</td><td><strong>~0.03 % of one core</strong></td><td>1 s of CPU per 3300 s of wall time at 60 s stride. Each cycle = ~18 ms of CPU (slot.attest sign + Oracle.update build + Electrum I/O). Idle between cycles.</td></tr>
+          <tr><td>Threads</td><td>3</td><td>Main + publisher loop + stats server.</td></tr>
+          <tr><td>Disk (state)</td><td>~20 KiB</td><td><code>$TICKER_HOME/</code> holds manifest (~1.8 KiB), publisher.key (64 B), advisory state file (~200 B). No DB.</td></tr>
+          <tr><td>Disk (binary)</td><td>1.7 MiB</td><td>Static-linked Rust ELF, includes embedded cashc artifacts (~55 KiB) + Mozilla CA bundle.</td></tr>
+          <tr><td>Disk (logs)</td><td>~30 MiB/month</td><td>Structured JSON via journald, ~1 MiB/day. Compressed at rest.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Network bandwidth (per publisher)</h3>
+      <p>Each cycle the daemon: fetches its pinned source over HTTPS (~3 KiB round-trip), broadcasts its <code>slot.attest</code> tx (~2.2 KiB wire), watches Fulcrum via Electrum WS subscription, and broadcasts an <code>Oracle.update</code> attempt (~12.8 KiB wire) which has a ~1/13 chance of being the canonical winner. Race-lost broadcasts still consume upload bandwidth but pay zero fee.</p>
+      <table>
+        <tbody>
+          <tr><td>Upload per cycle</td><td>~18 KiB</td><td>slot.attest (2.2) + Oracle.update broadcast (12.8) + Electrum requests (~2) + CEX GET (~1).</td></tr>
+          <tr><td>Download per cycle</td><td>~12 KiB</td><td>listunspent responses (slot category returns ~6 KiB), Oracle UTXO push, CEX response.</td></tr>
+          <tr><td>Per day</td><td>~43 MiB</td><td>1440 cycles × ~30 KiB.</td></tr>
+          <tr><td>Per month</td><td>~1.3 GiB</td><td>Well under any entry-level VPS bandwidth allowance.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Funding (BCH per cycle)</h3>
+      <p>Every cycle the publisher's funder wallet pays fees for its <code>slot.attest</code> tx plus a share of the <code>Oracle.update</code> tx if it wins the race. At 1 sat/byte mempool floor:</p>
+      <table>
+        <tbody>
+          <tr><td><code>slot.attest</code></td><td>~2,200 sats/cycle</td><td>~2.2 KiB wire × 1 sat/byte. Paid every cycle.</td></tr>
+          <tr><td><code>Oracle.update</code> share</td><td>~1,000 sats/cycle</td><td>12.8 KiB tx ÷ 13 racers (one winner per cycle, cost amortised across the federation).</td></tr>
+          <tr><td><strong>Total per publisher</strong></td><td><strong>~3,200 sats/cycle</strong></td><td>= 4.6 M sats/day = 0.046 BCH/day per slot.</td></tr>
+        </tbody>
+      </table>
+      <p>On <strong>chipnet</strong> sats are free (testnet); the current deploy runs perpetually on test funds. On <strong>mainnet</strong>, at a reference BCH/USD of $300, one publisher costs ~$13.80/day (~$415/month) in tx fees alone. The 13-publisher federation total: ~$180/day. Costs scale linearly with stride — halving to 30 s would double the fee burn; doubling to 120 s would halve it.</p>
+
+      <h3>Minimum-viable VPS</h3>
+      <p>For <em>one</em> publisher slot:</p>
+      <ul>
+        <li><strong>1 vCPU</strong> (uses &lt; 0.1 %; spec is for headroom + restart handling)</li>
+        <li><strong>256 MiB RAM</strong> (uses &lt; 10 MiB; spec is for OS + journald + buffer)</li>
+        <li><strong>5 GiB disk</strong> (uses &lt; 100 MiB inc. logs; spec is for OS + 1 yr log retention)</li>
+        <li><strong>100 GiB/month bandwidth</strong> (uses ~1.3 GiB; spec is generous)</li>
+        <li><strong>Linux x86-64 + systemd</strong> (the supported deployment target)</li>
+      </ul>
+      <p>The cheapest tier of any mainstream provider (Hetzner CX11, Vultr $3.50, Linode Nanode $5) is overspec'd. The 13-publisher federation today co-locates on a single CX22-class VPS using ~60 MiB RAM total.</p>
+
+      <h3>Optional: own BCHN + Fulcrum</h3>
+      <p>The daemon talks to any Electrum-compatible Fulcrum. By default it uses a 3-endpoint failover pool (one operator-run, two public). Running your own BCHN + Fulcrum is optional — it tightens the trust model (no Fulcrum operator to trust for UTXO reads) but adds an order of magnitude to the resource budget: a chipnet BCHN node needs ~2 GiB RAM, ~10 GiB disk for the chain (chipnet height ~308 k blocks ≈ 250 MiB pruned, 2-3 GiB unpruned), and Fulcrum adds another ~1-2 GiB RAM for indexing. Reasonable if you're already running BCH infra; not required for a publisher.</p>
 
       <div class="callout"><b>Source.</b> <a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github.com/toorik2/ticker.cash</a>. Federation setup uses <code>ticker-ops setup-all</code> after generating a 32-byte seed.</div>
     </section>
