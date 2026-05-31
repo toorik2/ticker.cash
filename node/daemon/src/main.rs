@@ -1,12 +1,8 @@
-//! ticker-node — operator daemon entry point (v13, publisher-only).
+//! ticker-node — operator daemon entry point.
 //!
 //! One unified process: cycle loop + optional `/stats` endpoint. Configured by
 //! the manifest + per-role keyfile; CLI is a minimal four-flag surface
 //! (`--publisher`, `--once`, `--stats-bind`, `--slot`).
-//!
-//! v13 dropped the notary tier — the `--notary` mode and `--notary-url` flags
-//! are gone. Each publisher fetches its assigned source in-process (see
-//! `cycle::step::attest`).
 
 mod real_env;
 mod stats_collector;
@@ -23,14 +19,10 @@ use ticker_core::covenant::{
 use ticker_core::cycle::orchestrator::{run_publisher, RunOpts};
 use ticker_core::cycle::state::CycleConfig;
 use ticker_core::electrum::ElectrumClient;
-use ticker_core::identity::manifest::Network;
-use ticker_core::identity::{
-    load_manifest, resolve_identity, Manifest, OperatorKey, Role,
-};
+use ticker_core::identity::{load_manifest, resolve_identity, Manifest, OperatorKey};
 use ticker_core::log_error;
 use ticker_core::log_info;
 use ticker_core::stats::run_stats;
-use ticker_core::tx::cashaddr::{encode_p2pkh_cashaddr, AddressPrefix};
 
 use real_env::RealEnv;
 use stats_collector::RealStatsCollector;
@@ -84,7 +76,6 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
     let mut handles: Vec<std::thread::JoinHandle<()>> = Vec::new();
 
     let publisher_identity = resolve_identity(
-        Role::Publisher,
         &manifest_path,
         home_path("publisher.key"),
         slot_flag,
@@ -98,10 +89,25 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
         "primary" => format!("{}:{}", endpoints[0].host, endpoints[0].port),
         "fallback_count" => endpoints.len() - 1,
     );
-    let electrum = ElectrumClient::connect_pool(
-        endpoints,
-        Duration::from_secs(ELECTRUM_TIMEOUT_SEC),
-    )?;
+    // Resilient boot: a brief Fulcrum outage at process start shouldn't kill
+    // the daemon and trigger a systemd restart loop. Retry until we connect,
+    // or until shutdown is signalled.
+    let electrum = loop {
+        match ElectrumClient::connect_pool(
+            endpoints.clone(),
+            Duration::from_secs(ELECTRUM_TIMEOUT_SEC),
+        ) {
+            Ok(c) => break c,
+            Err(_) if shutdown.load(Ordering::Relaxed) => return Ok(()),
+            Err(e) => {
+                log_error!(
+                    "publisher: electrum pool unreachable at boot — retrying",
+                    "err" => e.to_string()
+                );
+                std::thread::sleep(Duration::from_secs(15));
+            }
+        }
+    };
     let mut env = RealEnv {
         electrum: Mutex::new(electrum),
         state_dir: home_path(""),
@@ -110,13 +116,28 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
         },
     };
     let shutdown_c = shutdown.clone();
-    handles.push(std::thread::spawn(move || {
-        let opts = RunOpts { once };
-        match run_publisher(&mut env, &cfg, &shutdown_c, opts) {
-            Ok(()) => log_info!("publisher exited cleanly"),
-            Err(e) => log_error!("publisher fatal", "msg" => e.to_string()),
-        }
-    }));
+    let publisher_thread = std::thread::Builder::new()
+        .name("publisher".to_string())
+        .spawn(move || {
+            let opts = RunOpts { once };
+            let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                run_publisher(&mut env, &cfg, &shutdown_c, opts)
+            }));
+            match r {
+                Ok(Ok(())) => {
+                    log_info!("publisher exited cleanly");
+                    std::process::exit(0);
+                }
+                Ok(Err(e)) => {
+                    log_error!("publisher fatal", "msg" => e.to_string());
+                    std::process::exit(1);
+                }
+                Err(_) => {
+                    log_error!("publisher thread panic");
+                    std::process::exit(1);
+                }
+            }
+        })?;
 
     // ─── stats thread ───────────────────────────────────────────────────
     if let Some(bind) = stats_bind {
@@ -131,24 +152,28 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
         }));
     }
 
-    // Held thread joins keep the process alive. SIGINT/SIGTERM flips
-    // `shutdown` → publisher loop notices and exits → join.
-    for h in handles {
-        let _ = h.join();
-    }
+    // Wait on the publisher; it always exits the process directly (clean or
+    // not), so this join just parks the main thread until that happens. The
+    // stats thread is implicitly cancelled by the process exit.
+    let _ = publisher_thread.join();
     log_info!("ticker-node exit");
     Ok(())
 }
 
 fn install_signal_handlers(shutdown: Arc<AtomicBool>) {
-    // Use a tiny libc-based handler to avoid pulling `signal-hook` for two signals.
+    // Avoid pulling `signal-hook` for two signals. `signal()` is portable
+    // enough for the SIGINT/SIGTERM use; glibc preserves the handler across
+    // deliveries, which is what we need.
     extern "C" fn handle(_sig: i32) {
         SHUTDOWN_FLAG.store(true, Ordering::Relaxed);
     }
+    extern "C" {
+        fn signal(signum: i32, handler: extern "C" fn(i32)) -> extern "C" fn(i32);
+    }
     static SHUTDOWN_FLAG: AtomicBool = AtomicBool::new(false);
     unsafe {
-        libc_signal(2 /* SIGINT */, handle);
-        libc_signal(15 /* SIGTERM */, handle);
+        let _ = signal(2 /* SIGINT */, handle);
+        let _ = signal(15 /* SIGTERM */, handle);
     }
     std::thread::spawn(move || loop {
         if SHUTDOWN_FLAG.load(Ordering::Relaxed) {
@@ -157,20 +182,6 @@ fn install_signal_handlers(shutdown: Arc<AtomicBool>) {
         }
         std::thread::sleep(Duration::from_millis(200));
     });
-}
-
-extern "C" {
-    fn signal(signum: i32, handler: extern "C" fn(i32)) -> extern "C" fn(i32);
-}
-unsafe fn libc_signal(num: i32, handler: extern "C" fn(i32)) {
-    let _ = signal(num, handler);
-}
-
-fn address_prefix_for(network: &Network) -> AddressPrefix {
-    match network {
-        Network::Mainnet => AddressPrefix::Mainnet,
-        Network::Chipnet => AddressPrefix::Chipnet,
-    }
 }
 
 /// Electrum scripthash convention: `sha256(locking_script)`, reversed, lowercase hex.
@@ -222,9 +233,6 @@ fn build_publisher_cfg(
         .get(slot as usize)
         .ok_or("slot exceeds SOURCES length")?;
 
-    let prefix = address_prefix_for(&m.network);
-    let publisher_address = encode_p2pkh_cashaddr(&key.pkh, prefix);
-
     // Precompute Electrum scripthashes (sha256(locking_script) reversed, lowercase hex).
     let pub_lock = ticker_core::tx::script::p2pkh_locking_script(&key.pkh).to_vec();
     let publisher_scripthash_hex = scripthash_of(&pub_lock);
@@ -242,9 +250,6 @@ fn build_publisher_cfg(
         oracle_redeem_script: oracle_redeem,
         slot_redeem_script: slot_redeem,
         ticker_redeem_script: ticker_redeem,
-        publisher_address,
-        oracle_address: m.oracle.address.clone(),
-        slot_address: m.slot.address.clone(),
         oracle_scripthash_hex,
         slot_scripthash_hex,
         publisher_scripthash_hex,

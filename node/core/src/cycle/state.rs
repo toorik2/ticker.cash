@@ -23,9 +23,6 @@ pub struct CycleSnapshot {
     pub oracle_commit: OracleState,
     /// `oracle_commit.seq + 1` — the value our slot rewrite must adopt.
     pub new_seq: u32,
-    /// Snapshot of `oracle_commit.last_ts` — same as `oracle_commit.last_ts`,
-    /// pinned in case future refactors decouple them.
-    pub prev_ts: u32,
     /// Our PublisherSlot UTXO.
     pub mine_slot_txid_be: Txid,
     pub mine_slot_vout: u32,
@@ -119,11 +116,6 @@ pub struct CycleConfig {
     pub oracle_redeem_script: Vec<u8>,
     pub slot_redeem_script: Vec<u8>,
     pub ticker_redeem_script: Vec<u8>,
-    /// Funder/publisher CashAddr — used to look up funder UTXOs.
-    pub publisher_address: String,
-    /// Oracle / Slot CashAddrs — used to look up the respective UTXO sets.
-    pub oracle_address: String,
-    pub slot_address: String,
     /// Pre-computed reversed-SHA-256 scripthashes for the Electrum
     /// `blockchain.scripthash.listunspent` method (lowercase hex).
     pub oracle_scripthash_hex: String,

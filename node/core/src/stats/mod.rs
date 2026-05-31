@@ -1,18 +1,21 @@
 //! Opt-in `/stats` HTTP endpoint.
-//!
-//! Wire shape preserves backward compat with consumers (e.g. community
-//! aggregators) — `notary` field stays in the response as `null` since v13
-//! has no notary tier. Publishers carry the substantive data.
 
 use serde::Serialize;
 use serde_json::json;
 use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::cycle::orchestrator::CYCLE_ERROR_COUNT;
 use crate::http::{read_request, write_json, write_response};
+
+/// Upper bound on concurrent in-flight `/stats` requests. The endpoint is cheap
+/// (a few atomic loads + a JSON serialise) so we don't need many; this exists
+/// to prevent slowloris / fork-bomb style resource exhaustion.
+const MAX_CONCURRENT_REQUESTS: usize = 32;
+/// Per-connection read+write socket timeout.
+const STATS_SOCKET_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Publisher per-slot summary.
 #[derive(Debug, Clone, Serialize)]
@@ -42,14 +45,24 @@ pub fn run_stats<C: StatsCollector + 'static>(
 ) -> std::io::Result<()> {
     let listener = TcpListener::bind(addr)?;
     crate::log_info!("stats server listening", "addr" => addr);
+    let inflight = Arc::new(AtomicUsize::new(0));
     for stream in listener.incoming() {
-        let stream = match stream {
+        let mut stream = match stream {
             Ok(s) => s,
             Err(_) => continue,
         };
+        let _ = stream.set_read_timeout(Some(STATS_SOCKET_TIMEOUT));
+        let _ = stream.set_write_timeout(Some(STATS_SOCKET_TIMEOUT));
+        if inflight.load(Ordering::Relaxed) >= MAX_CONCURRENT_REQUESTS {
+            let _ = write_response(&mut stream, 503, "Busy", "text/plain", b"busy");
+            continue;
+        }
+        inflight.fetch_add(1, Ordering::Relaxed);
         let c = collector.clone();
+        let inflight_c = inflight.clone();
         std::thread::spawn(move || {
             let _ = serve_one(stream, c.as_ref(), proc_start);
+            inflight_c.fetch_sub(1, Ordering::Relaxed);
         });
     }
     Ok(())
@@ -78,12 +91,9 @@ fn serve_one<C: StatsCollector>(
                 .map(|d| d.as_secs())
                 .unwrap_or(0);
             let _ = CYCLE_ERROR_COUNT.load(Ordering::Relaxed);
-            // `notary` retained as `null` in the response for wire-shape
-            // backward compatibility with aggregator consumers.
             let payload = json!({
                 "uptimeSec": uptime,
                 "fetchedAt": fetched_at,
-                "notary": serde_json::Value::Null,
                 "publishers": collector.publishers(),
             });
             write_json(&mut stream, 200, "OK", &payload.to_string())

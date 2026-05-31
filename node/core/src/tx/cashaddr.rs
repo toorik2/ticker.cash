@@ -135,16 +135,17 @@ pub enum CashAddrDecodeError {
     InvalidChar(char),
     #[error("address too short")]
     TooShort,
+    #[error("bad CashAddr checksum (typo or wrong network?)")]
+    BadChecksum,
     #[error("not a P2PKH address (version byte 0x{0:02x})")]
     NotP2pkh(u8),
 }
 
 /// Decode a P2PKH CashAddr and extract the 20-byte pkh.
 ///
-/// Tolerates the network's natural prefix (`expected`) only; mainnet addresses
-/// passed to a chipnet expectation get [`CashAddrDecodeError::WrongPrefix`].
-/// Checksum bytes are dropped; we don't currently verify the checksum on input
-/// (covenant rejection would catch a bit-flipped address anyway).
+/// Verifies the 40-bit BCH-polynomial checksum before returning. A typo in the
+/// caller-supplied address surfaces as [`CashAddrDecodeError::BadChecksum`]
+/// rather than silently delivering funds to the wrong pkh.
 pub fn decode_p2pkh_cashaddr(
     addr: &str,
     expected: AddressPrefix,
@@ -169,6 +170,17 @@ pub fn decode_p2pkh_cashaddr(
     if data5.len() < 8 {
         return Err(CashAddrDecodeError::TooShort);
     }
+
+    // Verify the 40-bit checksum. The encoder appends `polymod(prefix5||0||
+    // data5||0^8) ^ 1`; by construction, polymod over the full payload (with
+    // the appended checksum substituted for the zero placeholder) equals 1.
+    let mut checksum_input: Vec<u8> = prefix.bytes().map(|b| b & 0x1f).collect();
+    checksum_input.push(0); // separator
+    checksum_input.extend_from_slice(&data5);
+    if polymod(&checksum_input) != 1 {
+        return Err(CashAddrDecodeError::BadChecksum);
+    }
+
     // Drop the 8-char (40-bit) checksum suffix.
     data5.truncate(data5.len() - 8);
     let payload8 = convert_bits(&data5, 5, 8, false);
@@ -246,5 +258,29 @@ mod tests {
         let addr = encode_p2pkh_cashaddr(&[0; 20], AddressPrefix::Mainnet);
         let r = decode_p2pkh_cashaddr(&addr, AddressPrefix::Chipnet);
         assert!(matches!(r, Err(CashAddrDecodeError::WrongPrefix { .. })));
+    }
+
+    /// Flipping a body character breaks the checksum.
+    #[test]
+    fn decode_rejects_bad_checksum() {
+        let addr = encode_p2pkh_cashaddr(&[0x42; 20], AddressPrefix::Chipnet);
+        // Flip one character in the data section (not in the prefix or ":").
+        let mut chars: Vec<char> = addr.chars().collect();
+        let last = chars.len() - 1;
+        // Mutate a payload char (anywhere after "bchtest:"), avoiding the
+        // checksum suffix so the failure is unambiguously detected by the
+        // checksum check rather than an alphabet error.
+        chars[10] = if chars[10] == 'p' { 'q' } else { 'p' };
+        let _ = last;
+        let bad: String = chars.into_iter().collect();
+        let r = decode_p2pkh_cashaddr(&bad, AddressPrefix::Chipnet);
+        assert!(matches!(r, Err(CashAddrDecodeError::BadChecksum)), "got {r:?}");
+    }
+
+    /// All-zeros pkh decodes back to itself (checksum self-consistent).
+    #[test]
+    fn decode_zero_pkh_roundtrips() {
+        let addr = encode_p2pkh_cashaddr(&[0; 20], AddressPrefix::Chipnet);
+        assert_eq!(decode_p2pkh_cashaddr(&addr, AddressPrefix::Chipnet).unwrap(), [0u8; 20]);
     }
 }

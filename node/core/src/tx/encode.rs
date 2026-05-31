@@ -28,8 +28,6 @@
 //! Length-prefixing the on-the-wire output script (including the token prefix)
 //! is done with the surrounding varint, exactly as for non-token outputs.
 
-use crate::tx::script::push_data;
-
 /// NFT capability bits.
 pub const NO_CAPABILITY: u8 = 0x00;
 pub const MUTABLE_CAPABILITY: u8 = 0x01;
@@ -204,15 +202,6 @@ pub fn encode_tx(tx: &Tx) -> Vec<u8> {
     buf.extend_from_slice(&tx.locktime.to_le_bytes());
 
     buf
-}
-
-/// Helper: serialize a vector of script bytes as a length-prefixed minimal data push
-/// (used by the OP_PUSHDATA path inside sighash preimages).
-#[allow(dead_code)]
-pub(crate) fn push_data_to_vec(data: &[u8]) -> Vec<u8> {
-    let mut v = Vec::with_capacity(data.len() + 5);
-    push_data(&mut v, data);
-    v
 }
 
 #[cfg(test)]

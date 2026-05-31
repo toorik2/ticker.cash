@@ -7,7 +7,11 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=%h
 Environment=TICKER_HOME=%h/.ticker-slot-%i
-Environment=TICKER_ELECTRUM_ACCEPT_ANY_CERT=1
+# To accept self-signed Electrum certs (only set if your Fulcrum lacks a
+# CA-issued cert AND you accept the MITM exposure): add manually via a drop-in
+# override, e.g. systemctl edit ticker-node@0.service →
+#   [Service]
+#   Environment=TICKER_ELECTRUM_ACCEPT_ANY_CERT=1
 ExecStart=%h/.local/bin/ticker-node --publisher
 Restart=on-failure
 RestartSec=15s

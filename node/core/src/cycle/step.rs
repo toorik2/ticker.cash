@@ -1,8 +1,8 @@
 //! Pure cycle transition function.
 //!
-//! Takes `(state, env, cfg, cycle_counter)` → `Result<CycleState, CycleError>`.
-//! All I/O passes through the [`Env`] trait so tests can stub it out and assert
-//! transitions deterministically.
+//! Takes `(state, env, cfg)` → `Result<CycleState, CycleError>`. All I/O passes
+//! through the [`Env`] trait so tests can stub it out and assert transitions
+//! deterministically.
 
 use std::time::Instant;
 
@@ -20,21 +20,16 @@ use crate::tx::update::{
 
 /// Advance the cycle state machine by one logical step.
 ///
-/// The orchestrator is responsible for the outer `loop {}` plus error handling
-/// per [`Severity`]. `cycle_counter` increments at the top of each cycle (when
-/// transitioning out of `Idle`).
-///
-/// v13: no notary tier. The `Snapshotted → Attested` transition fetches the
-/// price in-process via `env.fetch_price()` (publisher is the source of truth).
+/// The orchestrator owns the outer `loop {}`, the cycle counter, and the
+/// severity-based error handling.
 pub fn step<E: Env>(
     state: CycleState,
     env: &mut E,
     cfg: &CycleConfig,
-    cycle_counter: u64,
 ) -> Result<CycleState, CycleError> {
     match state {
         CycleState::Idle => idle(env, cfg),
-        CycleState::Snapshotted { snap } => attest(env, cfg, snap, cycle_counter),
+        CycleState::Snapshotted { snap } => attest(env, cfg, snap),
         CycleState::AlreadyAttested { snap } => wait_for_quorum(env, cfg, snap),
         CycleState::Attested { snap, .. } => wait_for_quorum(env, cfg, snap),
         CycleState::QuorumReached {
@@ -81,7 +76,6 @@ fn idle<E: Env>(env: &mut E, cfg: &CycleConfig) -> Result<CycleState, CycleError
         oracle_satoshis: oracle.satoshis,
         oracle_commit: oracle.commit,
         new_seq,
-        prev_ts: oracle.commit.last_ts,
         mine_slot_txid_be: mine.txid_be,
         mine_slot_vout: mine.vout,
         mine_slot_satoshis: mine.satoshis,
@@ -102,10 +96,9 @@ fn attest<E: Env>(
     env: &mut E,
     cfg: &CycleConfig,
     snap: CycleSnapshot,
-    _cycle_counter: u64,
 ) -> Result<CycleState, CycleError> {
-    let observation = env.fetch_price(cfg.source_id)?;
-
+    // Cheap balance check first — saves a 5 s HTTPS round-trip and a CEX
+    // rate-limit credit when the funder is empty or below the fee floor.
     let all_funder = env.get_funder_utxos(cfg)?;
     let funder_balance: u64 = all_funder.iter().map(|u| u.satoshis).sum();
     if funder_balance < MAX_ATTEST_FEE_HINT {
@@ -114,6 +107,8 @@ fn attest<E: Env>(
             need: MAX_ATTEST_FEE_HINT,
         });
     }
+
+    let observation = env.fetch_price(cfg.source_id)?;
 
     let funders: Vec<FunderUtxo> = all_funder
         .into_iter()
@@ -179,8 +174,12 @@ fn wait_for_quorum<E: Env>(
     snap: CycleSnapshot,
 ) -> Result<CycleState, CycleError> {
     let deadline = Instant::now() + cfg.quorum_wait;
+    let mut first = true;
     loop {
-        env.sleep(cfg.poll_interval);
+        if !first {
+            env.sleep(cfg.poll_interval);
+        }
+        first = false;
         let all = env.get_slot_utxos(cfg)?;
         let at_seq: Vec<_> = all
             .into_iter()
@@ -313,7 +312,14 @@ fn map_update_error(e: UpdateError) -> CycleError {
         UpdateError::BelowQuorum { got, need } => CycleError::QuorumTimeout { got, need },
         UpdateError::DuplicatePkh(i) => CycleError::Internal(format!("duplicate pkh at {i}")),
         UpdateError::StrideFloor { new, prev, stride } => {
-            CycleError::Internal(format!("stride floor: new={new} prev={prev} need {stride}"))
+            // Soft, like the idle-path version: the median timestamp landed
+            // below floor because one or more peers ran fast clocks; backing
+            // off briefly and retrying re-reads chain truth.
+            let wait_sec = prev
+                .saturating_add(stride)
+                .saturating_sub(new)
+                .saturating_add(1);
+            CycleError::StrideFloor { wait_sec }
         }
         UpdateError::InsufficientFunds { have, need } => {
             CycleError::InsufficientFunds { have, need }
@@ -431,9 +437,6 @@ mod tests {
             oracle_redeem_script: vec![0u8; 100],
             slot_redeem_script: vec![0u8; 100],
             ticker_redeem_script: vec![0u8; 100],
-            publisher_address: "bchtest:qaaa".to_string(),
-            oracle_address: "bchtest:qbbb".to_string(),
-            slot_address: "bchtest:qccc".to_string(),
             oracle_scripthash_hex: "00".repeat(32),
             slot_scripthash_hex: "11".repeat(32),
             publisher_scripthash_hex: "22".repeat(32),
@@ -479,7 +482,7 @@ mod tests {
     fn idle_no_oracle_yields_oracle_not_found() {
         let mut env = MockEnv::new();
         let cfg = fixture_cfg();
-        let r = step(CycleState::Idle, &mut env, &cfg, 1);
+        let r = step(CycleState::Idle, &mut env, &cfg);
         assert!(matches!(r, Err(CycleError::OracleNotFound { .. })));
     }
 
@@ -487,9 +490,9 @@ mod tests {
     fn idle_stride_floor_returns_wait() {
         let mut env = MockEnv::new();
         env.oracle.borrow_mut().replace(oracle_info(100, 1_780_000_100));
-        // now < last_ts + 30 (now = 1_780_000_100 which is < 1_780_000_130)
+        // now < last_ts + 60 (now == last_ts → triggers StrideFloor)
         let cfg = fixture_cfg();
-        let r = step(CycleState::Idle, &mut env, &cfg, 1);
+        let r = step(CycleState::Idle, &mut env, &cfg);
         assert!(matches!(r, Err(CycleError::StrideFloor { .. })));
     }
 
@@ -499,7 +502,7 @@ mod tests {
         env.oracle.borrow_mut().replace(oracle_info(100, 1_700_000_000));
         env.slots.borrow_mut().push(slot_info([0x99; 20], 100, 1_700_000_100, 1000));
         let cfg = fixture_cfg();
-        let r = step(CycleState::Idle, &mut env, &cfg, 1);
+        let r = step(CycleState::Idle, &mut env, &cfg);
         assert!(matches!(r, Err(CycleError::MySlotNotFound { count: 1 })));
     }
 
@@ -510,7 +513,7 @@ mod tests {
         // mine at 200 > new_seq=101
         env.slots.borrow_mut().push(slot_info([0x42; 20], 200, 1_700_000_100, 1000));
         let cfg = fixture_cfg();
-        let r = step(CycleState::Idle, &mut env, &cfg, 1);
+        let r = step(CycleState::Idle, &mut env, &cfg);
         assert!(matches!(
             r,
             Err(CycleError::SlotAheadOfNew { at: 200, new: 101 })
@@ -524,7 +527,7 @@ mod tests {
         // mine at 101 == new_seq
         env.slots.borrow_mut().push(slot_info([0x42; 20], 101, 1_700_000_100, 1000));
         let cfg = fixture_cfg();
-        let r = step(CycleState::Idle, &mut env, &cfg, 1).unwrap();
+        let r = step(CycleState::Idle, &mut env, &cfg).unwrap();
         assert!(matches!(r, CycleState::AlreadyAttested { .. }));
     }
 
@@ -534,7 +537,7 @@ mod tests {
         env.oracle.borrow_mut().replace(oracle_info(100, 1_700_000_000));
         env.slots.borrow_mut().push(slot_info([0x42; 20], 100, 1_700_000_100, 1000));
         let cfg = fixture_cfg();
-        let r = step(CycleState::Idle, &mut env, &cfg, 1).unwrap();
+        let r = step(CycleState::Idle, &mut env, &cfg).unwrap();
         assert!(matches!(r, CycleState::Snapshotted { .. }));
     }
 
@@ -548,11 +551,17 @@ mod tests {
             reason: "connection refused".to_string(),
         });
         let cfg = fixture_cfg();
-        let snap = match step(CycleState::Idle, &mut env, &cfg, 1).unwrap() {
+        // Funder is set so the cheap balance check passes; price fetch is what fails.
+        env.funder.borrow_mut().push(FunderInfo {
+            txid_be: [0x33; 32],
+            vout: 0,
+            satoshis: 10_000,
+        });
+        let snap = match step(CycleState::Idle, &mut env, &cfg).unwrap() {
             CycleState::Snapshotted { snap } => snap,
             _ => panic!("expected Snapshotted"),
         };
-        let r = step(CycleState::Snapshotted { snap }, &mut env, &cfg, 1);
+        let r = step(CycleState::Snapshotted { snap }, &mut env, &cfg);
         assert!(matches!(r, Err(CycleError::PriceFetchFailed { .. })));
     }
 
@@ -572,11 +581,11 @@ mod tests {
             satoshis: 100, // < MAX_ATTEST_FEE_HINT = 3000
         });
         let cfg = fixture_cfg();
-        let snap = match step(CycleState::Idle, &mut env, &cfg, 1).unwrap() {
+        let snap = match step(CycleState::Idle, &mut env, &cfg).unwrap() {
             CycleState::Snapshotted { snap } => snap,
             _ => panic!(),
         };
-        let r = step(CycleState::Snapshotted { snap }, &mut env, &cfg, 1);
+        let r = step(CycleState::Snapshotted { snap }, &mut env, &cfg);
         assert!(matches!(
             r,
             Err(CycleError::InsufficientFunds { have: 100, need: 3000 })

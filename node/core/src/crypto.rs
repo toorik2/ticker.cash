@@ -43,7 +43,6 @@ pub fn derive_pubkey(privkey: &[u8; 32]) -> Result<[u8; 33], KeyError> {
 /// Returns the DER-encoded signature (~70-72 bytes). BCH's `OP_CHECKSIG` and
 /// `OP_CHECKDATASIG` opcodes accept this universally. Used for:
 ///   * Publisher data sigs in `slot.attest` (`checkDataSig`).
-///   * Notary data sigs in `slot.attest` (`checkDataSig`).
 ///   * P2PKH funder input sigs (`checkSig` after sighash byte appended).
 pub fn sign_ecdsa(privkey: &[u8; 32], digest: &[u8; 32]) -> Result<Vec<u8>, KeyError> {
     let sk = SecretKey::from_slice(privkey)?;

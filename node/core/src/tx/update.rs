@@ -532,7 +532,7 @@ mod tests {
 
     #[test]
     fn rejects_stride_floor_violation() {
-        // All ts at prev_ts + 5 — below 30 s stride.
+        // All ts at prev_ts + 5 — below 60 s stride.
         let slots: Vec<CycleSlotUtxo> = (0..7).map(|i| slot(i as u8, 1_780_000_005, 100)).collect();
         let funders = funders(1, 100_000);
         let redeem = vec![0u8; 500];

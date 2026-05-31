@@ -1,6 +1,4 @@
 //! Real `Env` impl wiring Electrum + in-process PriceProver + filesystem state.
-//!
-//! v13: no notary HTTP client. `fetch_price` calls `PriceProver::prove` directly.
 
 use std::fs;
 use std::path::PathBuf;
@@ -63,15 +61,27 @@ impl RealEnv {
     }
 }
 
+/// BCHN/Fulcrum substrings that signal another publisher's broadcast won the
+/// race (our tx is now competing with an already-mined or already-mempool tx).
+/// Crucially `missingorspent` covers `bad-txns-inputs-missingorspent`, returned
+/// when the input we tried to spend is already consumed.
 fn is_race_lost(msg: &str) -> bool {
     msg.contains("txn-mempool-conflict")
+        || msg.contains("txn-already-in-mempool")
+        || msg.contains("txn-already-known")
+        || msg.contains("missingorspent")
         || msg.contains("already spent")
         || msg.contains("duplicate")
 }
 
+/// Tight substrings indicating the BCHN script interpreter actually rejected
+/// our transaction (i.e. the covenant disallowed it). Deliberately narrower
+/// than "bad-txns" alone, which also matches the race-lost case above.
 fn is_covenant_rejection(msg: &str) -> bool {
-    msg.contains("bad-txns")
-        || msg.contains("script") && msg.contains("failed")
+    msg.contains("mandatory-script-verify-flag-failed")
+        || msg.contains("non-mandatory-script-verify-flag-failed")
+        || msg.contains("blk-bad-inputs")
+        || msg.contains("bad-txns-nonfinal")
 }
 
 fn parse_txid_be(hex_str: &str) -> Result<Txid, CycleError> {
@@ -143,8 +153,12 @@ impl Env for RealEnv {
             if nft.capability != NftCapability::Mutable {
                 continue;
             }
-            let raw = hex::decode(&nft.commitment)
-                .map_err(|e| CycleError::Internal(format!("slot hex: {e}")))?;
+            let raw = hex::decode(&nft.commitment).map_err(|_| {
+                CycleError::SlotCommitMalformed {
+                    txid: u.tx_hash.clone(),
+                    vout: u.tx_pos,
+                }
+            })?;
             let Some(commit) = decode_slot_commit(&raw) else { continue };
             let mut commitment_raw = [0u8; 39];
             commitment_raw.copy_from_slice(&raw);

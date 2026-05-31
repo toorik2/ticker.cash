@@ -11,7 +11,7 @@
 //! | 17..19 | 2    | active_count | u16 LE    |
 //!
 //! Rewritten in full each cycle by `Oracle.update`. The covenant enforces
-//! `seq = prev_seq + 1` and `last_ts > prev_last_ts + 30`.
+//! `seq = prev_seq + 1` and `last_ts - prev_last_ts >= 60`.
 
 use super::consts::{ORACLE_COMMIT_LEN, ORACLE_VERSION_BYTE};
 

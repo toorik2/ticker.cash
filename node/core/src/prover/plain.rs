@@ -1,8 +1,6 @@
-//! `HttpsPlainProver` — v12 implementation.
-//!
-//! Fetch the source URL over HTTPS, run the per-source extractor, scale to
-//! satoshi precision, stamp the timestamp. No transcript proof — federated
-//! trust (notaries are members of the protocol's covenant pubkey list).
+//! `HttpsPlainProver` — fetch the source URL over HTTPS, run the per-source
+//! extractor, scale to satoshi precision, stamp the timestamp. Federated trust:
+//! the 13 publishers' on-chain median is the protocol's source of truth.
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -39,10 +37,15 @@ impl PriceProver for HttpsPlainProver {
             source_name: source.name,
             reason: format!("no price found in body of len {}", body.len()),
         })?;
-        if !usd.is_finite() || usd <= 0.0 {
+        // Sanity-bound the extracted USD price: f64 → u64 saturates silently on
+        // overflow, so cap at $1B/BCH and reject anything outside [$1e-4, $1e9).
+        // The covenant only ever sees the median across ≥7 publishers, so a
+        // single malformed extract still gets filtered downstream, but failing
+        // loudly here keeps the slot's `errorsSinceStart` honest.
+        if !usd.is_finite() || !(1e-4..1e9).contains(&usd) {
             return Err(ProverError::ExtractFailed {
                 source_name: source.name,
-                reason: format!("invalid usd: {usd}"),
+                reason: format!("usd out of sanity range: {usd}"),
             });
         }
         let price = (usd * 1e8).round() as u64;

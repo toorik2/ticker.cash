@@ -1,6 +1,6 @@
 [package]
 name        = "ticker-core"
-description = "ticker.cash v12 protocol: byte layouts, transaction encoding, cycle state machine"
+description = "ticker.cash protocol: byte layouts, transaction encoding, cycle state machine"
 version.workspace      = true
 edition.workspace      = true
 rust-version.workspace = true

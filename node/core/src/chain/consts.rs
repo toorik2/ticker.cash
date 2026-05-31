@@ -1,4 +1,4 @@
-//! Protocol constants. Each one is also enforced or referenced by the live v12 covenants.
+//! Protocol constants. Each one is also enforced or referenced by the live v14 covenants.
 
 /// Sats locked in the Oracle UTXO (minting NFT). Re-emitted unchanged each cycle.
 pub const ORACLE_DUST: u64 = 2_000;

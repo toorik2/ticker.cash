@@ -8,11 +8,6 @@
 //! Adding or reordering sources requires a fresh PublisherSlot covenant +
 //! slot-fleet migration — the CN-hash blob is baked into bytecode and the
 //! slot category is closed forever after genesis.
-//!
-//! Mirrors `daemon/src/helpers.ts:38-55` verbatim.
-
-use ripemd::Ripemd160;
-use sha2::{Digest, Sha256};
 
 /// One CEX price source.
 #[derive(Debug, Clone, Copy)]
@@ -21,7 +16,7 @@ pub struct Source {
     pub id: u16,
     /// Human label for logs (e.g., `"kraken"`).
     pub name: &'static str,
-    /// TLS server name — what the notary fetches and what the covenant pins.
+    /// TLS server name — what the publisher fetches and what the covenant pins.
     pub canonical_cn: &'static str,
 }
 
@@ -50,7 +45,7 @@ pub const SOURCE_COUNT: usize = SOURCES.len();
 
 /// `hash160(canonical_cn)` = `ripemd160(sha256(canonical_cn))`.
 pub fn source_cn_hash(s: &Source) -> [u8; 20] {
-    hash160(s.canonical_cn.as_bytes())
+    crate::crypto::hash160(s.canonical_cn.as_bytes())
 }
 
 /// `13 × hash160(canonical_cn)` = 260-byte blob passed to the PublisherSlot
@@ -62,12 +57,6 @@ pub fn packed_cn_hashes() -> [u8; 20 * 13] {
         out[i * 20..(i + 1) * 20].copy_from_slice(&source_cn_hash(s));
     }
     out
-}
-
-fn hash160(data: &[u8]) -> [u8; 20] {
-    let sha = Sha256::digest(data);
-    let rip = Ripemd160::digest(sha);
-    rip.into()
 }
 
 #[cfg(test)]
@@ -101,19 +90,16 @@ mod tests {
         }
     }
 
-    /// Kraken (`source_id = 1`) hash160 sanity check against a known value
-    /// derived by hand from `hash160("api.kraken.com")`.
-    /// Computed via:
-    ///   echo -n "api.kraken.com" | openssl dgst -sha256 -binary | openssl dgst -ripemd160
+    /// Kraken (`source_id = 1`) hash160 sanity check — derivation is
+    /// deterministic, length matches.
     #[test]
-    fn kraken_cn_hash_is_stable() {
+    fn kraken_cn_hash_is_deterministic_and_20_bytes() {
         let kraken = &SOURCES[0];
         assert_eq!(kraken.name, "kraken");
-        let h = source_cn_hash(kraken);
-        // The exact value isn't documented in the TS, but this test pins it:
-        // any change rebuilds it. If this fails, regenerate by hand and update.
-        // hash160("api.kraken.com") = 31e3f8b7a55b5f8d… (placeholder — pin after first run)
-        assert_eq!(h.len(), 20);
-        assert_ne!(h, [0u8; 20]);
+        let h1 = source_cn_hash(kraken);
+        let h2 = source_cn_hash(kraken);
+        assert_eq!(h1, h2);
+        assert_eq!(h1.len(), 20);
+        assert_ne!(h1, [0u8; 20]);
     }
 }

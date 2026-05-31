@@ -1,13 +1,8 @@
-//! Price prover — what the notary daemon uses to obtain a verifiable price for
-//! a given source.
+//! Price prover — how a publisher obtains a price for its pinned source.
 //!
-//! Phase A (v12): [`HttpsPlainProver`] — plain HTTPS fetch + regex extraction +
-//! Schnorr sign. Trust model: federated (notaries are members of the protocol's
-//! covenant constructor pubkey list).
-//!
-//! Phase B (v13): the planned `TlsnProver` will capture and commit to a TLS
-//! transcript per fetch (TLSNotary). Implemented behind a feature flag once the
-//! v13 covenant ships.
+//! Today the only impl is [`HttpsPlainProver`] — plain HTTPS fetch + per-source
+//! extractor. Trust model: federated (the 13 publishers' median is the
+//! protocol's source of truth).
 
 pub mod extract;
 pub mod http;

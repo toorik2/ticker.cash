@@ -18,8 +18,8 @@ use rustls::pki_types::ServerName;
 use rustls::{ClientConnection, StreamOwned};
 use serde::Serialize;
 use serde_json::Value;
-use std::io::{BufRead, BufReader, Write};
-use std::net::TcpStream;
+use std::io::{BufReader, Write};
+use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
@@ -54,7 +54,13 @@ pub enum ElectrumError {
     BadShape,
     #[error("all {tried} endpoints unreachable: {last}")]
     AllEndpointsDown { tried: usize, last: String },
+    #[error("electrum response line exceeded {0}-byte cap")]
+    ResponseTooLarge(u64),
 }
+
+/// Hard cap on a single JSON-RPC response line. Realistic chipnet responses
+/// are well under 100 KB; 8 MiB is a defensive ceiling against trickle-OOM.
+const MAX_RESPONSE_LINE: u64 = 8 * 1024 * 1024;
 
 /// One TLS-wrapped Fulcrum endpoint in the failover pool.
 #[derive(Debug, Clone)]
@@ -139,25 +145,39 @@ impl ElectrumClient {
     }
 
     /// Open a single TLS-wrapped connection. No state changes; pure factory.
+    /// Tries each resolved IP in turn — a DNS-balanced host with one bad
+    /// backend still connects so long as at least one IP is reachable.
     fn dial(host: &str, port: u16, timeout: Duration) -> Result<Stream, ElectrumError> {
         let addrs: Vec<_> = (host, port)
-            .to_socket_addrs_compat()
+            .to_socket_addrs()
             .map_err(|source| ElectrumError::Dns {
                 host: host.to_string(),
                 source,
             })?
             .collect();
-        let tcp = TcpStream::connect_timeout(
-            addrs.first().ok_or_else(|| ElectrumError::Dns {
+        if addrs.is_empty() {
+            return Err(ElectrumError::Dns {
                 host: host.to_string(),
                 source: std::io::Error::new(std::io::ErrorKind::NotFound, "no address"),
-            })?,
-            timeout,
-        )
-        .map_err(|source| ElectrumError::Tcp {
+            });
+        }
+        let mut last_err: Option<std::io::Error> = None;
+        let mut tcp: Option<TcpStream> = None;
+        for addr in &addrs {
+            match TcpStream::connect_timeout(addr, timeout) {
+                Ok(s) => {
+                    tcp = Some(s);
+                    break;
+                }
+                Err(e) => last_err = Some(e),
+            }
+        }
+        let tcp = tcp.ok_or_else(|| ElectrumError::Tcp {
             host: host.to_string(),
             port,
-            source,
+            source: last_err.unwrap_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::Other, "no addresses tried")
+            }),
         })?;
         tcp.set_read_timeout(Some(timeout))?;
         tcp.set_write_timeout(Some(timeout))?;
@@ -242,11 +262,19 @@ impl ElectrumClient {
         let reader = self.conn.as_mut().ok_or(ElectrumError::Disconnected)?;
         reader.get_mut().write_all(buf)?;
         let mut line = String::new();
-        let n = reader.read_line(&mut line)?;
+        // Bound the response line so a hostile/MITM'd Electrum cannot OOM us
+        // by streaming gigabytes without a newline. 8 MiB is well above any
+        // realistic listunspent response on chipnet.
+        use std::io::Read;
+        let n = reader.by_ref().take(MAX_RESPONSE_LINE).read_to_string(&mut line)?;
         if n == 0 {
             return Err(ElectrumError::Disconnected);
         }
-        let resp: Value = serde_json::from_str(line.trim_end())?;
+        // Find the first newline; if absent, we hit the cap mid-message.
+        let end = line
+            .find('\n')
+            .ok_or(ElectrumError::ResponseTooLarge(MAX_RESPONSE_LINE))?;
+        let resp: Value = serde_json::from_str(line[..end].trim_end())?;
         if let Some(err) = resp.get("error") {
             if !err.is_null() {
                 return Err(ElectrumError::Rpc(err.to_string()));
@@ -315,21 +343,6 @@ fn is_connection_error(e: &ElectrumError) -> bool {
             | ElectrumError::Dns { .. }
             | ElectrumError::Tls(_)
     )
-}
-
-// std's ToSocketAddrs is in `std::net::ToSocketAddrs`, but the trait method
-// is `to_socket_addrs(&self)` — give it a friendlier alias to avoid the import
-// gymnastics in `dial`.
-trait ToSocketAddrsCompat {
-    fn to_socket_addrs_compat(self) -> std::io::Result<std::vec::IntoIter<std::net::SocketAddr>>;
-}
-
-impl ToSocketAddrsCompat for (&str, u16) {
-    fn to_socket_addrs_compat(self) -> std::io::Result<std::vec::IntoIter<std::net::SocketAddr>> {
-        use std::net::ToSocketAddrs;
-        let v: Vec<_> = self.to_socket_addrs()?.collect();
-        Ok(v.into_iter())
-    }
 }
 
 #[cfg(test)]

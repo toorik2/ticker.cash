@@ -11,6 +11,14 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 
+/// Hard upper bound on a single request body. `/stats` is a `GET`-only endpoint
+/// so this only exists to prevent a malicious client from triggering a giant
+/// allocation via a crafted `Content-Length` header.
+pub const MAX_REQUEST_BODY: usize = 64 * 1024;
+
+/// Hard upper bound on a single header line. Same rationale.
+const MAX_HEADER_LINE: u64 = 8 * 1024;
+
 /// Parsed HTTP request — minimal fields we need to handle.
 pub struct Request {
     pub method: String,
@@ -24,6 +32,8 @@ pub enum HttpError {
     BadRequestLine,
     #[error("invalid Content-Length: {0}")]
     BadContentLength(String),
+    #[error("Content-Length {0} exceeds {MAX_REQUEST_BODY}-byte cap")]
+    ContentLengthTooLarge(usize),
     #[error("I/O: {0}")]
     Io(#[from] std::io::Error),
 }
@@ -34,7 +44,7 @@ pub fn read_request(stream: &mut TcpStream) -> Result<Request, HttpError> {
     let read_stream = stream.try_clone()?;
     let mut reader = BufReader::new(read_stream);
     let mut request_line = String::new();
-    reader.read_line(&mut request_line)?;
+    (&mut reader).take(MAX_HEADER_LINE).read_line(&mut request_line)?;
     let mut parts = request_line.split_whitespace();
     let method = parts.next().ok_or(HttpError::BadRequestLine)?.to_string();
     let path = parts.next().ok_or(HttpError::BadRequestLine)?.to_string();
@@ -42,7 +52,7 @@ pub fn read_request(stream: &mut TcpStream) -> Result<Request, HttpError> {
     let mut content_length = 0usize;
     loop {
         let mut header = String::new();
-        let n = reader.read_line(&mut header)?;
+        let n = (&mut reader).take(MAX_HEADER_LINE).read_line(&mut header)?;
         if n == 0 || header == "\r\n" || header == "\n" {
             break;
         }
@@ -52,6 +62,9 @@ pub fn read_request(stream: &mut TcpStream) -> Result<Request, HttpError> {
                 .trim()
                 .parse()
                 .map_err(|_| HttpError::BadContentLength(rest.trim().to_string()))?;
+            if content_length > MAX_REQUEST_BODY {
+                return Err(HttpError::ContentLengthTooLarge(content_length));
+            }
         }
     }
     let mut body = vec![0u8; content_length];

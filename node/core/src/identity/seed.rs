@@ -6,9 +6,8 @@
 //!
 //! Derivation: `private_key = sha256(seed || utf8(label))`.
 //!
-//! Labels (kept as constants so tests can assert byte-identical output to TS):
+//! Labels:
 //!   * `"master"`             — hot wallet for genesis ceremony.
-//!   * `"notary-{0..6}"`      — 7 federation Schnorr keys.
 //!   * `"publisher-{0..12}"`  — 13 publisher wallets.
 
 use crate::crypto::{derive_pubkey, hash160, sha256, KeyError};
@@ -16,7 +15,6 @@ use std::fs;
 use std::path::Path;
 
 pub const MASTER_LABEL: &str = "master";
-pub const NOTARY_LABEL: &str = "notary";
 pub const PUBLISHER_LABEL: &str = "publisher";
 
 #[derive(Debug, thiserror::Error)]
@@ -61,7 +59,6 @@ pub fn load_seed(path: impl AsRef<Path>) -> Result<[u8; 32], SeedError> {
 /// Wallet derived from a seed + label.
 #[derive(Debug, Clone)]
 pub struct DerivedWallet {
-    pub label: String,
     pub private_key: [u8; 32],
     pub public_key: [u8; 33],
     pub pkh: [u8; 20],
@@ -76,7 +73,6 @@ pub fn derive_wallet(seed: &[u8; 32], label: &str) -> Result<DerivedWallet, Seed
     let public_key = derive_pubkey(&private_key)?;
     let pkh = hash160(&public_key);
     Ok(DerivedWallet {
-        label: label.to_string(),
         private_key,
         public_key,
         pkh,
@@ -103,21 +99,20 @@ mod tests {
     #[test]
     fn labels_diverge() {
         let seed = [0u8; 32];
-        let a = derive_wallet(&seed, "notary-0").unwrap();
-        let b = derive_wallet(&seed, "notary-1").unwrap();
+        let a = derive_wallet(&seed, "publisher-0").unwrap();
+        let b = derive_wallet(&seed, "publisher-1").unwrap();
         assert_ne!(a.private_key, b.private_key);
     }
 
-    /// Pin the known sha256 of `[0x00; 32] || "master"` to detect any future
-    /// drift in label encoding (UTF-8 of "master" is 0x6d 61 73 74 65 72).
+    /// Master key derivation is deterministic and non-zero. (We deliberately
+    /// don't pin the exact hash here — operators reading this file shouldn't
+    /// be tempted to use [0;32] as a real seed.)
     #[test]
-    fn master_priv_key_pin_against_drift() {
+    fn master_priv_key_is_nonzero_and_stable() {
         let seed = [0u8; 32];
-        let w = derive_wallet(&seed, "master").unwrap();
-        // sha256(zeros32 || "master")
-        // Expected: pinned via re-derivation; if cryptographic primitives change
-        // this guard fires.
-        assert_eq!(w.private_key.len(), 32);
-        assert_ne!(w.private_key, [0u8; 32]);
+        let w1 = derive_wallet(&seed, "master").unwrap();
+        let w2 = derive_wallet(&seed, "master").unwrap();
+        assert_eq!(w1.private_key, w2.private_key);
+        assert_ne!(w1.private_key, [0u8; 32]);
     }
 }

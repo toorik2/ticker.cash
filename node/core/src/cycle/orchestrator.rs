@@ -1,7 +1,7 @@
 //! Cycle orchestrator — the outer loop that drives [`step`].
 //!
 //! Responsibilities:
-//!   * Increment `cycle_counter` at the top of each cycle (only on `Idle`).
+//!   * Track the cycle counter at the top of each cycle (only on `Idle`).
 //!   * Match on the returned `CycleState` to decide whether to continue, reset,
 //!     or exit (in `--once` mode).
 //!   * Handle errors by severity: route to the right log level, decide whether
@@ -46,13 +46,18 @@ pub fn run_publisher<E: Env>(
 ) -> Result<(), CycleError> {
     let mut state = CycleState::Idle;
     let mut cycle_counter: u64 = 0;
+    // Exponential backoff for consecutive Hard/Transient errors: 3s, 6s, 12s,
+    // 24s, capped at 60s. Resets on any successful cycle. Prevents a stuck
+    // publisher (bad manifest, persistent covenant mismatch) from burning
+    // funder sats and flooding journald at 3s cadence.
+    let mut consecutive_failures: u32 = 0;
     while !shutdown.load(Ordering::Relaxed) {
         if matches!(state, CycleState::Idle) {
             cycle_counter += 1;
             CYCLE_COUNT.store(cycle_counter, Ordering::Relaxed);
             log_info!("cycle start", "n" => cycle_counter, "slot" => cfg.slot);
         }
-        match step(state, env, cfg, cycle_counter) {
+        match step(state, env, cfg) {
             Ok(CycleState::Updated { new_seq, update_txid }) => {
                 let txid_hex = update_txid.map(hex::encode);
                 if let Some(t) = &txid_hex {
@@ -69,6 +74,7 @@ pub fn run_publisher<E: Env>(
                         "new_seq" => new_seq,
                     );
                 }
+                consecutive_failures = 0;
                 if opts.once {
                     return Ok(());
                 }
@@ -122,11 +128,18 @@ pub fn run_publisher<E: Env>(
                 }
                 if counts {
                     CYCLE_ERROR_COUNT.fetch_add(1, Ordering::Relaxed);
+                    consecutive_failures = consecutive_failures.saturating_add(1);
+                } else {
+                    consecutive_failures = 0;
                 }
                 if let Some(wait_sec) = stride_wait {
                     env.sleep(std::time::Duration::from_secs(wait_sec as u64));
                 } else {
-                    env.sleep(cfg.poll_interval);
+                    let backoff_secs = backoff_secs(
+                        cfg.poll_interval.as_secs().max(1),
+                        consecutive_failures,
+                    );
+                    env.sleep(std::time::Duration::from_secs(backoff_secs));
                 }
                 if opts.once && sev == Severity::Hard {
                     return Err(CycleError::Internal(msg));
@@ -137,4 +150,30 @@ pub fn run_publisher<E: Env>(
     }
     log_info!("shutdown", "n" => cycle_counter);
     Ok(())
+}
+
+/// Exponential backoff helper: `base * 2^(min(n-1, 5))`, capped at 60s.
+fn backoff_secs(base: u64, consecutive_failures: u32) -> u64 {
+    if consecutive_failures == 0 {
+        return base;
+    }
+    let shift = consecutive_failures.saturating_sub(1).min(5);
+    base.saturating_mul(1u64 << shift).min(60)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backoff_caps_at_60s() {
+        assert_eq!(backoff_secs(3, 0), 3);
+        assert_eq!(backoff_secs(3, 1), 3);
+        assert_eq!(backoff_secs(3, 2), 6);
+        assert_eq!(backoff_secs(3, 3), 12);
+        assert_eq!(backoff_secs(3, 4), 24);
+        assert_eq!(backoff_secs(3, 5), 48);
+        assert_eq!(backoff_secs(3, 6), 60); // 96 → capped
+        assert_eq!(backoff_secs(3, 100), 60);
+    }
 }

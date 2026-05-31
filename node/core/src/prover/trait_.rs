@@ -1,16 +1,13 @@
-//! `PriceProver` trait — single implementation point for the notary's price source.
+//! `PriceProver` trait — single implementation point for the publisher's price source.
 
 use crate::chain::sources::Source;
 
 /// Result of a successful price proof: a price + a timestamp + the canonical CN.
-///
-/// Phase B will extend this with a TLSN attestation field; today's covenant
-/// (`v12`) doesn't surface it on chain.
 #[derive(Debug, Clone)]
 pub struct PriceProof {
     /// USD price scaled by 1e8 (matching the covenant's price scale).
     pub price: u64,
-    /// Notary wall-clock at fetch time, unix seconds (u32).
+    /// Publisher wall-clock at fetch time, unix seconds (u32).
     pub timestamp: u32,
     /// Canonical CN (server name) — committed to in the publisher's signed digest
     /// via `hash160(server_name)`.
