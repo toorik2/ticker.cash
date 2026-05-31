@@ -8,7 +8,8 @@ pragma cashscript >= 0.13.0;
 //       Closures:
 //         F-OC1  tokenAmount pinned to 0 on Oracle self-replicate
 //         F-OC2  tokenAmount pinned to 0 on both Ticker mint outputs
-//         F-OC3  value pinned to 1000 on both Ticker mint outputs
+//         F-OC3  value pinned to 1500 on both Ticker mint outputs
+//                (matches daemon TICKER_DUST const in node/core/src/chain/consts.rs)
 //         F-OC4  pricesBlob.length % 8 == 0 + bounded 56..104
 //         F-OC5  drop the tautological budgetPad >= 0
 //         F-OC7  pkh sort rewritten as tier-split, BCH-2023 mainnet safe
@@ -216,13 +217,13 @@ contract Oracle(
         require(tx.outputs[tickerIdx0].lockingBytecode == tickerLockingBytecode);
         require(tx.outputs[tickerIdx0].tokenCategory == tickerCategory);
         require(tx.outputs[tickerIdx0].nftCommitment == newTickerCommit);
-        require(tx.outputs[tickerIdx0].value == 1000);
+        require(tx.outputs[tickerIdx0].value == 1500);
         require(tx.outputs[tickerIdx0].tokenAmount == 0);
 
         require(tx.outputs[tickerIdx1].lockingBytecode == tickerLockingBytecode);
         require(tx.outputs[tickerIdx1].tokenCategory == tickerCategory);
         require(tx.outputs[tickerIdx1].nftCommitment == newTickerCommit);
-        require(tx.outputs[tickerIdx1].value == 1000);
+        require(tx.outputs[tickerIdx1].value == 1500);
         require(tx.outputs[tickerIdx1].tokenAmount == 0);
 
         // ── Output-count constraint ──────────────────────────────────
