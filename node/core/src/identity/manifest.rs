@@ -274,7 +274,7 @@ mod tests {
                 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
             ],
             "electrum": {
-                "host": "fulcrum.layer1.cash",
+                "host": "chipnet.layer1.cash",
                 "port": 50002,
                 "tls": true
             }
@@ -296,7 +296,7 @@ mod tests {
         assert_eq!(m.version, 1);
         assert_eq!(m.network, Network::Chipnet);
         assert_eq!(m.publisher_pkhs.len(), 13);
-        assert_eq!(m.electrum.host, "fulcrum.layer1.cash");
+        assert_eq!(m.electrum.host, "chipnet.layer1.cash");
         assert!(m.electrum.tls);
         let _ = std::fs::remove_file(&path);
     }

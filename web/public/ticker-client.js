@@ -22,7 +22,7 @@
     // Polling is a degraded mode reserved for last-resort fallbacks where
     // push is broken; a working `subscribe` endpoint is always preferred.
     FULCRUM_WSS_POOL: [
-      { url: 'wss://fulcrum.layer1.cash:50004',    mode: 'subscribe' },
+      { url: 'wss://chipnet.layer1.cash:50004',    mode: 'subscribe' },
       { url: 'wss://chipnet.imaginary.cash:50004', mode: 'subscribe' },
       { url: 'wss://chipnet.bch.ninja:50004',      mode: 'poll', pollMs: 12000 },
     ],
