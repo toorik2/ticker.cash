@@ -22,7 +22,7 @@ use crate::chain::consts::{
 };
 use crate::chain::digest::publisher_sig_digest;
 use crate::chain::slot_commit::{encode_slot_commit, SlotCommit};
-use crate::crypto::{double_sha256, hash160, sign_ecdsa, sign_schnorr, KeyError};
+use crate::crypto::{double_sha256, hash160, sign_ecdsa, KeyError};
 use crate::tx::encode::{
     encode_tx, Input, Output, TokenPrefix, Tx, TxOutpoint, DEFAULT_SEQUENCE,
 };
@@ -108,10 +108,12 @@ pub fn build_attest_tx(args: &AttestArgs) -> Result<Vec<u8>, AttestError> {
     let server_name_bytes = args.server_name.as_bytes();
     let cn_hash20 = hash160(server_name_bytes);
 
-    // Publisher signs the publisher digest with their privkey. v15 requires
-    // Schnorr (64 B) — the PublisherSlot covenant pins
-    // `bytes(publisherSig).length == 64` to foreclose the BCHN/libauth
-    // DER-length divergence band at sig sizes 8..72.
+    // Publisher signs the publisher digest with their privkey. v15 keeps
+    // ECDSA-DER (v14-compatible): BCH OP_CHECKDATASIG accepts BCH-Schnorr
+    // (CHIP-2019-05), but no Rust crate exposes that variant — only
+    // BIP-340 Schnorr, which uses a different challenge hash and doesn't
+    // verify on chain. PUBSLOT-DER-SIG-LENGTH-FORK foreclosure deferred
+    // pending a Rust BCH-Schnorr impl.
     let publisher_digest = publisher_sig_digest(
         args.source_id,
         args.price,
@@ -120,7 +122,7 @@ pub fn build_attest_tx(args: &AttestArgs) -> Result<Vec<u8>, AttestError> {
         args.new_cycle_seq,
         &cn_hash20,
     );
-    let publisher_sig = sign_schnorr(&args.publisher_privkey, &publisher_digest)?;
+    let publisher_sig = sign_ecdsa(&args.publisher_privkey, &publisher_digest)?;
 
     let slot_unlock = build_attest_unlock_script(
         args.new_cycle_seq,

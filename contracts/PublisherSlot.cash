@@ -72,11 +72,14 @@ contract PublisherSlot(
         require((timestamp.slice(3, 4) & 0x80) == 0x00);
         require((cycleSeq.slice(3, 4) & 0x80) == 0x00);
 
-        // PUBSLOT-DER-SIG-LENGTH — Schnorr-only foreclosure. Schnorr is
-        // 64 B exactly; this eliminates the BCHN/libauth divergence class
-        // at sig sizes 8..72. `datasig` has no `.length` member directly
-        // (reference §Type System line 14); cast via `bytes()` first.
-        require(bytes(publisherSig).length == 64);
+        // PUBSLOT-DER-SIG-LENGTH foreclosure DEFERRED: the audit's
+        // recommended Schnorr-only pin requires BCH-Schnorr (CHIP-2019-05)
+        // for OP_CHECKDATASIG compatibility, but the `secp256k1` Rust crate
+        // exposes only BIP-340 Schnorr — a different hash construction
+        // that doesn't verify on chain. v15 keeps ECDSA-DER signing
+        // (v14-compatible), accepts the LATENT divergence class as-is.
+        // Follow-up tracked: implement BCH-Schnorr in Rust (~100 LOC of
+        // custom crypto) for a future covenant version.
 
         // ── 1. Read slot identity from commitment ─────────────────────
         int idx = this.activeInputIndex;
