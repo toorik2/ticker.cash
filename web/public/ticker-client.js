@@ -101,7 +101,7 @@
   function decodeOracleCommit(hex) {
     if (hex.length !== 38) return null; // 19 B
     const b = hexToBytes(hex);
-    if (b[0] !== 0x60) return null;
+    if (b[0] !== 0x65) return null; // v15 prefix (was 0x60 in v14)
     const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
     const scaled = dv.getBigUint64(9, true);
     return {
@@ -115,7 +115,7 @@
   function decodeSlotCommit(hex) {
     if (hex.length !== 78) return null; // 39 B
     const b = hexToBytes(hex);
-    if (b[0] !== 0x73) return null;
+    if (b[0] !== 0x75) return null; // v15 prefix (was 0x73 in v14)
     const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
     return {
       sourceId: dv.getUint16(1, true),
