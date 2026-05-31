@@ -146,249 +146,32 @@
   <div>stats.ticker.cash · chipnet · client-side, no server-side API</div>
   <div><a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github</a></div>
 </div>
+<script src="/ticker-client.js"></script>
 <script>
-const FULCRUM_WSS_POOL = [
-  'wss://fulcrum.layer1.cash:50004',
-  'wss://chipnet.bch.ninja:50004',
-  'wss://chipnet.imaginary.cash:50004',
-];
-const ORACLE_ADDR = 'bchtest:pwc6n79kccw4my9hy9umvr0qmpzf5pf5kg0sl293z38cmvxmnd08zpch7papm';
-const ORACLE_CATEGORY = '4c435bb6dfc372a0dcc050f5a14a76054a70e869d4b8f591f221f829bdec99cc';
-const SLOT_ADDR = 'bchtest:pvxvf7m74s56wkaecz8e4je3skpktpnunwvm408lswm9w9nj99duk0xhm604g';
-const SLOT_CATEGORY = '5b6d3820103515108df0ee217120daa36959ec916f176f8f3232881a597d8994';
-const CASHADDR_PREFIX = 'bchtest';
-const STALENESS_SEC = 300;
-const STRIDE_FLOOR_SEC = 60;
-const REFRESH_MS = 5000;
-const TICK_MS = 1000;
-const DEPLOYED_AT_SEC = Math.floor(new Date('2026-05-30T15:05:00.000Z').getTime() / 1000);
-const EXPECTED_SATS_PER_CYCLE = 2000n + (20000n + 2n * 1500n) / 13n;
+// ── Page-specific layer for /stats. Render-only — all protocol + state
+//    plumbing lives in /ticker-client.js.
 
-const SOURCES = [
-  {id:1,name:'kraken'},{id:2,name:'coinbase'},{id:3,name:'gemini'},
-  {id:4,name:'binance_us'},{id:5,name:'bitstamp'},{id:6,name:'cryptocom'},
-  {id:7,name:'bitfinex'},{id:8,name:'exmo'},{id:9,name:'independentreserve'},
-  {id:10,name:'okx_usdc'},{id:11,name:'kucoin_usdc'},{id:12,name:'bybit'},{id:13,name:'htx'}
-];
+const { ElectrumWS, decodeOracleCommit, decodeSlotCommit, cashaddrEncodeP2PKH,
+        bytesToHex, CONSTANTS } = window.TickerClient;
 
-function cashaddrPolymod(values){
-  let c = 1n;
-  for (const v of values) {
-    const c0 = c >> 35n;
-    c = ((c & 0x07ffffffffn) << 5n) ^ BigInt(v);
-    if (c0 & 0x01n) c ^= 0x98f2bc8e61n;
-    if (c0 & 0x02n) c ^= 0x79b76d99e2n;
-    if (c0 & 0x04n) c ^= 0xf33e5fb3c4n;
-    if (c0 & 0x08n) c ^= 0xae2eabe2a8n;
-    if (c0 & 0x10n) c ^= 0x1e4f43e470n;
-  }
-  return c ^ 1n;
-}
-function cashaddrTo5Bit(bytes){
-  const result = []; let acc = 0, bits = 0;
-  for (const b of bytes) {
-    acc = (acc << 8) | b; bits += 8;
-    while (bits >= 5) { bits -= 5; result.push((acc >> bits) & 0x1f); }
-  }
-  if (bits > 0) result.push((acc << (5 - bits)) & 0x1f);
-  return result;
-}
-function cashaddrEncodeP2PKH(prefix, pkh20){
-  const payload = new Uint8Array(21);
-  payload[0] = 0;
-  payload.set(pkh20, 1);
-  const data5 = cashaddrTo5Bit(payload);
-  const prefix5 = [...prefix].map(c => c.charCodeAt(0) & 0x1f);
-  const polyInput = [...prefix5, 0, ...data5, 0,0,0,0,0,0,0,0];
-  const poly = cashaddrPolymod(polyInput);
-  const checksum = [];
-  for (let i = 0; i < 8; i++) checksum.push(Number((poly >> BigInt(5 * (7 - i))) & 0x1fn));
-  const ALPHABET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
-  return prefix + ':' + [...data5, ...checksum].map(v => ALPHABET[v]).join('');
-}
+const { ORACLE_ADDR, ORACLE_CATEGORY, SLOT_ADDR, SLOT_CATEGORY,
+        CASHADDR_PREFIX, STALE_SEC, STRIDE_FLOOR_SEC, DEPLOYED_AT_SEC,
+        EXPECTED_SATS_PER_CYCLE, SOURCES, FULCRUM_WSS_POOL } = CONSTANTS;
 
-function hexToBytes(hex){
-  const out = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.substr(i*2, 2), 16);
-  return out;
-}
-function bytesToHex(bytes){
-  return Array.from(bytes).map(b => b.toString(16).padStart(2,'0')).join('');
-}
+// ─── Mutable view state ─────────────────────────────────────────────
+// Each subscription handler updates a slice of this and calls render().
+const state = {
+  oracle: null,                  // { seq, lastTs, medianUsd, activeCount, ageSec }
+  slots: new Map(),              // slotIdx → { ...row }
+  balances: new Map(),           // pkhHex → bigint sats
+  errors: [],
+  history: [],                   // {seq, lastTs, medianUsd, slotsCurrent, cycleStrideSec}
+  fetchedAt: Math.floor(Date.now()/1000),
+  publisherAddrs: new Map(),     // pkhHex → cashaddr (cached)
+  subscribedPublishers: new Set(), // pkhHex (so we only subscribe once)
+};
 
-function decodeOracleCommit(hex){
-  if (hex.length !== 38) return null;
-  const b = hexToBytes(hex);
-  if (b[0] !== 0x60) return null;
-  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
-  const scaled = dv.getBigUint64(9, true);
-  return {
-    seq: dv.getUint32(1, true),
-    lastTs: dv.getUint32(5, true),
-    medianPrice: scaled,
-    medianUsd: Number(scaled) / 1e8,
-    activeCount: dv.getUint16(17, true),
-  };
-}
-function decodeSlotCommit(hex){
-  if (hex.length !== 78) return null;
-  const b = hexToBytes(hex);
-  if (b[0] !== 0x73) return null;
-  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
-  return {
-    sourceId: dv.getUint16(1, true),
-    pkh: b.slice(3, 23),
-    price: dv.getBigUint64(23, true),
-    timestamp: dv.getUint32(31, true),
-    cycleSeq: dv.getUint32(35, true),
-  };
-}
-class ElectrumWS {
-  constructor(urls){
-    this.urls = urls;        // ordered endpoint pool
-    this.current = 0;        // index of the URL currently connected
-    this.ws = null; this.nextId = 1;
-    this.pending = new Map(); this.connecting = null;
-  }
-  async connect(){
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) return;
-    if (this.connecting) return this.connecting;
-    this.connecting = (async () => {
-      const n = this.urls.length;
-      let lastErr;
-      for (let offset = 0; offset < n; offset++) {
-        const idx = (this.current + offset) % n;
-        try { await this.dial(this.urls[idx]); this.current = idx; return; }
-        catch (e) { lastErr = e; }
-      }
-      throw lastErr || new Error('no endpoints');
-    })();
-    try { return await this.connecting; }
-    finally { this.connecting = null; }
-  }
-  dial(url){
-    return new Promise((resolve, reject) => {
-      const ws = new WebSocket(url);
-      const timer = setTimeout(() => { try { ws.close(); } catch{} reject(new Error('ws connect timeout: ' + url)); }, 10000);
-      ws.onopen = () => { clearTimeout(timer); this.ws = ws; resolve(); };
-      ws.onerror = () => { clearTimeout(timer); reject(new Error('ws error: ' + url)); };
-      ws.onclose = () => { this.ws = null; this.failAll(new Error('ws closed: ' + url)); };
-      ws.onmessage = (ev) => this.onMessage(ev.data);
-    });
-  }
-  failAll(err){
-    for (const [,p] of this.pending) p.reject(err);
-    this.pending.clear();
-  }
-  onMessage(data){
-    // Each WebSocket frame is a complete JSON-RPC message — Fulcrum doesn't
-    // newline-delimit on WSS (unlike raw TCP). Parse the frame whole.
-    try {
-      const msg = JSON.parse(data);
-      if (msg.id != null && this.pending.has(msg.id)) {
-        const { resolve, reject } = this.pending.get(msg.id);
-        this.pending.delete(msg.id);
-        if (msg.error) reject(new Error(msg.error.message || JSON.stringify(msg.error)));
-        else resolve(msg.result);
-      }
-    } catch {}
-  }
-  async request(method, ...params){
-    await this.connect();
-    const id = this.nextId++;
-    return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
-      const payload = JSON.stringify({ jsonrpc: '2.0', id, method, params });
-      try { this.ws.send(payload); } catch (e) { this.pending.delete(id); reject(e); return; }
-      setTimeout(() => {
-        if (this.pending.has(id)) {
-          this.pending.delete(id);
-          reject(new Error('request timeout: ' + method));
-        }
-      }, 12000);
-    });
-  }
-}
-
-async function buildSnapshot(client){
-  const errors = [];
-  const fetchedAt = Math.floor(Date.now() / 1000);
-  const [oracleR, slotR, tipR] = await Promise.allSettled([
-    client.request('blockchain.address.listunspent', ORACLE_ADDR, 'include_tokens'),
-    client.request('blockchain.address.listunspent', SLOT_ADDR, 'include_tokens'),
-    client.request('blockchain.headers.subscribe'),
-  ]);
-  const oracleUtxos = oracleR.status === 'fulfilled' ? oracleR.value : (errors.push('oracle: ' + oracleR.reason.message), []);
-  const slotUtxos = slotR.status === 'fulfilled' ? slotR.value : (errors.push('slots: ' + slotR.reason.message), []);
-  const tip = tipR.status === 'fulfilled' ? tipR.value : (errors.push('tip: ' + tipR.reason.message), null);
-
-  let oracleState = null;
-  const oUtxo = oracleUtxos.find(u => u.token_data && u.token_data.category === ORACLE_CATEGORY && u.token_data.nft && u.token_data.nft.commitment);
-  if (oUtxo) {
-    const d = decodeOracleCommit(oUtxo.token_data.nft.commitment);
-    if (d) oracleState = { seq: d.seq, lastTs: d.lastTs, medianUsd: d.medianUsd, activeCount: d.activeCount, ageSec: Math.max(0, fetchedAt - d.lastTs) };
-    else errors.push('oracle decode failed');
-  } else if (oracleR.status === 'fulfilled') errors.push('oracle UTXO not found');
-
-  const decodedSlots = [];
-  for (const u of slotUtxos) {
-    if (!u.token_data || u.token_data.category !== SLOT_CATEGORY) continue;
-    if (!u.token_data.nft || !u.token_data.nft.commitment) continue;
-    if (u.token_data.nft.capability !== 'mutable') continue;
-    const c = decodeSlotCommit(u.token_data.nft.commitment);
-    if (c) decodedSlots.push(c);
-  }
-
-  const balanceResults = await Promise.allSettled(decodedSlots.map(async (d) => {
-    const addr = cashaddrEncodeP2PKH(CASHADDR_PREFIX, d.pkh);
-    const utxos = await client.request('blockchain.address.listunspent', addr);
-    const sats = utxos.filter(u => !u.token_data).reduce((s, u) => s + BigInt(u.value), 0n);
-    return { addr, sats };
-  }));
-
-  let cycleStrideSec = STRIDE_FLOOR_SEC;
-  if (oracleState && oracleState.seq > 0 && oracleState.lastTs > DEPLOYED_AT_SEC) {
-    cycleStrideSec = Math.max(STRIDE_FLOOR_SEC, Math.round((oracleState.lastTs - DEPLOYED_AT_SEC) / oracleState.seq));
-  }
-
-  const oracleSeq = oracleState ? oracleState.seq : 0;
-  const slotsByIndex = new Map();
-  for (let i = 0; i < decodedSlots.length; i++) {
-    const d = decodedSlots[i];
-    const slot = SOURCES.findIndex(s => s.id === d.sourceId);
-    if (slot < 0) { errors.push('unknown sourceId ' + d.sourceId); continue; }
-    if (slotsByIndex.has(slot)) { errors.push('dup slot ' + slot); continue; }
-    const br = balanceResults[i];
-    let addr, sats;
-    if (br.status === 'fulfilled') { addr = br.value.addr; sats = br.value.sats; }
-    else { addr = cashaddrEncodeP2PKH(CASHADDR_PREFIX, d.pkh); sats = 0n; errors.push('balance slot ' + slot + ': ' + br.reason.message); }
-    const cyclesOfRunway = Number(sats / EXPECTED_SATS_PER_CYCLE);
-    const cyclesBehind = Math.max(0, oracleSeq - d.cycleSeq);
-    const status = (cyclesOfRunway < 5) ? 'unfunded' : (cyclesBehind > 3) ? 'stalled' : (cyclesBehind > 0) ? 'lagging' : 'ok';
-    slotsByIndex.set(slot, {
-      slot, sourceId: d.sourceId, sourceName: SOURCES[slot].name,
-      publisherPkh: bytesToHex(d.pkh), publisherAddress: addr,
-      lastAttestTs: d.timestamp, lastCycleSeq: d.cycleSeq, cyclesBehind,
-      walletBalanceSats: sats.toString(), cyclesOfRunway,
-      runwayDurationSec: cyclesOfRunway * cycleStrideSec, status,
-    });
-  }
-  const slots = Array.from(slotsByIndex.values()).sort((a, b) => a.slot - b.slot);
-  const slotsCurrent = slots.filter(s => s.cyclesBehind === 0).length;
-  const slotsLagging = slots.filter(s => s.cyclesBehind > 0 && s.cyclesBehind <= 3).length;
-  const slotsStalled = slots.filter(s => s.cyclesBehind > 3).length;
-  const slotsUnfunded = slots.filter(s => s.status === 'unfunded').length;
-  const quorumOk = slotsCurrent >= 7;
-  const healthy = tip !== null && oracleState !== null && oracleState.ageSec < STALENESS_SEC && quorumOk;
-
-  return {
-    fetchedAt, cycleStrideSec, oracle: oracleState,
-    health: { healthy, stalenessThresholdSec: STALENESS_SEC, fulcrumTip: tip ? tip.height : null },
-    slots, aggregate: { slotsCurrent, slotsLagging, slotsStalled, slotsUnfunded, quorumOk }, errors,
-  };
-}
-let lastSnap = null;
-
+// ─── Render helpers (unchanged in spirit from the polling version) ──
 function fmtAge(s){
   if (s == null) return '—';
   if (s < 60) return s + 's';
@@ -396,34 +179,75 @@ function fmtAge(s){
   if (s < 86400) return Math.floor(s/3600) + 'h ' + Math.floor((s%3600)/60).toString().padStart(2,'0') + 'm';
   return Math.floor(s/86400) + 'd ' + Math.floor((s%86400)/3600).toString().padStart(2,'0') + 'h';
 }
-function fmtSats(s){
-  if (s == null) return '—';
-  const n = typeof s === 'string' ? Number(s) : s;
-  if (!isFinite(n)) return '—';
-  return n.toLocaleString('en-US') + ' sats';
+function fmtSats(n){
+  if (n == null) return '—';
+  const v = typeof n === 'string' ? Number(n) : Number(n);
+  if (!isFinite(v)) return '—';
+  return v.toLocaleString('en-US') + ' sats';
 }
-function fmtPkh(hex){ if (!hex) return '—'; return hex.slice(0,8) + '…' + hex.slice(-8); }
+function fmtPkh(hex){ return hex ? hex.slice(0,8) + '…' + hex.slice(-8) : '—'; }
+function pushError(msg){
+  state.errors.push(String(msg));
+  if (state.errors.length > 20) state.errors.shift();
+}
 
-function updateStatusStripe(d){
-  const o = d.oracle, q = d.aggregate;
-  const healthy = d.health.healthy && q.quorumOk && q.slotsStalled === 0 && q.slotsUnfunded === 0;
+function computeCycleStride(){
+  const o = state.oracle;
+  if (o && o.seq > 0 && o.lastTs > DEPLOYED_AT_SEC) {
+    return Math.max(STRIDE_FLOOR_SEC, Math.round((o.lastTs - DEPLOYED_AT_SEC) / o.seq));
+  }
+  return STRIDE_FLOOR_SEC;
+}
+
+function computeAggregate(){
+  const slots = Array.from(state.slots.values()).sort((a,b) => a.slot - b.slot);
+  const oracleSeq = state.oracle?.seq ?? 0;
+  for (const s of slots) {
+    s.cyclesBehind = Math.max(0, oracleSeq - s.cycleSeq);
+    const sats = state.balances.get(s.publisherPkh) ?? 0n;
+    s.walletBalanceSats = sats.toString();
+    s.cyclesOfRunway = Number(sats / EXPECTED_SATS_PER_CYCLE);
+    const stride = computeCycleStride();
+    s.runwayDurationSec = s.cyclesOfRunway * stride;
+    s.status = (s.cyclesOfRunway < 5) ? 'unfunded'
+             : (s.cyclesBehind > 3) ? 'stalled'
+             : (s.cyclesBehind > 0) ? 'lagging'
+             : 'ok';
+  }
+  const slotsCurrent  = slots.filter(s => s.cyclesBehind === 0).length;
+  const slotsStalled  = slots.filter(s => s.cyclesBehind > 3).length;
+  const slotsUnfunded = slots.filter(s => s.status === 'unfunded').length;
+  const quorumOk = slotsCurrent >= 7;
+  return { slots, slotsCurrent, slotsStalled, slotsUnfunded, quorumOk, cycleStrideSec: computeCycleStride() };
+}
+
+function updateStatusStripe(agg){
+  const o = state.oracle;
+  const fulcrumOk = !!client.activeEndpoint();
+  const healthy = fulcrumOk && o && (Math.floor(Date.now()/1000) - o.lastTs) < STALE_SEC && agg.quorumOk && agg.slotsStalled === 0 && agg.slotsUnfunded === 0;
+  const baseOk = fulcrumOk && o;
   const stripe = document.getElementById('status-stripe');
   stripe.className = 'status-stripe ' + (healthy ? 'ok' : 'warn');
-  document.getElementById('ss-status').textContent = healthy ? 'HEALTHY' : (d.health.healthy ? 'DEGRADED' : 'UNHEALTHY');
+  document.getElementById('ss-status').textContent =
+    healthy ? 'HEALTHY' : (baseOk ? 'DEGRADED' : 'UNHEALTHY');
   document.getElementById('ss-seq').textContent = o ? '#' + o.seq.toLocaleString('en-US') : '—';
-  document.getElementById('ss-age').textContent = o ? fmtAge(o.ageSec) : '—';
-  document.getElementById('ss-quorum').textContent = q.slotsCurrent + ' / 13';
-  document.getElementById('ss-stride').textContent = d.cycleStrideSec + 's';
-  document.getElementById('ss-age-metric').classList.toggle('warn', !!o && o.ageSec >= STALENESS_SEC);
-  document.getElementById('ss-quorum-metric').classList.toggle('warn', !q.quorumOk);
+  const ageSec = o ? Math.max(0, Math.floor(Date.now()/1000) - o.lastTs) : null;
+  document.getElementById('ss-age').textContent = ageSec != null ? fmtAge(ageSec) : '—';
+  document.getElementById('ss-quorum').textContent = agg.slots.length ? (agg.slotsCurrent + ' / 13') : '—';
+  document.getElementById('ss-stride').textContent = agg.cycleStrideSec + 's';
+  document.getElementById('ss-age-metric').classList.toggle('warn', ageSec != null && ageSec >= STALE_SEC);
+  document.getElementById('ss-quorum-metric').classList.toggle('warn', !agg.quorumOk);
 }
 
-function updateStalledBanner(d){
+function updateStalledBanner(agg){
   const banner = document.getElementById('stalled-banner');
-  if (!banner || !d.oracle) { if (banner) banner.hidden = true; return; }
-  const stride = d.cycleStrideSec || 60;
-  if (d.oracle.ageSec >= 5 * stride) {
-    document.getElementById('stalled-detail').textContent = 'no cycle for ' + fmtAge(d.oracle.ageSec) + ' (last cycle #' + d.oracle.seq.toLocaleString('en-US') + ')';
+  if (!banner) return;
+  if (!state.oracle) { banner.hidden = true; return; }
+  const stride = agg.cycleStrideSec || 60;
+  const ageSec = Math.max(0, Math.floor(Date.now()/1000) - state.oracle.lastTs);
+  if (ageSec >= 5 * stride) {
+    document.getElementById('stalled-detail').textContent =
+      'no cycle for ' + fmtAge(ageSec) + ' (last cycle #' + state.oracle.seq.toLocaleString('en-US') + ')';
     document.getElementById('stalled-stride').textContent = stride + 's';
     banner.hidden = false;
   } else banner.hidden = true;
@@ -432,7 +256,6 @@ function updateStalledBanner(d){
 function makeTd(text, opts){
   const td = document.createElement('td');
   if (opts && opts.right) td.classList.add('r');
-  if (opts && opts.cls) td.classList.add(opts.cls);
   if (text != null) td.textContent = String(text);
   return td;
 }
@@ -490,7 +313,7 @@ function makeStatusCell(status){
 }
 function makeRow(s, slotErrorSet){
   const tr = document.createElement('tr');
-  const nowSec = Math.floor(Date.now() / 1000);
+  const nowSec = Math.floor(Date.now()/1000);
   const ageAttest = Math.max(0, nowSec - s.lastAttestTs);
   tr.dataset.slot = String(s.slot);
   tr.dataset.lastAttestTs = String(s.lastAttestTs);
@@ -509,6 +332,7 @@ function makeRow(s, slotErrorSet){
   return tr;
 }
 
+// ─── Sparklines + errors ─────────────────────────────────────────────
 const SVG_NS = 'http://www.w3.org/2000/svg';
 function drawSparkline(svg, values){
   while (svg.firstChild) svg.removeChild(svg.firstChild);
@@ -519,138 +343,169 @@ function drawSparkline(svg, values){
   const min = Math.min(...values), max = Math.max(...values);
   const range = (max - min) || 1;
   const step = W / (values.length - 1);
-  const pts = values.map((v, i) => (i * step).toFixed(2) + ',' + (H - 2 - ((v - min) / range) * (H - 4)).toFixed(2)).join(' ');
+  const pts = values.map((v, i) => (i*step).toFixed(2) + ',' + (H - 2 - ((v - min)/range) * (H - 4)).toFixed(2)).join(' ');
   const poly = document.createElementNS(SVG_NS, 'polyline');
-  poly.setAttribute('points', pts);
-  poly.setAttribute('fill', 'none');
-  poly.setAttribute('stroke', '#1a1a18');
-  poly.setAttribute('stroke-width', '1.2');
+  poly.setAttribute('points', pts); poly.setAttribute('fill', 'none');
+  poly.setAttribute('stroke', '#1a1a18'); poly.setAttribute('stroke-width', '1.2');
   poly.setAttribute('vector-effect', 'non-scaling-stroke');
   svg.appendChild(poly);
 }
-function renderSparklines(recent){
-  if (!recent || recent.length < 2) {
+function renderSparklines(){
+  const h = state.history;
+  if (!h || h.length < 2) {
     ['spark-seq','spark-quorum','spark-stride'].forEach(id => {
       const el = document.getElementById(id);
       while (el && el.firstChild) el.removeChild(el.firstChild);
     });
     return;
   }
-  drawSparkline(document.getElementById('spark-seq'), recent.map(e => e.seq));
-  drawSparkline(document.getElementById('spark-quorum'), recent.map(e => e.slotsCurrent));
-  drawSparkline(document.getElementById('spark-stride'), recent.map(e => e.cycleStrideSec));
-  const last = recent[recent.length - 1];
-  document.getElementById('spark-seq-v').textContent = '#' + last.seq.toLocaleString('en-US');
+  drawSparkline(document.getElementById('spark-seq'),    h.map(e => e.seq));
+  drawSparkline(document.getElementById('spark-quorum'), h.map(e => e.slotsCurrent));
+  drawSparkline(document.getElementById('spark-stride'), h.map(e => e.cycleStrideSec));
+  const last = h[h.length - 1];
+  document.getElementById('spark-seq-v').textContent    = '#' + last.seq.toLocaleString('en-US');
   document.getElementById('spark-quorum-v').textContent = last.slotsCurrent + ' / 13';
   document.getElementById('spark-stride-v').textContent = last.cycleStrideSec + 's';
 }
-function renderErrors(errors){
+function renderErrors(){
   const fold = document.getElementById('fold-errors');
   const list = document.getElementById('errors-list');
-  const ct = document.getElementById('fold-errors-count');
+  const ct   = document.getElementById('fold-errors-count');
   while (list.firstChild) list.removeChild(list.firstChild);
-  if (!errors || errors.length === 0) {
+  if (!state.errors.length) {
     fold.hidden = true; fold.classList.remove('alert'); fold.removeAttribute('open');
     ct.textContent = '0'; return;
   }
-  for (const e of errors) {
-    const li = document.createElement('li'); li.textContent = String(e);
+  for (const e of state.errors) {
+    const li = document.createElement('li'); li.textContent = e;
     list.appendChild(li);
   }
   fold.hidden = false; fold.classList.add('alert'); fold.setAttribute('open', '');
-  ct.textContent = String(errors.length);
+  ct.textContent = String(state.errors.length);
 }
-function extractErrorSlots(errors){
+function extractErrorSlots(){
   const set = new Set();
-  if (!errors) return set;
-  for (const e of errors) {
-    const m = /\bslot (\d+)\b/i.exec(String(e));
-    if (m) set.add(Number(m[1]));
-  }
+  for (const e of state.errors) { const m = /\bslot (\d+)\b/i.exec(e); if (m) set.add(Number(m[1])); }
   return set;
 }
 
-function render(d){
-  updateStatusStripe(d);
-  updateStalledBanner(d);
-  const activeHost = client.ws && client.urls[client.current] ? new URL(client.urls[client.current]).host : 'fulcrum…';
-  document.getElementById('ts-strip').textContent = 'reading direct from ' + activeHost + ' · refreshed ' + new Date(d.fetchedAt * 1000).toISOString().replace('T', ' ').slice(0, 19);
-  const slotErrorSet = extractErrorSlots(d.errors);
+// ─── Top-level render ────────────────────────────────────────────────
+function render(){
+  const agg = computeAggregate();
+  updateStatusStripe(agg);
+  updateStalledBanner(agg);
+  const activeHost = client.activeEndpoint() || 'fulcrum…';
+  document.getElementById('ts-strip').textContent =
+    'reading direct from ' + activeHost + ' · refreshed ' +
+    new Date(state.fetchedAt * 1000).toISOString().replace('T',' ').slice(0,19);
+  const slotErrorSet = extractErrorSlots();
   const tbody = document.getElementById('slot-rows');
   while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
-  if (!d.slots || d.slots.length === 0) {
+  if (!agg.slots.length) {
     const tr = document.createElement('tr');
     const td = document.createElement('td');
     td.colSpan = 7; td.style.textAlign = 'center';
-    td.style.padding = '1.5rem'; td.style.color = '#a02010';
-    td.textContent = 'no slot UTXOs found';
+    td.style.padding = '1.5rem'; td.style.color = '#6a6457';
+    td.textContent = activeHost === 'fulcrum…' ? 'connecting to fulcrum…' : 'no slot UTXOs found';
     tr.appendChild(td); tbody.appendChild(tr);
   } else {
-    for (const s of d.slots) tbody.appendChild(makeRow(s, slotErrorSet));
+    for (const s of agg.slots) tbody.appendChild(makeRow(s, slotErrorSet));
   }
-  renderSparklines(history);
-  renderErrors(d.errors);
+  renderSparklines();
+  renderErrors();
 }
 
-function renderHardError(msg){
-  const tbody = document.getElementById('slot-rows');
-  while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
-  const tr = document.createElement('tr');
-  const td = document.createElement('td');
-  td.colSpan = 7; td.style.textAlign = 'center';
-  td.style.padding = '1.5rem'; td.style.color = '#a02010';
-  td.textContent = msg;
-  tr.appendChild(td); tbody.appendChild(tr);
-  renderErrors([msg]);
+// ─── Subscription handlers ───────────────────────────────────────────
+// Whenever Oracle UTXO changes, server pushes → we refetch + decode.
+function onOracleChange(utxos){
+  state.fetchedAt = Math.floor(Date.now()/1000);
+  const u = utxos.find(x => x.token_data && x.token_data.category === ORACLE_CATEGORY && x.token_data.nft && x.token_data.nft.commitment);
+  if (!u) { state.oracle = null; render(); return; }
+  const d = decodeOracleCommit(u.token_data.nft.commitment);
+  if (!d) { pushError('oracle decode failed'); render(); return; }
+  state.oracle = {
+    seq: d.seq, lastTs: d.lastTs, medianUsd: d.medianUsd, activeCount: d.activeCount,
+  };
+  // Append to history if seq advanced
+  const last = state.history[state.history.length - 1];
+  if (!last || last.seq !== d.seq) {
+    const agg = computeAggregate();
+    state.history.push({
+      seq: d.seq, lastTs: d.lastTs, medianUsd: d.medianUsd,
+      slotsCurrent: agg.slotsCurrent, cycleStrideSec: agg.cycleStrideSec,
+    });
+    if (state.history.length > 50) state.history.shift();
+  }
+  render();
 }
 
-const client = new ElectrumWS(FULCRUM_WSS_POOL);
-const history = [];
-
-async function poll(){
-  try {
-    const d = await buildSnapshot(client);
-    lastSnap = d;
-    render(d);
-    if (d.oracle && (history.length === 0 || history[history.length - 1].seq !== d.oracle.seq)) {
-      history.push({
-        seq: d.oracle.seq, lastTs: d.oracle.lastTs, medianUsd: d.oracle.medianUsd,
-        slotsCurrent: d.aggregate.slotsCurrent, cycleStrideSec: d.cycleStrideSec,
-      });
-      if (history.length > 50) history.shift();
+// Whenever ANY of the 13 slot UTXOs changes, server pushes on SLOT_ADDR.
+// Decode the full list, update rows, and lazily subscribe to any newly-
+// observed publisher P2PKH so balances stay live.
+function onSlotChange(utxos){
+  state.fetchedAt = Math.floor(Date.now()/1000);
+  const decoded = [];
+  for (const u of utxos) {
+    if (!u.token_data || u.token_data.category !== SLOT_CATEGORY) continue;
+    if (!u.token_data.nft || !u.token_data.nft.commitment) continue;
+    if (u.token_data.nft.capability !== 'mutable') continue;
+    const c = decodeSlotCommit(u.token_data.nft.commitment);
+    if (c) decoded.push(c);
+  }
+  const seen = new Set();
+  for (const d of decoded) {
+    const slot = SOURCES.findIndex(s => s.id === d.sourceId);
+    if (slot < 0) { pushError('unknown sourceId ' + d.sourceId); continue; }
+    if (seen.has(slot)) { pushError('dup slot ' + slot); continue; }
+    seen.add(slot);
+    const pkhHex = bytesToHex(d.pkh);
+    let addr = state.publisherAddrs.get(pkhHex);
+    if (!addr) {
+      addr = cashaddrEncodeP2PKH(CASHADDR_PREFIX, d.pkh);
+      state.publisherAddrs.set(pkhHex, addr);
     }
-  } catch (e) {
-    renderHardError('fulcrum read failed: ' + (e && e.message ? e.message : String(e)));
+    state.slots.set(slot, {
+      slot, sourceId: d.sourceId, sourceName: SOURCES[slot].name,
+      publisherPkh: pkhHex, publisherAddress: addr,
+      lastAttestTs: d.timestamp, cycleSeq: d.cycleSeq,
+      // computed by aggregate(): cyclesBehind, walletBalanceSats, cyclesOfRunway, runwayDurationSec, status
+    });
+    // Lazy subscribe to publisher balance — fires once per publisher.
+    if (!state.subscribedPublishers.has(pkhHex)) {
+      state.subscribedPublishers.add(pkhHex);
+      const cb = (utxos) => onBalanceChange(pkhHex, utxos);
+      client.subscribeAndFetch(addr, [], cb).catch(e => pushError('publisher ' + pkhHex.slice(0,8) + ' sub: ' + e.message));
+    }
   }
+  render();
 }
 
-function tick(){
-  if (!lastSnap) return;
-  const nowSec = Math.floor(Date.now() / 1000);
-  if (lastSnap.oracle) {
-    const age = Math.max(0, nowSec - lastSnap.oracle.lastTs);
-    const el = document.getElementById('ss-age');
-    if (el) el.textContent = fmtAge(age);
-    document.getElementById('ss-age-metric').classList.toggle('warn', age >= STALENESS_SEC);
-  }
-  const rows = document.querySelectorAll('#slot-rows tr[data-last-attest-ts]');
-  rows.forEach(tr => {
-    const ts = Number(tr.dataset.lastAttestTs);
-    if (!isFinite(ts) || ts <= 0) return;
-    const cell = tr.querySelector('td.age-attest');
-    if (!cell) return;
-    const age = Math.max(0, nowSec - ts);
-    const sub = cell.querySelector('span.sub');
-    while (cell.firstChild) cell.removeChild(cell.firstChild);
-    cell.appendChild(document.createTextNode(fmtAge(age) + ' '));
-    if (sub) cell.appendChild(sub);
-  });
+function onBalanceChange(pkhHex, utxos){
+  const sats = utxos.filter(u => !u.token_data).reduce((s, u) => s + BigInt(u.value), 0n);
+  state.balances.set(pkhHex, sats);
+  render();
 }
+
+// ─── Wire it up ──────────────────────────────────────────────────────
+const client = new ElectrumWS(FULCRUM_WSS_POOL, {
+  onStatus: ({ state: s, endpoint }) => {
+    if (s === 'connected') {
+      // wipe transient errors from the previous (failed) session
+      state.errors = state.errors.filter(x => !x.startsWith('ws ') && !x.startsWith('subscribe '));
+    }
+    render();
+  },
+});
 
 document.getElementById('fulcrum-host').textContent = new URL(FULCRUM_WSS_POOL[0]).host + ' (+' + (FULCRUM_WSS_POOL.length - 1) + ' fallback)';
-poll();
-setInterval(poll, REFRESH_MS);
-setInterval(tick, TICK_MS);
+
+client.subscribeAndFetch(ORACLE_ADDR, ['include_tokens'], onOracleChange)
+  .catch(e => { pushError('oracle subscribe: ' + e.message); render(); });
+client.subscribeAndFetch(SLOT_ADDR, ['include_tokens'], onSlotChange)
+  .catch(e => { pushError('slot subscribe: ' + e.message); render(); });
+
+// 1-second tick: keep the "age" columns moving between pushes.
+setInterval(render, 1000);
 </script>
 </body>
 </html>
