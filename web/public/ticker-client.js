@@ -12,10 +12,19 @@
 
   // ─── Constants — single source of truth ──────────────────────────────
   const CONSTANTS = {
+    // Endpoint pool — ordered by preference. Each entry declares a `mode`:
+    //   'subscribe' — the WSS endpoint sends server-initiated push frames
+    //                 on blockchain.address.subscribe (the normal case).
+    //   'poll'      — the WSS endpoint accepts subscribe but never pushes
+    //                 (bch.ninja's :50004 behaves this way — its reverse
+    //                 proxy drops server-initiated frames). The client
+    //                 falls back to listunspent polling on this endpoint.
+    // Polling is a degraded mode reserved for last-resort fallbacks where
+    // push is broken; a working `subscribe` endpoint is always preferred.
     FULCRUM_WSS_POOL: [
-      'wss://fulcrum.layer1.cash:50004',
-      'wss://chipnet.bch.ninja:50004',
-      'wss://chipnet.imaginary.cash:50004',
+      { url: 'wss://fulcrum.layer1.cash:50004',    mode: 'subscribe' },
+      { url: 'wss://chipnet.imaginary.cash:50004', mode: 'subscribe' },
+      { url: 'wss://chipnet.bch.ninja:50004',      mode: 'poll', pollMs: 12000 },
     ],
     ORACLE_ADDR: 'bchtest:pwc6n79kccw4my9hy9umvr0qmpzf5pf5kg0sl293z38cmvxmnd08zpch7papm',
     ORACLE_CATEGORY: '4c435bb6dfc372a0dcc050f5a14a76054a70e869d4b8f591f221f829bdec99cc',
@@ -138,13 +147,18 @@
   //     result. Subsequent renders are notification-driven.
   //
   class ElectrumWS {
-    constructor(urls, opts = {}) {
-      this.urls = urls;
+    constructor(endpoints, opts = {}) {
+      // Accept either ['wss://…', …] or [{url, mode, pollMs?}, …]. Strings
+      // default to {mode: 'subscribe'}.
+      this.endpoints = endpoints.map(e =>
+        typeof e === 'string' ? { url: e, mode: 'subscribe' } : { ...e });
       this.current = 0;
       this.ws = null;
       this.nextId = 1;
-      this.pending = new Map();      // id → { resolve, reject, timeoutId }
-      this.subscriptions = new Map(); // address → handler(status)
+      this.pending = new Map();    // id → { resolve, reject, timeoutId }
+      // Watches persist across reconnects — each is { params, onChange }.
+      this.watches = new Map();    // address → { params, onChange }
+      this.pollTimers = new Map(); // address → intervalId (poll-mode only)
       this.heartbeatMs = opts.heartbeatMs ?? 30000;
       this.requestTimeoutMs = opts.requestTimeoutMs ?? 12000;
       this.maxBackoffMs = opts.maxBackoffMs ?? 30000;
@@ -157,65 +171,61 @@
       this.lastActivityMs = 0;
     }
 
+    currentEndpoint() { return this.endpoints[this.current]; }
+    currentMode() { return this.currentEndpoint().mode; }
+
     // Active connection's host:port (or null if not connected).
     activeEndpoint() {
       if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return null;
-      try { return new URL(this.urls[this.current]).host; } catch { return null; }
+      try { return new URL(this.currentEndpoint().url).host; } catch { return null; }
     }
 
-    // Stop the client; flushes pending, disables heartbeat + reconnect.
+    // Stop the client; flushes pending, disables heartbeat + reconnect + polls.
     close() {
       this.shouldRun = false;
       if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null; }
       if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
+      this.stopPolling();
       this.failAll(new Error('client closed'));
       try { this.ws && this.ws.close(); } catch {}
       this.ws = null;
     }
 
-    // Add a subscription. Resubscribed automatically on every reconnect.
-    // `handler(status)` is invoked once immediately with the current status,
-    // and on every subsequent server push for this address.
-    async subscribe(address, handler) {
-      this.subscriptions.set(address, handler);
-      await this.connect();
-      const status = await this.request('blockchain.address.subscribe', address);
-      handler(status);
-      return status;
-    }
-
-    // Convenience: subscribe + immediately fetch UTXOs so the page can render
-    // initial state without waiting for the first push.
+    // Public API — single entry point for watching an address. Internally
+    // dispatches to subscribe (push) or poll (pull) based on the current
+    // endpoint's mode. On reconnect or endpoint switch, the watch is
+    // automatically re-established in whatever mode the new endpoint uses.
     async subscribeAndFetch(address, params, onChange) {
-      const utxosPromise = this.request('blockchain.address.listunspent', address, ...params);
-      const statusPromise = this.subscribe(address, async () => {
-        try {
-          const utxos = await this.request('blockchain.address.listunspent', address, ...params);
-          onChange(utxos);
-        } catch (e) { /* handled by reconnect path; UI stays on last frame */ }
-      });
-      const [utxos] = await Promise.all([utxosPromise, statusPromise]);
-      onChange(utxos);
+      this.watches.set(address, { params, onChange });
+      await this.connect();
+      // attachWatch was called from setupWatches() during connect, so by now
+      // either a subscribe was issued or a poll timer is running. Do an
+      // immediate seed fetch so the caller can render before the first push
+      // (or first poll tick) arrives.
+      try {
+        const utxos = await this.request('blockchain.address.listunspent', address, ...params);
+        onChange(utxos);
+      } catch (e) { /* connection path retries; ignore */ }
     }
 
     async connect() {
       if (this.ws && this.ws.readyState === WebSocket.OPEN) return;
       if (this.connecting) return this.connecting;
       this.connecting = (async () => {
-        const n = this.urls.length;
+        const n = this.endpoints.length;
         let lastErr;
         for (let offset = 0; offset < n; offset++) {
           if (!this.shouldRun) throw new Error('client closed');
           const idx = (this.current + offset) % n;
-          const url = this.urls[idx];
-          this.onStatus({ state: 'connecting', endpoint: url });
+          const ep = this.endpoints[idx];
+          this.onStatus({ state: 'connecting', endpoint: ep.url, mode: ep.mode });
           try {
-            await this.dial(url);
+            await this.dial(ep.url);
             this.current = idx;
-            this.backoffMs = 1000; // reset backoff on success
-            this.onStatus({ state: 'connected', endpoint: url });
+            this.backoffMs = 1000;
+            this.onStatus({ state: 'connected', endpoint: ep.url, mode: ep.mode });
             this.startHeartbeat();
-            await this.resubscribeAll();
+            await this.setupWatches();
             return;
           } catch (e) { lastErr = e; }
         }
@@ -246,6 +256,7 @@
           if (this.ws === ws) {
             this.ws = null;
             this.failAll(new Error('ws closed: ' + url));
+            this.stopPolling();
             if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null; }
             this.onStatus({ state: 'disconnected', endpoint: url });
             this.scheduleReconnect();
@@ -255,15 +266,42 @@
       });
     }
 
-    // Re-establish all known subscriptions and fire each handler with the
-    // current status so callers refresh whatever they cached.
-    async resubscribeAll() {
-      for (const [addr, handler] of this.subscriptions) {
-        try {
-          const status = await this.request('blockchain.address.subscribe', addr);
-          handler(status);
-        } catch (e) { /* connection problem; reconnect path will retry */ }
+    // Attach watching for every known address according to the current
+    // endpoint's mode. Subscribe-mode: fires the handler once with the
+    // current status (callers don't strictly need it — seed comes from
+    // subscribeAndFetch's listunspent — but it's free signal). Poll-mode:
+    // starts a per-address interval that does listunspent + onChange.
+    async setupWatches() {
+      this.stopPolling(); // belt-and-braces: clear any leftover polls
+      const mode = this.currentMode();
+      if (mode === 'subscribe') {
+        for (const [addr, { params, onChange }] of this.watches) {
+          try {
+            await this.request('blockchain.address.subscribe', addr);
+            // Refetch on reconnect so the caller refreshes whatever was
+            // missed during the gap. Cheap; same call we'd do on push.
+            this.request('blockchain.address.listunspent', addr, ...params)
+              .then(onChange).catch(() => {});
+          } catch (e) { /* connection path retries */ }
+        }
+      } else if (mode === 'poll') {
+        const pollMs = this.currentEndpoint().pollMs ?? 12000;
+        for (const [addr, { params, onChange }] of this.watches) {
+          // Kick off one fetch right away; setInterval handles the rest.
+          this.request('blockchain.address.listunspent', addr, ...params)
+            .then(onChange).catch(() => {});
+          const id = setInterval(() => {
+            this.request('blockchain.address.listunspent', addr, ...params)
+              .then(onChange).catch(() => {});
+          }, pollMs);
+          this.pollTimers.set(addr, id);
+        }
       }
+    }
+
+    stopPolling() {
+      for (const id of this.pollTimers.values()) clearInterval(id);
+      this.pollTimers.clear();
     }
 
     startHeartbeat() {
@@ -280,9 +318,9 @@
     scheduleReconnect() {
       if (!this.shouldRun) return;
       if (this.reconnectTimer) return;
-      // Advance the endpoint index so a dead primary doesn't keep retrying
-      // first — failover semantics.
-      this.current = (this.current + 1) % this.urls.length;
+      // Advance to the next endpoint so a dead primary doesn't keep
+      // retrying first — failover semantics.
+      this.current = (this.current + 1) % this.endpoints.length;
       const delay = this.backoffMs;
       this.backoffMs = Math.min(this.backoffMs * 2, this.maxBackoffMs);
       this.reconnectTimer = setTimeout(() => {
@@ -312,17 +350,16 @@
         else resolve(msg.result);
         return;
       }
-      // Server-pushed notification (no id, has method)
-      if (msg.method && Array.isArray(msg.params)) {
-        if (msg.method === 'blockchain.address.subscribe') {
-          const [addr, status] = msg.params;
-          const handler = this.subscriptions.get(addr);
-          if (handler) {
-            try { handler(status); } catch { /* swallow handler errors */ }
-          }
+      // Server-pushed notification — only consumed on subscribe-mode
+      // endpoints. On poll-mode endpoints, the interval drives updates;
+      // any stray notification is harmless.
+      if (msg.method === 'blockchain.address.subscribe' && Array.isArray(msg.params)) {
+        const [addr] = msg.params;
+        const watch = this.watches.get(addr);
+        if (watch) {
+          this.request('blockchain.address.listunspent', addr, ...watch.params)
+            .then(watch.onChange).catch(() => {});
         }
-        // Other notifications (e.g. blockchain.headers.subscribe) are ignored
-        // — pages aren't subscribed to anything else right now.
       }
     }
 

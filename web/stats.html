@@ -497,7 +497,7 @@ const client = new ElectrumWS(FULCRUM_WSS_POOL, {
   },
 });
 
-document.getElementById('fulcrum-host').textContent = new URL(FULCRUM_WSS_POOL[0]).host + ' (+' + (FULCRUM_WSS_POOL.length - 1) + ' fallback)';
+document.getElementById('fulcrum-host').textContent = new URL(FULCRUM_WSS_POOL[0].url).host + ' (+' + (FULCRUM_WSS_POOL.length - 1) + ' fallback)';
 
 client.subscribeAndFetch(ORACLE_ADDR, ['include_tokens'], onOracleChange)
   .catch(e => { pushError('oracle subscribe: ' + e.message); render(); });
