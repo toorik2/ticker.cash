@@ -1,9 +1,8 @@
 //! `ticker-ops setup-all` — generate per-slot install directories on the
 //! coordinator's box from `seed.hex` + `deploy-state.json`.
 //!
-//! v13: publisher-only. Each slot gets `$home/.ticker-slot-N/` with its
-//! manifest.json and publisher.key. The v12 notary tier is gone — slots 0..6
-//! no longer get a `notary.key` and the manifest no longer has `notaryPubkeys`.
+//! Publisher-only (notary tier was dropped in v13; reaffirmed in v15). Each
+//! slot gets `$home/.ticker-slot-N/` with its manifest.json and publisher.key.
 //!
 //! systemd units running `ticker-node` set `TICKER_HOME=$home/.ticker-slot-%i`
 //! to pick up the right per-slot identity.

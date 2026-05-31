@@ -292,11 +292,15 @@ fn sign_all_funders(
     Ok(())
 }
 
-/// Compose the v13 slot.attest unlock script bytes.
+/// Compose the v15 slot.attest unlock script bytes.
 ///
 /// Push order (last declared arg first, per cashscript convention):
 ///   cycleSeq → publisherSig → publisherPubkey → timestamp → price →
 ///   serverName → fn-selector(0) → redeem-script
+///
+/// `publisherSig` is a 64-byte Schnorr signature in v15; the PublisherSlot
+/// covenant pins `bytes(publisherSig).length == 64` so any non-64 sig
+/// rejects pre-VERIFY.
 fn build_attest_unlock_script(
     cycle_seq: u32,
     publisher_sig: &[u8],

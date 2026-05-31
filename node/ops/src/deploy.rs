@@ -1,6 +1,6 @@
-//! `ticker-ops deploy` — v13 genesis ceremony.
+//! `ticker-ops deploy` — v15 genesis ceremony.
 //!
-//! Mints the on-chain v13 deployment:
+//! Mints the on-chain v15 deployment:
 //!
 //!   1. Computes Ticker P2SH-32 (no constructor args).
 //!   2. Picks 2 master UTXOs (defaults to label "master" derived from seed.hex).
@@ -13,15 +13,16 @@
 //!      (depends on Oracle's P2SH).
 //!   6. Builds + broadcasts Oracle genesis tx: spends master UTXO #1 at input[0],
 //!      emits 1 Oracle minting NFT (capability 0x02) at Oracle P2SH-32 with
-//!      initial commit `0x60 | seq=0 | ts=0 | medianUsd=0 | activeCount=0`.
+//!      initial commit `0x65 | seq=0 | ts=0 | medianUsd=0 | activeCount=0`.
 //!   7. Builds + broadcasts Slot genesis tx: spends master UTXO #2 at input[0],
 //!      emits 13 mutable slot NFTs (capability 0x01) at Slot P2SH-32, one per
-//!      publisher pkh, with initial commit `0x73 | sourceId(2) | pkh(20) | 0x00..(16)`.
+//!      publisher pkh, with initial commit `0x75 | sourceId(2) | pkh(20) | 0x00..(16)`.
 //!   8. Writes the resulting addresses + txids to deploy-state.json.
 
 use std::fs;
 use std::time::Duration;
 
+use ticker_core::chain::consts::{ORACLE_VERSION_BYTE, SLOT_VERSION_BYTE};
 use ticker_core::chain::sources::{packed_cn_hashes, SOURCES};
 use ticker_core::covenant::{
     locking::p2sh32_locking_bytecode, redeem_oracle, redeem_publisher_slot, redeem_ticker,
@@ -166,7 +167,7 @@ pub fn deploy(
     // ── 7. Build Oracle genesis tx ───────────────────────────────────────
     let oracle_initial_commit: [u8; 19] = {
         let mut c = [0u8; 19];
-        c[0] = 0x60; // ORACLE_VERSION_BYTE
+        c[0] = ORACLE_VERSION_BYTE;
         // seq (4), lastTs (4), medianUsd (8), activeCount (2) — all zeros
         c
     };
@@ -271,10 +272,10 @@ pub fn deploy(
     Ok(())
 }
 
-/// Build the 39-byte v13 initial slot commit: `0x73 | sourceId(2) | pkh(20) | 0x00..(16)`.
+/// Build the 39-byte v15 initial slot commit: `0x75 | sourceId(2) | pkh(20) | 0x00..(16)`.
 fn build_initial_slot_commit(source_id: u16, pkh: &[u8; 20]) -> [u8; 39] {
     let mut c = [0u8; 39];
-    c[0] = 0x73; // SLOT_VERSION_BYTE
+    c[0] = SLOT_VERSION_BYTE;
     c[1..3].copy_from_slice(&source_id.to_le_bytes());
     c[3..23].copy_from_slice(pkh);
     // price (8), timestamp (4), cycleSeq (4) — all zeros at genesis
