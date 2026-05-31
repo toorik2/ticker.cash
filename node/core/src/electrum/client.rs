@@ -18,7 +18,7 @@ use rustls::pki_types::ServerName;
 use rustls::{ClientConnection, StreamOwned};
 use serde::Serialize;
 use serde_json::Value;
-use std::io::{BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -258,23 +258,24 @@ impl ElectrumClient {
     }
 
     /// Wire-level send + receive on the current connection. No retry logic.
+    /// Bounds the JSON-RPC response line at MAX_RESPONSE_LINE — a hostile
+    /// or MITM'd Electrum cannot OOM us by trickling gigabytes without a
+    /// newline. The bound goes through `Take<BufRead>` so that `read_line`
+    /// still terminates at the newline (and reports EOF correctly), unlike
+    /// `read_to_string` which only returns on close.
     fn send_recv(&mut self, buf: &[u8]) -> Result<Value, ElectrumError> {
         let reader = self.conn.as_mut().ok_or(ElectrumError::Disconnected)?;
         reader.get_mut().write_all(buf)?;
         let mut line = String::new();
-        // Bound the response line so a hostile/MITM'd Electrum cannot OOM us
-        // by streaming gigabytes without a newline. 8 MiB is well above any
-        // realistic listunspent response on chipnet.
-        use std::io::Read;
-        let n = reader.by_ref().take(MAX_RESPONSE_LINE).read_to_string(&mut line)?;
+        let n = reader.by_ref().take(MAX_RESPONSE_LINE).read_line(&mut line)?;
         if n == 0 {
             return Err(ElectrumError::Disconnected);
         }
-        // Find the first newline; if absent, we hit the cap mid-message.
-        let end = line
-            .find('\n')
-            .ok_or(ElectrumError::ResponseTooLarge(MAX_RESPONSE_LINE))?;
-        let resp: Value = serde_json::from_str(line[..end].trim_end())?;
+        if !line.ends_with('\n') {
+            // Hit the cap before seeing a newline — runaway response.
+            return Err(ElectrumError::ResponseTooLarge(MAX_RESPONSE_LINE));
+        }
+        let resp: Value = serde_json::from_str(line.trim_end())?;
         if let Some(err) = resp.get("error") {
             if !err.is_null() {
                 return Err(ElectrumError::Rpc(err.to_string()));
