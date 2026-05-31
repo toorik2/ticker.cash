@@ -1,78 +1,60 @@
 pragma cashscript >= 0.13.0;
 
-// PublisherSlot — covenant body unchanged since v13. v14 reuses this same
-// bytecode (still slot commit version 0x73); the v14 cutover only touched
-// `Oracle.cash` (stride floor 30→60 s). The header below describes the v13
-// design change vs v12 because that's the most recent change to THIS file.
+// PublisherSlot v15 — structural hardening pass closing the
+// bedrock-usd-ticker security audit findings on this covenant:
 //
-// v13 is a trust-model simplification of v12, not a feature change. The
-// 7-notary OR-list is removed:
+//   PUBSLOT-TIMESTAMP-SIGNMAG  MSB-clear gate on publisher-attested
+//                              timestamp (prevents Oracle window-vote
+//                              undercounting from negative-int decode).
+//   PUBSLOT-CYCLESEQ-SIGNMAG   MSB-clear gate on cycleSeq (prevents the
+//                              0x7FFFFFFF self-brick where a slot writes
+//                              max-positive and any further 4-byte value
+//                              decodes negative under sign-magnitude).
+//   PUBSLOT-DER-SIG-LENGTH     Schnorr-only sig length pin (== 64).
+//                              Forecloses the BCHN-inclusive [8..72] vs
+//                              libauth-exclusive (8..72) divergence band.
+//                              See bedrock-libauth/W26-DER-SIG-LENGTH.
+//   (F-T-1 cousin)             tokenAmount==0 pin on slot re-emit so the
+//                              mutable-NFT-only invariant is covenant-
+//                              enforced rather than consensus-implicit.
 //
-//   - Constructor args drop notaryPubkey0..6 (231 B of constructor data)
-//   - attest() drops notaryIdx and notarySig parameters
-//   - The notary OR-list dispatch block (v12 lines 129-157) is gone
-//   - serverName stays an attest() arg, used for the CN binding +
-//     publisher digest (unchanged digest layout from v12)
+// Slot commit prefix bumped 0x73 → 0x75 (skipping 0x74 to leave space for
+// a deprecated iteration that never shipped). v15 introduces no schema
+// changes; only the prefix byte differs vs v14.
 //
-// Why: in the v12 deployment the 7 notaries and 13 publishers ran on the
-// same operator boxes. The covenant's 1-of-7 notary OR was structurally
-// weak — a single corrupt notary could sign for any publisher. The
-// 7-of-13 publisher quorum was the only real load-bearing trust property.
-// v13 drops the misleading tier and is explicit about the trust model:
-// 7-of-13 publisher honesty, period.
+// ── Trust model unchanged ──────────────────────────────────────────────
+// 7-of-13 publisher quorum. Sybil resistance via distinct-publisherPkh
+// check in Oracle.update's slot-walk loop. v15 does NOT add slot rotation
+// (transfer pkh); that requires a separate v16.
 //
-// Forward compat: if TLSN reaches a stable release with public notary
-// services (TLSN was alpha 0.1.0-alpha.14 → .15 at time of v13 design),
-// real cryptographic source attestation can be added later as a
-// per-publisher off-chain artifact without another covenant version.
-//
-// ── Trust model change since v12 ───────────────────────────────────────
-//   v12: 7-of-13 publisher quorum + 1-of-7 notary OR-list
-//   v13: 7-of-13 publisher quorum
-// In the current single-operator deployment these are equivalent. A future
-// multi-operator split needs to reintroduce a tier (or adopt TLSN) to
-// regain the separation.
-//
-// ── Genesis (unchanged ceremony, fewer constructor args) ───────────────
+// ── Genesis (unchanged ceremony, fresh category) ───────────────────────
 //   1. Spend designated non-token P2PKH outpoint X (genesis input).
 //      slotCategoryReversed = HASH256(X).reverse()
 //   2. Create 13 outputs, one per (publisher, sourceId), each with:
-//        - lockingBytecode = P2SH-32 of THIS v13 PublisherSlot covenant
+//        - lockingBytecode = P2SH-32 of THIS v15 PublisherSlot covenant
 //        - tokenCategory   = slotCategoryReversed + 0x01 (mutable)
-//        - nftCommitment   = 0x73 + sourceId(2) + publisherPkh(20) + 0x00..(16)
+//        - nftCommitment   = 0x75 + sourceId(2) + publisherPkh(20) + 0x00..(16)
 //   3. NO other token outputs of this category.
 //
-// ── Slot commitment (39 B, version 0x73) ───────────────────────────────
-// Layout identical to v12; only version byte changes.
-//   [0]      version 0x73              1 B   v13 tag (distinct from v12's 0x72)
+// ── Slot commitment (39 B, version 0x75) ───────────────────────────────
+//   [0]      version 0x75              1 B   v15 tag
 //   [1..3)   sourceId                  2 B   IMMUTABLE — pinned at genesis
 //   [3..23)  publisherPkh             20 B   IMMUTABLE — pinned at genesis
 //   [23..31) price                     8 B   rewritten by attest()
-//   [31..35) timestamp                 4 B   rewritten by attest()
-//   [35..39) cycleSeq                  4 B   rewritten by attest()
-//
-// ── Constructor args ───────────────────────────────────────────────────
-//   sourceCNHashes (260 B, 13 × 20 packed) — UNCHANGED
-//   oracleCategoryReversed (32 B) — UNCHANGED
-//   oracleLockingBytecode (35 B) — UNCHANGED
-//   notaryPubkey0..6 from v12 are DROPPED.
+//   [31..35) timestamp                 4 B   rewritten by attest() — MSB-clear
+//   [35..39) cycleSeq                  4 B   rewritten by attest() — MSB-clear
 
 contract PublisherSlot(
     bytes   sourceCNHashes,            // 260 B (13 sources × 20 B HASH160)
     bytes32 oracleCategoryReversed,    // pin Oracle's 32-byte category
     bytes35 oracleLockingBytecode      // pin Oracle's covenant P2SH-32 (35 B)
 ) {
-    // ── attest() — publisher refreshes slot with their own observation ────
-    // No notary signature is required by the covenant. Each publisher's
-    // honest claim is verified off-chain via TLS cert at fetch time
-    // (daemon-level). The federation quorum + median in Oracle.update is
-    // what protects against malicious publishers entering bad prices.
     function attest(
-        bytes   serverName,        // raw CN/SAN bytes (4..64 B) — for CN binding + publisher digest
+        bytes   serverName,        // raw CN/SAN bytes (4..64 B)
         bytes   price,             // 8 B u64 LE
         bytes   timestamp,         // 4 B u32 LE — publisher's observation time
         pubkey  publisherPubkey,   // 33 B publisher pubkey (must match slot)
-        datasig publisherSig,      // 64 B Schnorr or 70-72 B ECDSA-DER
+        datasig publisherSig,      // MUST be 64 B Schnorr (v15)
         bytes   cycleSeq           // 4 B u32 LE — Oracle cycle this attests to
     ) {
         // ── 0. Input-shape sanity ─────────────────────────────────────
@@ -83,11 +65,24 @@ contract PublisherSlot(
         require(serverName.length >= 4);
         require(serverName.length <= 64);
 
+        // PUBSLOT-TIMESTAMP-SIGNMAG + PUBSLOT-CYCLESEQ-SIGNMAG —
+        // sign-magnitude protection. Forbid the MSB of the last byte
+        // (LE-int sign bit) being set. Parens are mandatory: `&` binds
+        // looser than `==` in cashscript (reference §OPERATORS line 1243).
+        require((timestamp.slice(3, 4) & 0x80) == 0x00);
+        require((cycleSeq.slice(3, 4) & 0x80) == 0x00);
+
+        // PUBSLOT-DER-SIG-LENGTH — Schnorr-only foreclosure. Schnorr is
+        // 64 B exactly; this eliminates the BCHN/libauth divergence class
+        // at sig sizes 8..72. `datasig` has no `.length` member directly
+        // (reference §Type System line 14); cast via `bytes()` first.
+        require(bytes(publisherSig).length == 64);
+
         // ── 1. Read slot identity from commitment ─────────────────────
         int idx = this.activeInputIndex;
         bytes oldCommit = tx.inputs[idx].nftCommitment;
         require(oldCommit.length == 39);
-        require(oldCommit.slice(0, 1) == 0x73);
+        require(oldCommit.slice(0, 1) == 0x75);
         bytes sourceId = oldCommit.slice(1, 3);
         bytes20 publisherPkh = oldCommit.slice(3, 23);
 
@@ -95,12 +90,6 @@ contract PublisherSlot(
         require(hash160(publisherPubkey) == publisherPkh);
 
         // ── 2b. cycleSeq monotonicity (anti-MEV last-look protection) ─
-        // Block same-cycle rewrites: once a slot is attested for cycle N,
-        // any further attest() must advance to N+1 or later. Prevents the
-        // "last-look MEV" surface where a publisher observes mempool state
-        // then re-attests the SAME cycle with a different price (from a
-        // later TLS session within the freshness window). The first
-        // attestation a publisher signs for a cycle is final.
         require(int(cycleSeq) > int(oldCommit.slice(35, 39)));
 
         // ── 3. Server-name binding (CN/SAN hash via slot's pinned sourceId) ──
@@ -110,31 +99,23 @@ contract PublisherSlot(
         require(hash160(serverName) == expectedCNHash);
 
         // ── 4. Publisher sig over committed payload ───────────────────
-        // Digest layout unchanged from v12 so node/core/src/chain/digest.rs
-        // stays as-is. hash160(serverName) in the digest is technically
-        // redundant with the CN check at step 3 (both derive from sourceId
-        // via sourceCNHashes), kept for defense in depth.
         bytes pubMessage = sourceId + price + timestamp + publisherPkh + cycleSeq + hash160(serverName);
         require(checkDataSig(publisherSig, pubMessage, publisherPubkey));
 
         // ── 5. Re-emit slot at same index, identity preserved ─────────
-        // Mutable NFT consensus rule: a mutable parent produces exactly ONE
-        // mutable child of the same category. The tokenCategory equality
-        // check forces capability byte (0x01) to survive — no downgrade to
-        // immutable, no upgrade to minting.
-        bytes newCommit = 0x73 + sourceId + publisherPkh + price + timestamp + cycleSeq;
+        bytes newCommit = 0x75 + sourceId + publisherPkh + price + timestamp + cycleSeq;
         require(newCommit.length == 39);
         require(tx.outputs[idx].lockingBytecode == tx.inputs[idx].lockingBytecode);
         require(tx.outputs[idx].tokenCategory == tx.inputs[idx].tokenCategory);
         require(tx.outputs[idx].nftCommitment == newCommit);
         require(tx.outputs[idx].value == tx.inputs[idx].value);
+        // F-T-1 cousin — pin tokenAmount==0 on the mutable slot re-emit.
+        // Consensus already disallows FT amounts on mutable-NFT outputs
+        // when none was present on input, but explicit covenant gating is
+        // load-bearing post-federation-split.
+        require(tx.outputs[idx].tokenAmount == 0);
 
         // ── 6. Constrain output count (no extra token outputs) ────────
-        // Layout: [0..idx) preceding outputs, [idx] slot re-emit, [idx+1]
-        // optional change. Cap total at idx+2 with change carrying no
-        // token data. Mutable consensus already forbids extra slot
-        // outputs in the same category; this belt-and-braces blocks any
-        // mistaken multi-output structures from a buggy builder.
         require(tx.outputs.length <= idx + 2);
         if (tx.outputs.length == idx + 2) {
             require(tx.outputs[idx + 1].tokenCategory == 0x);
@@ -142,23 +123,12 @@ contract PublisherSlot(
     }
 
     // ── consume() — Oracle.update consumes slot, re-emits unchanged ────
-    // The slot covenant only enforces identity preservation here. Oracle's
-    // own update() validates (price, ts, cycleSeq) against quorum / median /
-    // ratchet logic.
     function consume() {
         int idx = this.activeInputIndex;
         require(idx >= 1);
 
         // Oracle at input[0] — pin to BOTH the full 33-byte category
         // (0x02 minting cap) AND the Oracle covenant's P2SH-32 lockingBytecode.
-        //
-        // Category check: distinguishes the Oracle from Tickers, which share
-        // the 32-byte category prefix but use mutable cap 0x01.
-        //
-        // lockingBytecode pin: forces input[0] to be governed by the v13
-        // Oracle.update covenant's full logic — no backdoor 0x02 NFT
-        // survives the check, satisfying the "no central operator key
-        // post-genesis" hard constraint.
         require(tx.inputs[0].tokenCategory == oracleCategoryReversed + 0x02);
         require(tx.inputs[0].lockingBytecode == oracleLockingBytecode);
 
@@ -167,5 +137,7 @@ contract PublisherSlot(
         require(tx.outputs[idx].tokenCategory == tx.inputs[idx].tokenCategory);
         require(tx.outputs[idx].nftCommitment == tx.inputs[idx].nftCommitment);
         require(tx.outputs[idx].value == tx.inputs[idx].value);
+        // Same tokenAmount pin as attest() — covenant-explicit invariant.
+        require(tx.outputs[idx].tokenAmount == 0);
     }
 }

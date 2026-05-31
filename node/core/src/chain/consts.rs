@@ -1,4 +1,4 @@
-//! Protocol constants. Each one is also enforced or referenced by the live v14 covenants.
+//! Protocol constants. Each one is also enforced or referenced by the live v15 covenants.
 
 /// Sats locked in the Oracle UTXO (minting NFT). Re-emitted unchanged each cycle.
 pub const ORACLE_DUST: u64 = 2_000;
@@ -17,13 +17,13 @@ pub const PUBLISHER_COUNT: usize = 13;
 pub const TICKER_HEAD_COUNT: usize = 2;
 
 /// Stride floor between Oracle.update transactions, seconds.
-/// `Oracle.cash:73-74`: `require(newTs - prevTs >= 60)`.
+/// `Oracle.cash:84-85`: `require(newTs - prevTs >= 60)`.
 pub const STRIDE_FLOOR_SEC: u32 = 60;
 
 // ─── Commit lengths ────────────────────────────────────────────────────────
 
 /// Length of an Oracle NFT commit, bytes.
-/// Layout: `0x60 | seq(u32 LE) | last_ts(u32 LE) | median_usd(u64 LE) | active_count(u16 LE)`.
+/// Layout: `0x65 | seq(u32 LE) | last_ts(u32 LE) | median_usd(u64 LE) | active_count(u16 LE)`.
 pub const ORACLE_COMMIT_LEN: usize = 19;
 
 /// Length of a Ticker NFT commit, bytes.
@@ -31,21 +31,26 @@ pub const ORACLE_COMMIT_LEN: usize = 19;
 pub const TICKER_COMMIT_LEN: usize = 17;
 
 /// Length of a PublisherSlot NFT commit, bytes.
-/// Layout: `0x73 | source_id(u16 LE) | pkh(20 B) | price(u64 LE) | timestamp(u32 LE) | cycle_seq(u32 LE)`.
+/// Layout: `0x75 | source_id(u16 LE) | pkh(20 B) | price(u64 LE) | timestamp(u32 LE) | cycle_seq(u32 LE)`.
 pub const SLOT_COMMIT_LEN: usize = 39;
 
 // ─── Version bytes ─────────────────────────────────────────────────────────
 
-/// Oracle NFT commit version byte (`Oracle.cash:24-30`).
-pub const ORACLE_VERSION_BYTE: u8 = 0x60;
+/// Oracle NFT commit version byte. `0x65` is v15's tag (bumped from v14's
+/// `0x60` to mark the structural hardening pass: tokenAmount pins, pkh sort
+/// rewrite for BCH-2023 mainnet readiness, pricesBlob bounds).
+pub const ORACLE_VERSION_BYTE: u8 = 0x65;
 
-/// Ticker NFT commit version byte (`Oracle.cash:174-177`).
+/// Ticker NFT commit version byte. Held stable at `0x80` across v14→v15
+/// (Ticker is consumer-facing; bumping it would churn every downstream
+/// covenant. Fresh on-chain category alone separates v14/v15).
 pub const TICKER_VERSION_BYTE: u8 = 0x80;
 
-/// PublisherSlot NFT commit version byte. `0x73` is v13's tag, distinct from v12's `0x72`
-/// and v11's `0x70` (VerifiedAttestation). The version-byte bump is the structural marker
-/// of v13's dropped notary tier.
-pub const SLOT_VERSION_BYTE: u8 = 0x73;
+/// PublisherSlot NFT commit version byte. `0x75` is v15's tag (bumped from
+/// v14's `0x73`, skipping `0x74` to leave space for a deprecated iteration
+/// that never shipped). The bump marks v15's MSB-clear gates, Schnorr-only
+/// sig length pin, and tokenAmount pin on slot re-emit.
+pub const SLOT_VERSION_BYTE: u8 = 0x75;
 
 // ─── Capability bytes ──────────────────────────────────────────────────────
 

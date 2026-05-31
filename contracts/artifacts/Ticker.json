@@ -4,29 +4,32 @@
   "abi": [
     { "name": "consume", "inputs": [] }
   ],
-  "bytecode": "OP_INPUTINDEX OP_DUP OP_UTXOTOKENCOMMITMENT OP_1 OP_SPLIT OP_DROP 80 OP_EQUALVERIFY OP_DUP OP_UTXOTOKENCOMMITMENT OP_SIZE OP_NIP 11 OP_NUMEQUALVERIFY OP_DUP OP_OUTPUTBYTECODE OP_OVER OP_UTXOBYTECODE OP_EQUALVERIFY OP_DUP OP_OUTPUTTOKENCATEGORY OP_OVER OP_UTXOTOKENCATEGORY OP_EQUALVERIFY OP_DUP OP_OUTPUTTOKENCOMMITMENT OP_OVER OP_UTXOTOKENCOMMITMENT OP_EQUALVERIFY OP_OUTPUTVALUE e803 OP_GREATERTHANOREQUAL",
-  "source": "pragma cashscript >= 0.13.0;\n\n// Ticker — self-replicating chain head for atomic price consumption.\n//\n// Each Oracle.update cycle mints K (= 4) Ticker NFTs with MUTABLE capability\n// (0x01). A consumer's tx spends a Ticker at input[idx] and is required to\n// re-emit an IDENTICAL Ticker at output[idx] (same lockingBytecode, same\n// tokenCategory including the mutable capability suffix, same nftCommitment,\n// dust value preserved). This creates a chain of consumers — each is a chain\n// descendant of the Oracle.update tx that produced the original Ticker, and\n// every consumer in the chain inherits co-finality via parent-child outpoint\n// linkage (BCH consensus enforces parent in canonical chain ⇒ child in\n// canonical chain).\n//\n// Capacity per cycle ≈ K × D where K is the number of pre-minted heads (4)\n// and D is the achievable chain depth (RTT-bounded, typically thousands).\n//\n// The Ticker covenant has no auth gate beyond the version byte and the\n// structural re-emit constraint — anyone can spend and continue the chain.\n\ncontract Ticker() {\n    function consume() {\n        int idx = this.activeInputIndex;\n\n        // Input shape sanity\n        require(tx.inputs[idx].nftCommitment.slice(0, 1) == 0x80);\n        require(tx.inputs[idx].nftCommitment.length == 17);\n\n        // Self-replicate at the same output index. Full equality on:\n        //  - lockingBytecode (35 B P2SH-32 of this Ticker covenant)\n        //  - tokenCategory (33 B = 32-byte category + 0x01 mutable suffix)\n        //  - nftCommitment (17 B — preserves price/lastTs/seq verbatim)\n        //  - dust floor preserved (≥ 1000 sats)\n        require(tx.outputs[idx].lockingBytecode == tx.inputs[idx].lockingBytecode);\n        require(tx.outputs[idx].tokenCategory == tx.inputs[idx].tokenCategory);\n        require(tx.outputs[idx].nftCommitment == tx.inputs[idx].nftCommitment);\n        require(tx.outputs[idx].value >= 1000);\n    }\n}\n",
+  "bytecode": "OP_INPUTINDEX OP_DUP OP_UTXOTOKENCOMMITMENT OP_1 OP_SPLIT OP_DROP 80 OP_EQUALVERIFY OP_DUP OP_UTXOTOKENCOMMITMENT OP_SIZE OP_NIP 11 OP_NUMEQUALVERIFY OP_DUP OP_OUTPUTBYTECODE OP_OVER OP_UTXOBYTECODE OP_EQUALVERIFY OP_DUP OP_OUTPUTTOKENCATEGORY OP_OVER OP_UTXOTOKENCATEGORY OP_EQUALVERIFY OP_DUP OP_OUTPUTTOKENCOMMITMENT OP_OVER OP_UTXOTOKENCOMMITMENT OP_EQUALVERIFY OP_DUP OP_OUTPUTVALUE OP_OVER OP_UTXOVALUE OP_NUMEQUALVERIFY OP_DUP OP_OUTPUTTOKENAMOUNT OP_0 OP_NUMEQUALVERIFY OP_TXOUTPUTCOUNT OP_OVER OP_2 OP_ADD OP_LESSTHANOREQUAL OP_VERIFY OP_TXOUTPUTCOUNT OP_OVER OP_2 OP_ADD OP_NUMEQUAL OP_IF OP_DUP OP_1ADD OP_OUTPUTTOKENCATEGORY OP_0 OP_EQUALVERIFY OP_ENDIF OP_DROP OP_1",
+  "source": "pragma cashscript >= 0.13.0;\n\n// Ticker v15 — self-replicating chain head for atomic price consumption.\n//\n// Each Oracle.update cycle mints K (= 2) Ticker NFTs with MUTABLE capability\n// (0x01). A consumer's tx spends a Ticker at input[idx] and is required to\n// re-emit an IDENTICAL Ticker at output[idx] (same lockingBytecode, same\n// tokenCategory including the mutable capability suffix, same nftCommitment,\n// EXACT value preserved, tokenAmount pinned to 0). This creates a chain of\n// consumers — each is a chain descendant of the Oracle.update tx that\n// produced the original Ticker, and every consumer in the chain inherits\n// co-finality via parent-child outpoint linkage (BCH consensus enforces\n// parent in canonical chain ⇒ child in canonical chain).\n//\n// Capacity per cycle ≈ K × D where K is the number of pre-minted heads (2)\n// and D is the achievable chain depth (RTT-bounded, typically thousands).\n//\n// The Ticker covenant has no auth gate beyond the version byte and the\n// structural re-emit constraint — anyone can spend and continue the chain.\n//\n// ── v14 → v15 changes ──────────────────────────────────────────────────\n//   F-T-1  tokenAmount pinned to 0 on output (closes hybrid-token injection\n//          path that requires both Oracle category having FT supply AND a\n//          consumer reading tokenAmount with implicit-zero assumption).\n//   F-T-2  value pin tightened from `>= 1000` to strict `==`. Eliminates\n//          the cost-inflation gift class. Trade-off: if BCH consensus ever\n//          raises the dust floor above 1000, v15 Tickers become unspendable\n//          and re-genesis is required. Acceptable — Oracle pins the mint\n//          value to exactly 1000 in v15, so the floor coupling is symmetric.\n//   Output-count cap: mirrors the discipline already present in Oracle and\n//   PublisherSlot — at most one change output, and if present it must carry\n//   no token data.\n//\n// Version byte unchanged at 0x80 (consumer-facing prefix held stable across\n// the v14→v15 cutover; fresh category alone separates them on chain).\n\ncontract Ticker() {\n    function consume() {\n        int idx = this.activeInputIndex;\n\n        // Input shape sanity\n        require(tx.inputs[idx].nftCommitment.slice(0, 1) == 0x80);\n        require(tx.inputs[idx].nftCommitment.length == 17);\n\n        // Self-replicate at the same output index. Full equality on:\n        //  - lockingBytecode (35 B P2SH-32 of this Ticker covenant)\n        //  - tokenCategory (33 B = 32-byte category + 0x01 mutable suffix)\n        //  - nftCommitment (17 B — preserves price/lastTs/seq verbatim)\n        //  - value (strict equality — v15 tightening)\n        //  - tokenAmount (== 0, v15 F-T-1 closure)\n        require(tx.outputs[idx].lockingBytecode == tx.inputs[idx].lockingBytecode);\n        require(tx.outputs[idx].tokenCategory == tx.inputs[idx].tokenCategory);\n        require(tx.outputs[idx].nftCommitment == tx.inputs[idx].nftCommitment);\n        require(tx.outputs[idx].value == tx.inputs[idx].value);\n        require(tx.outputs[idx].tokenAmount == 0);\n\n        // Output-count cap. At most one trailing change output; if present\n        // it must carry no token data (so the Ticker NFT is the only\n        // category-bearing output of this consume).\n        require(tx.outputs.length <= idx + 2);\n        if (tx.outputs.length == idx + 2) {\n            require(tx.outputs[idx + 1].tokenCategory == 0x);\n        }\n    }\n}\n",
+  "fingerprint": "1b85889196cc0b0f0510a85783570a3aca99be6881686438231c0551772dbc05",
   "debug": {
-    "bytecode": "c076cf517f7501808876cf827701119d76cd78c78876d178ce8876d278cf88cc02e803a2",
-    "sourceMap": "23:18:23:39;26:26:26:29;:16::44:1;:54::55:0;:16::56:1;;:60::64:0;:8::66:1;27:26:27:29:0;:16::44:1;:::51;;:55::57:0;:8::59:1;34:27:34:30:0;:16::47:1;:61::64:0;:51::81:1;:8::83;35:27:35:30:0;:16::45:1;:59::62:0;:49::77:1;:8::79;36:27:36:30:0;:16::45:1;:59::62:0;:49::77:1;:8::79;37:16:37:37;:41::45:0;:8::47:1",
+    "bytecode": "c076cf517f7501808876cf827701119d76cd78c78876d178ce8876d278cf8876cc78c69d76d3009dc4785293a169c47852939c63768bd10088687551",
+    "sourceMap": "39:18:39:39;42:26:42:29;:16::44:1;:54::55:0;:16::56:1;;:60::64:0;:8::66:1;43:26:43:29:0;:16::44:1;:::51;;:55::57:0;:8::59:1;51:27:51:30:0;:16::47:1;:61::64:0;:51::81:1;:8::83;52:27:52:30:0;:16::45:1;:59::62:0;:49::77:1;:8::79;53:27:53:30:0;:16::45:1;:59::62:0;:49::77:1;:8::79;54:27:54:30:0;:16::37:1;:51::54:0;:41::61:1;:8::63;55:27:55:30:0;:16::43:1;:47::48:0;:8::50:1;60:16:60:33:0;:37::40;:43::44;:37:::1;:16;:8::46;61:12:61:29:0;:33::36;:39::40;:33:::1;:12;:42:63:9:0;62:31:62:34;:::38:1;:20::53;:57::59:0;:12::61:1;61:42:63:9;38:23:64:5;",
     "logs": [],
     "requires": [
-      { "ip": 7, "line": 26 },
-      { "ip": 13, "line": 27 },
-      { "ip": 18, "line": 34 },
-      { "ip": 23, "line": 35 },
-      { "ip": 28, "line": 36 },
-      { "ip": 32, "line": 37 }
+      { "ip": 7, "line": 42 },
+      { "ip": 13, "line": 43 },
+      { "ip": 18, "line": 51 },
+      { "ip": 23, "line": 52 },
+      { "ip": 28, "line": 53 },
+      { "ip": 33, "line": 54 },
+      { "ip": 37, "line": 55 },
+      { "ip": 43, "line": 60 },
+      { "ip": 54, "line": 62 }
     ]
   },
   "compiler": {
     "name": "cashc",
-    "version": "0.13.0-next.8",
+    "version": "0.13.0",
     "options": {
       "enforceFunctionParameterTypes": true,
       "enforceLocktimeGuard": true
     }
   },
-  "updatedAt": "2026-05-27T04:53:05.463Z",
-  "fingerprint": "dbe0ea770e911b2f2053a7cf3ace73ed2fc953380ac68869a58d82f54b7eaf83"
+  "updatedAt": "2026-05-31T10:08:49.897Z"
 }

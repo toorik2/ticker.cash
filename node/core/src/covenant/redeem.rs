@@ -98,21 +98,24 @@ mod tests {
     /// wire-compatible rebuild.
 
     /// `tickerLockingBytecodeHex` (Ticker has no constructor args).
+    /// Pin computed from v15 Ticker.cash compile — deterministic, no on-chain dependency.
     #[test]
-    fn ticker_redeem_matches_live_chipnet_locking() {
+    fn ticker_redeem_matches_v15_bytecode() {
         let redeem = redeem_ticker().unwrap();
         let lb = p2sh32_locking_bytecode(&redeem);
-        let live_hex = "aa20c757c5b79cfb72632175bf91e5d5941e0d2d59de745c9a2c622dcb7a4181eedc87";
-        assert_eq!(hex::encode(lb), live_hex);
+        let v15_hex = "aa208e80af66f9834d331fea34bc88d0c71e0f89b156389bb30e51f1a37d0f87a85b87";
+        assert_eq!(hex::encode(lb), v15_hex);
     }
 
-    fn live_ticker_locking_bytecode() -> [u8; 35] {
-        let h = hex::decode("aa20c757c5b79cfb72632175bf91e5d5941e0d2d59de745c9a2c622dcb7a4181eedc87")
+    fn v15_ticker_locking_bytecode() -> [u8; 35] {
+        let h = hex::decode("aa208e80af66f9834d331fea34bc88d0c71e0f89b156389bb30e51f1a37d0f87a85b87")
             .unwrap();
         h.try_into().unwrap()
     }
 
     fn live_oracle_locking_bytecode() -> [u8; 35] {
+        // Placeholder for the v14-era oracle hex; the test that uses this is
+        // already #[ignore]'d pending the v15 genesis deploy.
         let h = hex::decode("aa2090c9064dc6fee8d55da81e07ab6b0bdd55e67bae8d38376368d9973957a8f8fd87")
             .unwrap();
         h.try_into().unwrap()
@@ -126,40 +129,38 @@ mod tests {
 
     /// `oracleLockingBytecodeHex`. Constructor: [tickerLockingBytecode, slotCategoryReversed].
     ///
-    /// IGNORED for v13: this test pins against the v12 chipnet deploy. Once the v13
-    /// genesis ceremony lands (PR13d Week 4), update the live hex below and re-enable.
+    /// IGNORED until the v15 genesis ceremony lands; the slot category is
+    /// derived from a not-yet-broadcast genesis outpoint, so we can't pin
+    /// the locking bytecode pre-deploy.
     #[test]
-    #[ignore = "live-chipnet pin awaits v13 genesis deploy"]
+    #[ignore = "live-chipnet pin awaits v15 genesis deploy"]
     fn oracle_redeem_matches_live_chipnet_locking() {
-        let ticker_lb = live_ticker_locking_bytecode();
-        // slotCategory on chain: 846b2ca944750af011fa41bb87f9fda1244090a63be2cc3286223551343020f7
+        let ticker_lb = v15_ticker_locking_bytecode();
+        // slotCategory derived from the v15 genesis outpoint (TBD).
         let slot_cat_reversed = reverse_hex_32(
-            "846b2ca944750af011fa41bb87f9fda1244090a63be2cc3286223551343020f7",
+            "0000000000000000000000000000000000000000000000000000000000000000",
         );
         let redeem = redeem_oracle(&ticker_lb, &slot_cat_reversed).unwrap();
         let lb = p2sh32_locking_bytecode(&redeem);
-        let live_hex = "aa2090c9064dc6fee8d55da81e07ab6b0bdd55e67bae8d38376368d9973957a8f8fd87";
+        let live_hex = "<v15 deploy address pending>";
         assert_eq!(hex::encode(lb), live_hex);
     }
 
-    /// v13 `slotLockingBytecodeHex`. Constructor:
+    /// v15 `slotLockingBytecodeHex`. Constructor:
     /// [packedSourceCNHashes, oracleCategoryReversed, oracleLockingBytecode].
     ///
-    /// IGNORED for v13: this test pins against a live chipnet deploy that
-    /// doesn't exist yet. Re-enable + update the live hex after the v13
-    /// genesis ceremony (PR13d Week 4).
+    /// IGNORED until the v15 genesis ceremony lands.
     #[test]
-    #[ignore = "live-chipnet pin awaits v13 genesis deploy"]
+    #[ignore = "live-chipnet pin awaits v15 genesis deploy"]
     fn publisher_slot_redeem_matches_live_chipnet_locking() {
         let cn_hashes = packed_cn_hashes();
         let oracle_cat_reversed = reverse_hex_32(
-            "9880c31334f9f708e9e0a3cf956442290ae1a463bd806fd416a5ed10b40f0d17",
+            "0000000000000000000000000000000000000000000000000000000000000000",
         );
         let oracle_lb = live_oracle_locking_bytecode();
         let redeem = redeem_publisher_slot(&cn_hashes, &oracle_cat_reversed, &oracle_lb).unwrap();
         let lb = p2sh32_locking_bytecode(&redeem);
-        // TODO(PR13d): replace with v13 deploy locking bytecode.
-        let live_hex = "<v13 deploy address pending>";
+        let live_hex = "<v15 deploy address pending>";
         assert_eq!(hex::encode(lb), live_hex);
     }
 }

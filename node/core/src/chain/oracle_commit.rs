@@ -1,17 +1,19 @@
-//! Oracle NFT commit (19 B, version `0x60`).
+//! Oracle NFT commit (19 B, version `0x65` since v15).
 //!
 //! Layout:
 //!
 //! | Offset | Size | Field        | Type      |
 //! |--------|------|--------------|-----------|
-//! | 0      | 1    | version      | `0x60`    |
+//! | 0      | 1    | version      | `0x65`    |
 //! | 1..5   | 4    | seq          | u32 LE    |
 //! | 5..9   | 4    | last_ts      | u32 LE    |
 //! | 9..17  | 8    | median_usd   | u64 LE    |
 //! | 17..19 | 2    | active_count | u16 LE    |
 //!
 //! Rewritten in full each cycle by `Oracle.update`. The covenant enforces
-//! `seq = prev_seq + 1` and `last_ts - prev_last_ts >= 60`.
+//! `seq = prev_seq + 1` and `last_ts - prev_last_ts >= 60`. The version
+//! byte bumped from v14's `0x60` to `0x65` as the on-chain marker of the
+//! v15 hardening pass (covenant body changes; commit layout unchanged).
 
 use super::consts::{ORACLE_COMMIT_LEN, ORACLE_VERSION_BYTE};
 
@@ -88,7 +90,7 @@ mod tests {
             active_count: 7,
         };
         let expected: [u8; 19] = [
-            0x60, // version
+            0x65, // version (v15)
             0x01, 0x00, 0x00, 0x00, // seq=1 LE
             0x00, 0x00, 0x00, 0x65, // last_ts=0x65000000 LE
             0xf0, 0xde, 0xbc, 0x9a, 0x78, 0x56, 0x34, 0x12, // median_usd LE
@@ -109,10 +111,21 @@ mod tests {
     #[test]
     fn rejects_wrong_version() {
         let mut bytes = encode_oracle_commit(&fixture());
-        bytes[0] = 0x61;
+        bytes[0] = 0x66;
         assert!(matches!(
             decode_oracle_commit(&bytes),
-            Err(OracleCommitError::WrongVersion(0x61))
+            Err(OracleCommitError::WrongVersion(0x66))
+        ));
+    }
+
+    /// v14 commits (prefix 0x60) must NOT decode under v15.
+    #[test]
+    fn rejects_v14_prefix() {
+        let mut bytes = encode_oracle_commit(&fixture());
+        bytes[0] = 0x60;
+        assert!(matches!(
+            decode_oracle_commit(&bytes),
+            Err(OracleCommitError::WrongVersion(0x60))
         ));
     }
 }

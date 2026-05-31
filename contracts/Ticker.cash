@@ -1,22 +1,38 @@
 pragma cashscript >= 0.13.0;
 
-// Ticker — self-replicating chain head for atomic price consumption.
+// Ticker v15 — self-replicating chain head for atomic price consumption.
 //
 // Each Oracle.update cycle mints K (= 2) Ticker NFTs with MUTABLE capability
 // (0x01). A consumer's tx spends a Ticker at input[idx] and is required to
 // re-emit an IDENTICAL Ticker at output[idx] (same lockingBytecode, same
 // tokenCategory including the mutable capability suffix, same nftCommitment,
-// dust value preserved). This creates a chain of consumers — each is a chain
-// descendant of the Oracle.update tx that produced the original Ticker, and
-// every consumer in the chain inherits co-finality via parent-child outpoint
-// linkage (BCH consensus enforces parent in canonical chain ⇒ child in
-// canonical chain).
+// EXACT value preserved, tokenAmount pinned to 0). This creates a chain of
+// consumers — each is a chain descendant of the Oracle.update tx that
+// produced the original Ticker, and every consumer in the chain inherits
+// co-finality via parent-child outpoint linkage (BCH consensus enforces
+// parent in canonical chain ⇒ child in canonical chain).
 //
 // Capacity per cycle ≈ K × D where K is the number of pre-minted heads (2)
 // and D is the achievable chain depth (RTT-bounded, typically thousands).
 //
 // The Ticker covenant has no auth gate beyond the version byte and the
 // structural re-emit constraint — anyone can spend and continue the chain.
+//
+// ── v14 → v15 changes ──────────────────────────────────────────────────
+//   F-T-1  tokenAmount pinned to 0 on output (closes hybrid-token injection
+//          path that requires both Oracle category having FT supply AND a
+//          consumer reading tokenAmount with implicit-zero assumption).
+//   F-T-2  value pin tightened from `>= 1000` to strict `==`. Eliminates
+//          the cost-inflation gift class. Trade-off: if BCH consensus ever
+//          raises the dust floor above 1000, v15 Tickers become unspendable
+//          and re-genesis is required. Acceptable — Oracle pins the mint
+//          value to exactly 1000 in v15, so the floor coupling is symmetric.
+//   Output-count cap: mirrors the discipline already present in Oracle and
+//   PublisherSlot — at most one change output, and if present it must carry
+//   no token data.
+//
+// Version byte unchanged at 0x80 (consumer-facing prefix held stable across
+// the v14→v15 cutover; fresh category alone separates them on chain).
 
 contract Ticker() {
     function consume() {
@@ -30,10 +46,20 @@ contract Ticker() {
         //  - lockingBytecode (35 B P2SH-32 of this Ticker covenant)
         //  - tokenCategory (33 B = 32-byte category + 0x01 mutable suffix)
         //  - nftCommitment (17 B — preserves price/lastTs/seq verbatim)
-        //  - dust floor preserved (≥ 1000 sats)
+        //  - value (strict equality — v15 tightening)
+        //  - tokenAmount (== 0, v15 F-T-1 closure)
         require(tx.outputs[idx].lockingBytecode == tx.inputs[idx].lockingBytecode);
         require(tx.outputs[idx].tokenCategory == tx.inputs[idx].tokenCategory);
         require(tx.outputs[idx].nftCommitment == tx.inputs[idx].nftCommitment);
-        require(tx.outputs[idx].value >= 1000);
+        require(tx.outputs[idx].value == tx.inputs[idx].value);
+        require(tx.outputs[idx].tokenAmount == 0);
+
+        // Output-count cap. At most one trailing change output; if present
+        // it must carry no token data (so the Ticker NFT is the only
+        // category-bearing output of this consume).
+        require(tx.outputs.length <= idx + 2);
+        if (tx.outputs.length == idx + 2) {
+            require(tx.outputs[idx + 1].tokenCategory == 0x);
+        }
     }
 }

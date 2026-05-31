@@ -1,18 +1,20 @@
-//! PublisherSlot NFT commit (39 B, version `0x73` in v13).
+//! PublisherSlot NFT commit (39 B, version `0x75` in v15).
 //!
 //! Layout:
 //!
 //! | Offset | Size | Field        | Type      |
 //! |--------|------|--------------|-----------|
-//! | 0      | 1    | version      | `0x73`    |
+//! | 0      | 1    | version      | `0x75`    |
 //! | 1..3   | 2    | source_id    | u16 LE    |
 //! | 3..23  | 20   | pkh          | bytes20   |
 //! | 23..31 | 8    | price        | u64 LE    |
-//! | 31..35 | 4    | timestamp    | u32 LE    |
-//! | 35..39 | 4    | cycle_seq    | u32 LE    |
+//! | 31..35 | 4    | timestamp    | u32 LE — MSB-clear by covenant gate |
+//! | 35..39 | 4    | cycle_seq    | u32 LE — MSB-clear by covenant gate |
 //!
 //! `source_id` and `pkh` are **pinned at genesis** and never rewritten;
 //! only `(price, timestamp, cycle_seq)` mutate via `PublisherSlot.attest`.
+//! v15 covenant enforces MSB-clear on `timestamp` and `cycle_seq` to close
+//! the sign-magnitude self-DoS class.
 
 use super::consts::{SLOT_COMMIT_LEN, SLOT_VERSION_BYTE};
 
@@ -75,7 +77,15 @@ mod tests {
     fn encode_length_and_version() {
         let bytes = encode_slot_commit(&fixture());
         assert_eq!(bytes.len(), SLOT_COMMIT_LEN);
-        assert_eq!(bytes[0], 0x73);
+        assert_eq!(bytes[0], 0x75);
+    }
+
+    /// v14 commits (prefix 0x73) must NOT decode under v15.
+    #[test]
+    fn rejects_v14_prefix() {
+        let mut bytes = encode_slot_commit(&fixture());
+        bytes[0] = 0x73;
+        assert_eq!(decode_slot_commit(&bytes), None);
     }
 
     #[test]
@@ -104,15 +114,15 @@ mod tests {
 
     #[test]
     fn known_vector_byte_for_byte() {
-        // Hand-computed expected bytes for the fixture:
-        //   version 0x73
+        // Hand-computed expected bytes for the fixture (v15 prefix 0x75):
+        //   version 0x75
         //   source_id  = 1            → 01 00
         //   pkh        = 11..44        → 20 bytes
         //   price      = 0x01234567   → 67 45 23 01 00 00 00 00
         //   timestamp  = 1_700_000_000 = 0x6553F100 → 00 F1 53 65
         //   cycle_seq  = 42 = 0x2A     → 2A 00 00 00
         let expected: [u8; 39] = [
-            0x73, 0x01, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb,
+            0x75, 0x01, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb,
             0xcc, 0xdd, 0xee, 0xff, 0x00, 0x11, 0x22, 0x33, 0x44, 0x67, 0x45, 0x23, 0x01, 0x00,
             0x00, 0x00, 0x00, 0x00, 0xf1, 0x53, 0x65, 0x2a, 0x00, 0x00, 0x00,
         ];
