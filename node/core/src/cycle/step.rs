@@ -174,12 +174,13 @@ fn wait_for_quorum<E: Env>(
     snap: CycleSnapshot,
 ) -> Result<CycleState, CycleError> {
     let deadline = Instant::now() + cfg.quorum_wait;
-    let mut first = true;
+    // Sleep-then-poll keeps the loop rate-limited on the race-lost re-entry
+    // path: after a lost Oracle.update we re-enter via AlreadyAttested → quorum
+    // → broadcast race-lost → back to Idle. Without the leading sleep, the
+    // publisher spins on a tight ~ms loop until Fulcrum indexes the winning
+    // tx. The 3 s/cycle "waste" on the happy path is the cheaper trade-off.
     loop {
-        if !first {
-            env.sleep(cfg.poll_interval);
-        }
-        first = false;
+        env.sleep(cfg.poll_interval);
         let all = env.get_slot_utxos(cfg)?;
         let at_seq: Vec<_> = all
             .into_iter()
