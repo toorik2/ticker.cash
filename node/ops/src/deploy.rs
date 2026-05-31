@@ -92,18 +92,27 @@ pub fn deploy(
         Duration::from_secs(ELECTRUM_TIMEOUT_SEC),
     )?;
     let utxos = electrum.list_unspent(&master_addr)?;
-    let mut non_token: Vec<Utxo> = utxos.into_iter().filter(|u| u.token_data.is_none()).collect();
+    // CHIP-2022-02 §3.1: a category genesis input must be at vin[0] of the
+    // tx AND its prev_out.n must be 0. Otherwise the new-token output is
+    // rejected with `bad-txns-token-invalid-category`. Filter for vout=0
+    // UTXOs only — empirically caught a v14 genesis attempt and re-surfaced
+    // during v15 prep until this filter was added.
+    let mut non_token: Vec<Utxo> = utxos
+        .into_iter()
+        .filter(|u| u.token_data.is_none() && u.tx_pos == 0)
+        .collect();
     if non_token.len() < 2 {
         return Err(format!(
-            "need ≥ 2 non-token master UTXOs for genesis; have {}",
+            "need ≥ 2 non-token master UTXOs at vout=0 for genesis \
+             (CHIP-2022-02 category genesis input); have {}. \
+             Bounce master→master twice to create fresh vout=0 outpoints.",
             non_token.len()
         )
         .into());
     }
-    // CHIP-2022-02: token category id = input[0].previousTxid. The Oracle and
-    // Slot categories MUST be distinct, so the two genesis inputs must come
-    // from different parent txs (different tx_hash values). Pick the largest
-    // pair satisfying that constraint.
+    // The Oracle and Slot categories MUST be distinct, so the two genesis
+    // inputs must come from different parent txs (different tx_hash values).
+    // Pick the largest pair satisfying that constraint.
     non_token.sort_by(|a, b| b.value.cmp(&a.value));
     let oracle_genesis = non_token[0].clone();
     let slot_genesis = non_token
@@ -112,7 +121,8 @@ pub fn deploy(
         .find(|u| u.tx_hash != oracle_genesis.tx_hash)
         .cloned()
         .ok_or_else(|| {
-            "all non-token master UTXOs share the same parent txid; split master into UTXOs from distinct parents (e.g. send some sats through a publisher wallet and back)"
+            "all non-token master UTXOs at vout=0 share the same parent txid; \
+             bounce master→master once more to create a fresh distinct-parent vout=0 UTXO"
         })?;
     println!(
         "Oracle genesis input: {}:{} ({} sats)",
