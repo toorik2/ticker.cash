@@ -280,7 +280,7 @@ output[2]  optional change</code></pre>
       <h3>Publisher</h3>
       <p>Polls the Oracle UTXO, fetches its pinned source over TLS, refreshes its slot via <code>slot.attest()</code>, waits ~25 s for peers, then races to broadcast <code>Oracle.update</code>. ~2.2 k sats per cycle just for <code>slot.attest</code>, plus ~8 k more on the cycles the publisher wins the <code>Oracle.update</code> race — averages to ~2.8 k sats per cycle per slot (see <a href="#faq">§09</a> for the full breakdown).</p>
 <pre><code>$ ticker-node --publisher --slot 0</code></pre>
-      <p>Source pin and chain reads come from the manifest at <code>$TICKER_HOME/manifest.json</code>; the per-slot secp256k1 publisher key is loaded from <code>$TICKER_HOME/publisher.key</code> (mode 0600).</p>
+      <p>Contract addresses, publisher pkhs, and Electrum endpoints come from the manifest at <code>$TICKER_HOME/manifest.json</code>; the source pin is positional (slot <em>i</em> → <code>SOURCES[i]</code>, baked into the binary); the per-slot secp256k1 publisher key is loaded from <code>$TICKER_HOME/publisher.key</code> (mode 0600).</p>
 
       <div class="callout"><b>Source.</b> <a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github.com/toorik2/ticker.cash</a>. Federation setup uses <code>ticker-ops setup-all</code> after generating a 32-byte seed.</div>
     </section>
