@@ -7,9 +7,6 @@ use ripemd::Ripemd160;
 use secp256k1::{Keypair, SecretKey, SECP256K1};
 use sha2::{Digest, Sha256};
 
-/// 64-byte Schnorr data signature, as accepted by `OP_CHECKDATASIG`.
-pub type SchnorrSig = [u8; 64];
-
 /// `SHA-256(data)`.
 pub fn sha256(data: &[u8]) -> [u8; 32] {
     Sha256::digest(data).into()
@@ -43,35 +40,20 @@ pub fn derive_pubkey(privkey: &[u8; 32]) -> Result<[u8; 33], KeyError> {
 
 /// ECDSA-sign a 32-byte digest with deterministic nonce (RFC-6979 via libsecp256k1).
 ///
-/// Returns the DER-encoded signature (~70-72 bytes). Used for:
+/// Returns the DER-encoded signature (~70-72 bytes). BCH's `OP_CHECKSIG` and
+/// `OP_CHECKDATASIG` opcodes accept this universally. Used for:
+///   * Publisher data sigs in `slot.attest` (`OP_CHECKDATASIG`).
 ///   * P2PKH funder input sigs (`OP_CHECKSIG` after sighash byte appended).
 ///
-/// v15 NOTE: publisher data sigs in `slot.attest` no longer use ECDSA-DER —
-/// they're Schnorr-only via [`sign_schnorr`]. The PublisherSlot covenant
-/// pins `bytes(publisherSig).length == 64` to foreclose the BCHN/libauth
-/// DER-length divergence band at sig sizes 8..72.
+/// `secp256k1` (the Rust crate) does not expose BCH-style Schnorr
+/// (CHIP-2019-05) — only BIP-340 — so an elegant Schnorr-only foreclosure
+/// of PUBSLOT-DER-SIG-LENGTH-FORK isn't reachable without rolling a custom
+/// crypto impl. PublisherSlot.cash documents the latent classification.
 pub fn sign_ecdsa(privkey: &[u8; 32], digest: &[u8; 32]) -> Result<Vec<u8>, KeyError> {
     let sk = SecretKey::from_slice(privkey)?;
     let msg = secp256k1::Message::from_digest(*digest);
     let sig = SECP256K1.sign_ecdsa(&msg, &sk);
     Ok(sig.serialize_der().to_vec())
-}
-
-/// Schnorr-sign a 32-byte digest with deterministic nonce (BIP-340-style).
-///
-/// Returns a 64-byte signature accepted by `OP_CHECKDATASIG`. v15 uses this
-/// for publisher data sigs in `slot.attest`; the PublisherSlot covenant
-/// requires `bytes(publisherSig).length == 64` to eliminate the BCHN/libauth
-/// DER-length cross-impl divergence at sig size 72.
-pub fn sign_schnorr(privkey: &[u8; 32], digest: &[u8; 32]) -> Result<SchnorrSig, KeyError> {
-    let sk = SecretKey::from_slice(privkey)?;
-    let kp = Keypair::from_secret_key(SECP256K1, &sk);
-    let msg = secp256k1::Message::from_digest(*digest);
-    // _no_aux_rand → deterministic nonce (no auxiliary randomness). Consensus
-    // re-broadcasts must be byte-identical to satisfy the BCH mempool's
-    // "already in mempool" dedupe.
-    let sig = SECP256K1.sign_schnorr_no_aux_rand(&msg, &kp);
-    Ok(sig.serialize())
 }
 
 #[cfg(test)]
@@ -126,25 +108,5 @@ mod tests {
         let b = sign_ecdsa(&sk, &digest).unwrap();
         assert_eq!(a, b);
         assert!(a.len() >= 70 && a.len() <= 72);
-    }
-
-    /// Schnorr signature is exactly 64 bytes. v15 PublisherSlot covenant
-    /// pins this length to foreclose the BCHN/libauth DER divergence class.
-    #[test]
-    fn sign_schnorr_is_64_bytes() {
-        let sk = [0x42u8; 32];
-        let digest = [0x99u8; 32];
-        let sig = sign_schnorr(&sk, &digest).unwrap();
-        assert_eq!(sig.len(), 64);
-    }
-
-    /// Determinism: same input → same Schnorr sig (BIP-340 deterministic nonce).
-    #[test]
-    fn sign_schnorr_deterministic() {
-        let sk = [0x42u8; 32];
-        let digest = [0x99u8; 32];
-        let a = sign_schnorr(&sk, &digest).unwrap();
-        let b = sign_schnorr(&sk, &digest).unwrap();
-        assert_eq!(a, b);
     }
 }

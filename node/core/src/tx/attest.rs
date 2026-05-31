@@ -109,11 +109,8 @@ pub fn build_attest_tx(args: &AttestArgs) -> Result<Vec<u8>, AttestError> {
     let cn_hash20 = hash160(server_name_bytes);
 
     // Publisher signs the publisher digest with their privkey. v15 keeps
-    // ECDSA-DER (v14-compatible): BCH OP_CHECKDATASIG accepts BCH-Schnorr
-    // (CHIP-2019-05), but no Rust crate exposes that variant — only
-    // BIP-340 Schnorr, which uses a different challenge hash and doesn't
-    // verify on chain. PUBSLOT-DER-SIG-LENGTH-FORK foreclosure deferred
-    // pending a Rust BCH-Schnorr impl.
+    // ECDSA-DER (v14-compatible). PUBSLOT-DER-SIG-LENGTH-FORK is
+    // ACCEPTED-LATENT — see PublisherSlot.cash header for rationale.
     let publisher_digest = publisher_sig_digest(
         args.source_id,
         args.price,

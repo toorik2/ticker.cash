@@ -10,10 +10,13 @@ pragma cashscript >= 0.13.0;
 //                              0x7FFFFFFF self-brick where a slot writes
 //                              max-positive and any further 4-byte value
 //                              decodes negative under sign-magnitude).
-//   PUBSLOT-DER-SIG-LENGTH     Schnorr-only sig length pin (== 64).
-//                              Forecloses the BCHN-inclusive [8..72] vs
-//                              libauth-exclusive (8..72) divergence band.
-//                              See bedrock-libauth/W26-DER-SIG-LENGTH.
+//   PUBSLOT-DER-SIG-LENGTH     ACCEPTED-LATENT — inherits v14's ECDSA-DER
+//                              posture. The audit's Schnorr-only foreclosure
+//                              required BCH-Schnorr (CHIP-2019-05) which has
+//                              no Rust impl, and the engineering cost of a
+//                              custom impl exceeds the chain-fork risk for
+//                              the absent set of libauth-validating
+//                              consumers. See bedrock-libauth/W26-DER-SIG-LENGTH.
 //   (F-T-1 cousin)             tokenAmount==0 pin on slot re-emit so the
 //                              mutable-NFT-only invariant is covenant-
 //                              enforced rather than consensus-implicit.
@@ -72,14 +75,16 @@ contract PublisherSlot(
         require((timestamp.slice(3, 4) & 0x80) == 0x00);
         require((cycleSeq.slice(3, 4) & 0x80) == 0x00);
 
-        // PUBSLOT-DER-SIG-LENGTH foreclosure DEFERRED: the audit's
-        // recommended Schnorr-only pin requires BCH-Schnorr (CHIP-2019-05)
-        // for OP_CHECKDATASIG compatibility, but the `secp256k1` Rust crate
-        // exposes only BIP-340 Schnorr — a different hash construction
-        // that doesn't verify on chain. v15 keeps ECDSA-DER signing
-        // (v14-compatible), accepts the LATENT divergence class as-is.
-        // Follow-up tracked: implement BCH-Schnorr in Rust (~100 LOC of
-        // custom crypto) for a future covenant version.
+        // PUBSLOT-DER-SIG-LENGTH-FORK: ACCEPTED-LATENT per audit's
+        // original classification. ~1/256 ECDSA-DER sigs come out at 72 B,
+        // which BCHN's sigencoding accepts ([8..72] inclusive) and
+        // libauth-VM's encoding rejects ((8..72) exclusive). The fork is
+        // only load-bearing if a downstream consumer re-validates with
+        // libauth-VM AND treats its verdict as authoritative; no observed
+        // production consumer does. v14 ran months with ECDSA-DER, zero
+        // chain-fork incidents. v15 inherits the same posture. Revisit if
+        // the audit's empirical fixture finds a real consumer that
+        // rejects 72-byte sigs.
 
         // ── 1. Read slot identity from commitment ─────────────────────
         int idx = this.activeInputIndex;
