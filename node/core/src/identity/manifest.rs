@@ -1,9 +1,15 @@
 //! Manifest JSON loader + validator.
 //!
-//! Mirrors `daemon/src/manifest.ts`. The manifest is the public bundle shipped
-//! with each operator's installer — same content for every operator of a deploy.
-//! Every field is validated strictly; the daemon refuses to start on any
-//! shape/format error rather than silently truncating.
+//! The manifest is the public bundle shipped with each operator's installer —
+//! identical content for every operator of a deploy. Every field is validated
+//! strictly; the daemon refuses to start on any shape/format error rather than
+//! silently truncating.
+//!
+//! v16 reshape: PublisherSlot becomes per-source. v15 manifests carried a
+//! singular `contracts.slot` (one address shared by all 13 publisher NFTs);
+//! v16 carries `contracts.slots: [SlotEntry; 13]` and pulls the shared
+//! `slotCategory` out as a top-level contracts field. `publisherPkhs` is
+//! retired (folded into `slots[].publisherPkhHex`).
 
 use serde::Deserialize;
 use std::fs;
@@ -31,8 +37,8 @@ pub struct ContractInfo {
     pub locking_bytecode_hex: String,
 }
 
-/// Token-bearing contract — used for `Oracle` and `PublisherSlot`. Adds the
-/// 64-hex CashTokens category (the genesis-tx txid in display order).
+/// Token-bearing contract — used for `Oracle`. Adds the 64-hex CashTokens
+/// category (the genesis-tx txid in display order).
 #[derive(Debug, Clone, Deserialize)]
 pub struct TokenContractInfo {
     pub address: String,
@@ -40,6 +46,28 @@ pub struct TokenContractInfo {
     pub locking_bytecode_hex: String,
     /// 64-hex category (txid display order, big-endian).
     pub category: String,
+}
+
+/// One PublisherSlot entry — v16's per-source replacement for v15's singular
+/// `slot` contract field. Each entry carries everything the daemon + dashboard
+/// need to address ONE publisher's slot UTXO.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SlotEntry {
+    #[serde(rename = "sourceId")]
+    pub source_id: u16,
+    #[serde(rename = "sourceName")]
+    pub source_name: String,
+    /// 40-hex `hash160(canonical_cn)` — baked into THIS slot's redeem.
+    #[serde(rename = "cnHashHex")]
+    pub cn_hash_hex: String,
+    /// 40-hex publisher pkh — pinned at genesis in the slot commit.
+    #[serde(rename = "publisherPkhHex")]
+    pub publisher_pkh_hex: String,
+    /// CashAddr P2SH-32 address for THIS slot.
+    pub address: String,
+    /// 35-byte hex P2SH-32 locking bytecode for THIS slot.
+    #[serde(rename = "lockingBytecodeHex")]
+    pub locking_bytecode_hex: String,
 }
 
 /// Electrum/Fulcrum endpoint default (operator may override at runtime).
@@ -86,20 +114,30 @@ impl ElectrumDefault {
 struct ManifestContracts {
     ticker: ContractInfo,
     oracle: TokenContractInfo,
-    slot: TokenContractInfo,
+    /// 64-hex category shared by all 13 slots (only LBs/addresses differ).
+    #[serde(rename = "slotCategory")]
+    slot_category: String,
+    /// 13 per-source slot entries, in source order (id 1..=13).
+    slots: Vec<SlotEntry>,
 }
 
-/// Top-level manifest. v13 dropped `notaryPubkeys` (no notary tier).
+/// Top-level manifest. v16: per-source slot entries + shared slot category.
 #[derive(Debug, Clone)]
 pub struct Manifest {
     pub version: u32,
     pub network: Network,
     pub ticker: ContractInfo,
     pub oracle: TokenContractInfo,
-    pub slot: TokenContractInfo,
-    /// 13 publisher pkhs (40 hex chars each), in slot order.
-    pub publisher_pkhs: Vec<String>,
+    pub slot_category: String,
+    pub slots: Vec<SlotEntry>,
     pub electrum: ElectrumDefault,
+}
+
+impl Manifest {
+    /// Look up a slot by `source_id` (1..=13). Returns `None` if absent.
+    pub fn slot_for(&self, source_id: u16) -> Option<&SlotEntry> {
+        self.slots.iter().find(|s| s.source_id == source_id)
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -119,12 +157,11 @@ struct ManifestRaw {
     version: u32,
     network: Network,
     contracts: ManifestContracts,
-    #[serde(rename = "publisherPkhs")]
-    publisher_pkhs: Vec<String>,
     electrum: ElectrumDefault,
 }
 
 const PUBLISHER_COUNT: usize = 13;
+const MANIFEST_VERSION_V16: u32 = 2;
 
 fn validate_locking_bytecode_hex(
     field: &'static str,
@@ -170,10 +207,13 @@ pub fn load_manifest(path: impl AsRef<Path>) -> Result<Manifest, ManifestError> 
         Err(e) => return Err(e.into()),
     };
     let m: ManifestRaw = serde_json::from_str(&raw)?;
-    if m.version != 1 {
+    if m.version != MANIFEST_VERSION_V16 {
         return Err(ManifestError::InvalidField {
             field: "version",
-            reason: format!("unsupported version {} (expected 1)", m.version),
+            reason: format!(
+                "unsupported version {} (expected {MANIFEST_VERSION_V16} for v16)",
+                m.version
+            ),
         });
     }
     let ticker = ContractInfo {
@@ -191,30 +231,45 @@ pub fn load_manifest(path: impl AsRef<Path>) -> Result<Manifest, ManifestError> 
         )?,
         category: validate_hex_field("contracts.oracle.category", &m.contracts.oracle.category, 64)?,
     };
-    let slot = TokenContractInfo {
-        address: m.contracts.slot.address,
-        locking_bytecode_hex: validate_locking_bytecode_hex(
-            "contracts.slot.lockingBytecodeHex",
-            &m.contracts.slot.locking_bytecode_hex,
-        )?,
-        category: validate_hex_field("contracts.slot.category", &m.contracts.slot.category, 64)?,
-    };
-    if m.publisher_pkhs.len() != PUBLISHER_COUNT {
+    let slot_category =
+        validate_hex_field("contracts.slotCategory", &m.contracts.slot_category, 64)?;
+    if m.contracts.slots.len() != PUBLISHER_COUNT {
         return Err(ManifestError::InvalidField {
-            field: "publisherPkhs",
-            reason: format!("expected {PUBLISHER_COUNT} entries, got {}", m.publisher_pkhs.len()),
+            field: "contracts.slots",
+            reason: format!(
+                "expected {PUBLISHER_COUNT} slot entries, got {}",
+                m.contracts.slots.len()
+            ),
         });
     }
-    let mut publisher_pkhs = Vec::with_capacity(PUBLISHER_COUNT);
-    for (i, p) in m.publisher_pkhs.iter().enumerate() {
-        publisher_pkhs.push(validate_hex_field(
-            "publisherPkhs[i]",
-            p,
-            40,
-        ).map_err(|_| ManifestError::InvalidField {
-            field: "publisherPkhs",
-            reason: format!("entry {i} is not a 40-hex pkh"),
-        })?);
+    let mut slots = Vec::with_capacity(PUBLISHER_COUNT);
+    for (i, s) in m.contracts.slots.into_iter().enumerate() {
+        let expected_id = (i + 1) as u16;
+        if s.source_id != expected_id {
+            return Err(ManifestError::InvalidField {
+                field: "contracts.slots[].sourceId",
+                reason: format!(
+                    "slot[{i}] has sourceId {} but expected {expected_id} (slots must be in id order 1..=13)",
+                    s.source_id
+                ),
+            });
+        }
+        let entry = SlotEntry {
+            source_id: s.source_id,
+            source_name: s.source_name,
+            cn_hash_hex: validate_hex_field("contracts.slots[].cnHashHex", &s.cn_hash_hex, 40)?,
+            publisher_pkh_hex: validate_hex_field(
+                "contracts.slots[].publisherPkhHex",
+                &s.publisher_pkh_hex,
+                40,
+            )?,
+            address: s.address,
+            locking_bytecode_hex: validate_locking_bytecode_hex(
+                "contracts.slots[].lockingBytecodeHex",
+                &s.locking_bytecode_hex,
+            )?,
+        };
+        slots.push(entry);
     }
     if m.electrum.host.is_empty() {
         return Err(ManifestError::InvalidField {
@@ -227,8 +282,8 @@ pub fn load_manifest(path: impl AsRef<Path>) -> Result<Manifest, ManifestError> 
         network: m.network,
         ticker,
         oracle,
-        slot,
-        publisher_pkhs,
+        slot_category,
+        slots,
         electrum: m.electrum,
     })
 }
@@ -238,50 +293,57 @@ mod tests {
     use super::*;
     use std::io::Write;
 
-    fn good_manifest() -> &'static str {
-        r#"{
-            "version": 1,
-            "network": "chipnet",
-            "contracts": {
-                "ticker": {
-                    "address": "bchtest:p123",
-                    "lockingBytecodeHex": "aa20c757c5b79cfb72632175bf91e5d5941e0d2d59de745c9a2c622dcb7a4181eedc87"
-                },
-                "oracle": {
-                    "address": "bchtest:p456",
-                    "lockingBytecodeHex": "aa2090c9064dc6fee8d55da81e07ab6b0bdd55e67bae8d38376368d9973957a8f8fd87",
-                    "category": "9880c31334f9f708e9e0a3cf956442290ae1a463bd806fd416a5ed10b40f0d17"
-                },
-                "slot": {
-                    "address": "bchtest:p789",
-                    "lockingBytecodeHex": "aa20ec8e0bc24f6934cb31518714a15c5c31424514bb9bcde5578e20da8d231a14db87",
-                    "category": "846b2ca944750af011fa41bb87f9fda1244090a63be2cc3286223551343020f7"
-                }
-            },
-            "publisherPkhs": [
-                "8ce2d07b5632a5855f5411d3b085c1bcd1c07a17",
-                "333e5c6321f963622336421a64667f298e31c052",
-                "ef369feaf80c0ea5f65b607922fa2c11193ebb18",
-                "1111111111111111111111111111111111111111",
-                "2222222222222222222222222222222222222222",
-                "3333333333333333333333333333333333333333",
-                "4444444444444444444444444444444444444444",
-                "5555555555555555555555555555555555555555",
-                "6666666666666666666666666666666666666666",
-                "7777777777777777777777777777777777777777",
-                "8888888888888888888888888888888888888888",
-                "9999999999999999999999999999999999999999",
-                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-            ],
-            "electrum": {
-                "host": "chipnet.layer1.cash",
-                "port": 50002,
-                "tls": true
+    fn good_manifest() -> String {
+        let mut slots = String::new();
+        for i in 1..=13 {
+            let pkh = format!("{:02x}", i).repeat(20);
+            let cn = format!("{:02x}", i + 0x10).repeat(20);
+            let lb = format!(
+                "aa20{}87",
+                format!("{:02x}", i + 0x20).repeat(32)
+            );
+            if i > 1 {
+                slots.push_str(",\n");
             }
-        }"#
+            slots.push_str(&format!(
+                r#"        {{
+            "sourceId": {i},
+            "sourceName": "source{i}",
+            "cnHashHex": "{cn}",
+            "publisherPkhHex": "{pkh}",
+            "address": "bchtest:p{i}",
+            "lockingBytecodeHex": "{lb}"
+        }}"#
+            ));
+        }
+        format!(
+            r#"{{
+    "version": 2,
+    "network": "chipnet",
+    "contracts": {{
+        "ticker": {{
+            "address": "bchtest:pTicker",
+            "lockingBytecodeHex": "aa20c757c5b79cfb72632175bf91e5d5941e0d2d59de745c9a2c622dcb7a4181eedc87"
+        }},
+        "oracle": {{
+            "address": "bchtest:pOracle",
+            "lockingBytecodeHex": "aa2090c9064dc6fee8d55da81e07ab6b0bdd55e67bae8d38376368d9973957a8f8fd87",
+            "category": "9880c31334f9f708e9e0a3cf956442290ae1a463bd806fd416a5ed10b40f0d17"
+        }},
+        "slotCategory": "846b2ca944750af011fa41bb87f9fda1244090a63be2cc3286223551343020f7",
+        "slots": [
+{slots}
+        ]
+    }},
+    "electrum": {{
+        "host": "chipnet.layer1.cash",
+        "port": 50002,
+        "tls": true
+    }}
+}}"#
+        )
     }
 
-    /// Helper: write into a unique path under /tmp so each test is isolated.
     fn write_path(content: &str, file_name: &str) -> std::path::PathBuf {
         let path = std::env::temp_dir().join(format!("ticker-core-test-{file_name}"));
         let mut f = std::fs::File::create(&path).unwrap();
@@ -291,25 +353,70 @@ mod tests {
 
     #[test]
     fn happy_path_parses() {
-        let path = write_path(good_manifest(), "happy.json");
+        let m_str = good_manifest();
+        let path = write_path(&m_str, "happy-v16.json");
         let m = load_manifest(&path).unwrap();
-        assert_eq!(m.version, 1);
+        assert_eq!(m.version, 2);
         assert_eq!(m.network, Network::Chipnet);
-        assert_eq!(m.publisher_pkhs.len(), 13);
+        assert_eq!(m.slots.len(), 13);
+        for (i, s) in m.slots.iter().enumerate() {
+            assert_eq!(s.source_id as usize, i + 1);
+        }
         assert_eq!(m.electrum.host, "chipnet.layer1.cash");
         assert!(m.electrum.tls);
         let _ = std::fs::remove_file(&path);
     }
 
     #[test]
-    fn rejects_wrong_locking_bytecode_length() {
-        let path = write_path(
-            &good_manifest().replace(
-                "aa20c757c5b79cfb72632175bf91e5d5941e0d2d59de745c9a2c622dcb7a4181eedc87",
-                "aa20BAD87",
-            ),
-            "badlock.json",
+    fn slot_for_lookup_works() {
+        let path = write_path(&good_manifest(), "lookup-v16.json");
+        let m = load_manifest(&path).unwrap();
+        assert!(m.slot_for(1).is_some());
+        assert!(m.slot_for(13).is_some());
+        assert!(m.slot_for(14).is_none());
+        assert!(m.slot_for(0).is_none());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn rejects_wrong_version() {
+        let s = good_manifest().replace(r#""version": 2"#, r#""version": 1"#);
+        let path = write_path(&s, "badver-v16.json");
+        assert!(matches!(
+            load_manifest(&path),
+            Err(ManifestError::InvalidField { field: "version", .. })
+        ));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn rejects_wrong_slot_count() {
+        // Drop one slot entry by trimming the slots[] array
+        let s = good_manifest();
+        let s = s.replace(
+            r#"            "sourceId": 13,
+            "sourceName": "source13","#,
+            r#"            "sourceId": 99,
+            "sourceName": "source99","#,
         );
+        let path = write_path(&s, "badcount-v16.json");
+        // sourceId=99 at slot 12 (index) when expected 13 → InvalidField on sourceId
+        let r = load_manifest(&path);
+        assert!(
+            matches!(r, Err(ManifestError::InvalidField { .. })),
+            "got: {:?}",
+            r
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn rejects_wrong_locking_bytecode_length() {
+        let s = good_manifest().replace(
+            "aa20c757c5b79cfb72632175bf91e5d5941e0d2d59de745c9a2c622dcb7a4181eedc87",
+            "aa20BAD87",
+        );
+        let path = write_path(&s, "badlock-v16.json");
         assert!(matches!(
             load_manifest(&path),
             Err(ManifestError::InvalidField { .. })
@@ -318,24 +425,8 @@ mod tests {
     }
 
     #[test]
-    fn rejects_wrong_publisher_count() {
-        let path = write_path(
-            &good_manifest().replace(
-                r#""aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa""#,
-                "",
-            ).replacen(",", "", 1), // remove a trailing comma somewhere
-            "badpub.json",
-        );
-        // The shape of the edit may produce either a JSON parse error or a count
-        // mismatch; both are acceptable rejection outcomes.
-        assert!(load_manifest(&path).is_err());
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[test]
     fn missing_file_yields_not_found() {
         let r = load_manifest("/tmp/this/does/not/exist.json");
         assert!(matches!(r, Err(ManifestError::NotFound(_))));
     }
-
 }

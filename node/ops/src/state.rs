@@ -15,6 +15,15 @@ pub struct SlotMinted {
     pub source_id: u16,
     pub pkh_hex: String,
     pub publisher_label: String,
+    /// v16: per-source slot address (each slot has a distinct redeem → distinct P2SH-32).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
+    /// v16: per-source slot locking bytecode (35-byte P2SH-32 hex).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub locking_bytecode_hex: Option<String>,
+    /// v16: per-source cnHash (40-hex hash160 of canonical_cn).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cn_hash_hex: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

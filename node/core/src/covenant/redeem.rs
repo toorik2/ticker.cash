@@ -1,4 +1,4 @@
-//! Redeem-script construction for each v13 covenant.
+//! Redeem-script construction for each ticker.cash covenant.
 //!
 //! CashScript constructor arg push order: declared args are **reversed** before
 //! being emitted as pushes. The redeem script is:
@@ -7,14 +7,17 @@
 //!   push(arg_{N-1}) || push(arg_{N-2}) || ... || push(arg_0) || artifact_bytecode
 //! ```
 //!
-//! Declared order (v13):
+//! Declared order:
 //!
 //!   Oracle:         [tickerLockingBytecode, slotCategoryReversed]
-//!   PublisherSlot:  [packedSourceCNHashes, oracleCategoryReversed, oracleLockingBytecode]
+//!   PublisherSlot:  [cnHash, oracleCategoryReversed]                ← v16
 //!   Ticker:         []
 //!
-//! v12 PublisherSlot had 7 leading `notary0..notary6` pubkey args; v13 drops
-//! them (the notary tier is removed, see PR13a / Phase B).
+//! v15 PublisherSlot took (packedSourceCNHashes:bytes260, oracleCategoryReversed,
+//! oracleLockingBytecode) — three args producing one 625 B redeem shared by all
+//! 13 slots. v16 takes one 20 B per-slot cnHash + oracleCategoryReversed and
+//! drops the LB pin; each of the 13 slots compiles to a distinct 262 B redeem.
+//! See /tmp/slot-experiments/v16-design.md for the full rationale.
 //!
 //! Each push uses minimal-push encoding (`tx::script::push_data`).
 
@@ -54,26 +57,24 @@ pub fn redeem_oracle(
     Ok(s)
 }
 
-/// Build the v13 PublisherSlot covenant's redeem script.
+/// Build a v16 PublisherSlot covenant redeem script for ONE source.
+///
+/// v16 bakes a single per-source cnHash into the redeem (rather than the
+/// 260-byte packed table v15 used). Each of the 13 sources therefore has a
+/// distinct redeem and a distinct P2SH-32 address.
 ///
 /// Args:
-///   * `packed_cn_hashes`          — 260 B (`13 × hash160(canonicalCN)`).
+///   * `cn_hash`                   — 20 B `hash160(canonicalCN)` for THIS source.
 ///   * `oracle_category_reversed`  — 32 B Oracle category in little-endian wire order.
-///   * `oracle_locking_bytecode`   — 35 B P2SH-32 locking script of the Oracle covenant.
-///
-/// v12 took a 4th `notary_pubkeys: &[[u8; 33]; 7]` arg — dropped in v13 because
-/// the notary tier is gone.
 pub fn redeem_publisher_slot(
-    packed_cn_hashes: &[u8; 260],
+    cn_hash: &[u8; 20],
     oracle_category_reversed: &[u8; 32],
-    oracle_locking_bytecode: &[u8; 35],
 ) -> Result<Vec<u8>, RedeemScriptError> {
     let bytecode = publisher_slot_bytecode()?;
-    let mut s = Vec::with_capacity(bytecode.len() + 270 + 35 + 35);
+    let mut s = Vec::with_capacity(bytecode.len() + 60);
     // Reverse declaration order.
-    push_data(&mut s, oracle_locking_bytecode);
     push_data(&mut s, oracle_category_reversed);
-    push_data(&mut s, packed_cn_hashes);
+    push_data(&mut s, cn_hash);
     s.extend_from_slice(bytecode);
     Ok(s)
 }
@@ -87,18 +88,11 @@ pub fn redeem_ticker() -> Result<Vec<u8>, RedeemScriptError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::chain::sources::packed_cn_hashes;
+    use crate::chain::sources::{source_cn_hash, SOURCES};
     use crate::covenant::locking::p2sh32_locking_bytecode;
 
-    /// Live chipnet ground truth: every value here is dumped from the running
-    /// production deployment (`.ticker/deploy-state.json` + seed.hex on
-    /// ticker.cash-vps). If these tests ever break we've either changed a
-    /// covenant source file, changed the P2SH-32 derivation, or changed the
-    /// constructor-arg push order — any of which would invalidate a
-    /// wire-compatible rebuild.
-
-    /// `tickerLockingBytecodeHex` (Ticker has no constructor args).
-    /// Pin computed from v15 Ticker.cash compile — deterministic, no on-chain dependency.
+    /// Ticker has no constructor args, so its redeem is deterministic — pin
+    /// to ensure the artifact hasn't drifted.
     #[test]
     fn ticker_redeem_matches_v15_bytecode() {
         let redeem = redeem_ticker().unwrap();
@@ -107,60 +101,36 @@ mod tests {
         assert_eq!(hex::encode(lb), v15_hex);
     }
 
-    fn v15_ticker_locking_bytecode() -> [u8; 35] {
-        let h = hex::decode("aa208e80af66f9834d331fea34bc88d0c71e0f89b156389bb30e51f1a37d0f87a85b87")
-            .unwrap();
-        h.try_into().unwrap()
-    }
-
-    fn live_oracle_locking_bytecode() -> [u8; 35] {
-        // Placeholder for the v14-era oracle hex; the test that uses this is
-        // already #[ignore]'d pending the v15 genesis deploy.
-        let h = hex::decode("aa2090c9064dc6fee8d55da81e07ab6b0bdd55e67bae8d38376368d9973957a8f8fd87")
-            .unwrap();
-        h.try_into().unwrap()
-    }
-
-    fn reverse_hex_32(hex_str: &str) -> [u8; 32] {
-        let mut b: [u8; 32] = hex::decode(hex_str).unwrap().try_into().unwrap();
-        b.reverse();
-        b
-    }
-
-    /// `oracleLockingBytecodeHex`. Constructor: [tickerLockingBytecode, slotCategoryReversed].
-    ///
-    /// IGNORED until the v15 genesis ceremony lands; the slot category is
-    /// derived from a not-yet-broadcast genesis outpoint, so we can't pin
-    /// the locking bytecode pre-deploy.
+    /// v16 PublisherSlot redeem is now ~262 B (was 625 B in v15). Per-source
+    /// redeems differ only in their cnHash push. Verify the shape.
     #[test]
-    #[ignore = "live-chipnet pin awaits v15 genesis deploy"]
-    fn oracle_redeem_matches_live_chipnet_locking() {
-        let ticker_lb = v15_ticker_locking_bytecode();
-        // slotCategory derived from the v15 genesis outpoint (TBD).
-        let slot_cat_reversed = reverse_hex_32(
-            "0000000000000000000000000000000000000000000000000000000000000000",
-        );
-        let redeem = redeem_oracle(&ticker_lb, &slot_cat_reversed).unwrap();
-        let lb = p2sh32_locking_bytecode(&redeem);
-        let live_hex = "<v15 deploy address pending>";
-        assert_eq!(hex::encode(lb), live_hex);
+    fn publisher_slot_redeem_v16_shape() {
+        let cn_hash = [0x42u8; 20];
+        let oracle_cat = [0xeeu8; 32];
+        let redeem = redeem_publisher_slot(&cn_hash, &oracle_cat).unwrap();
+        // Push order is REVERSED declaration order: oracleCat (arg 1) pushed
+        // first, cnHash (arg 0) pushed second, then body.
+        // Layout: push(32) + 32B oracleCat + push(20) + 20B cnHash + body
+        let body = publisher_slot_bytecode().unwrap();
+        assert_eq!(redeem.len(), 1 + 32 + 1 + 20 + body.len());
+        assert_eq!(redeem[0], 0x20); // push 32 — oracleCat first
+        assert_eq!(redeem[33], 0x14); // push 20 — cnHash second
     }
 
-    /// v15 `slotLockingBytecodeHex`. Constructor:
-    /// [packedSourceCNHashes, oracleCategoryReversed, oracleLockingBytecode].
-    ///
-    /// IGNORED until the v15 genesis ceremony lands.
+    /// Two different sources must produce two different redeems / addresses
+    /// — the load-bearing v16 property.
     #[test]
-    #[ignore = "live-chipnet pin awaits v15 genesis deploy"]
-    fn publisher_slot_redeem_matches_live_chipnet_locking() {
-        let cn_hashes = packed_cn_hashes();
-        let oracle_cat_reversed = reverse_hex_32(
-            "0000000000000000000000000000000000000000000000000000000000000000",
-        );
-        let oracle_lb = live_oracle_locking_bytecode();
-        let redeem = redeem_publisher_slot(&cn_hashes, &oracle_cat_reversed, &oracle_lb).unwrap();
-        let lb = p2sh32_locking_bytecode(&redeem);
-        let live_hex = "<v15 deploy address pending>";
-        assert_eq!(hex::encode(lb), live_hex);
+    fn per_source_redeems_differ() {
+        let oracle_cat = [0xeeu8; 32];
+        // Compute cnHashes for the first two configured sources.
+        let cn_a = source_cn_hash(&SOURCES[0]);
+        let cn_b = source_cn_hash(&SOURCES[1]);
+        assert_ne!(cn_a, cn_b, "fixture: first two sources must have distinct cn names");
+        let r_a = redeem_publisher_slot(&cn_a, &oracle_cat).unwrap();
+        let r_b = redeem_publisher_slot(&cn_b, &oracle_cat).unwrap();
+        assert_ne!(r_a, r_b, "v16 per-source redeems must differ");
+        let lb_a = p2sh32_locking_bytecode(&r_a);
+        let lb_b = p2sh32_locking_bytecode(&r_b);
+        assert_ne!(lb_a, lb_b, "v16 per-source P2SH-32 LBs must differ");
     }
 }

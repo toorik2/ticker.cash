@@ -154,7 +154,7 @@
 const { ElectrumWS, decodeOracleCommit, decodeSlotCommit, cashaddrEncodeP2PKH,
         bytesToHex, CONSTANTS } = window.TickerClient;
 
-const { ORACLE_ADDR, ORACLE_CATEGORY, SLOT_ADDR, SLOT_CATEGORY,
+const { ORACLE_ADDR, ORACLE_CATEGORY, SLOT_ADDRS, SLOT_CATEGORY,
         CASHADDR_PREFIX, STALE_SEC, STRIDE_FLOOR_SEC, DEPLOYED_AT_SEC,
         EXPECTED_SATS_PER_CYCLE, SOURCES, FULCRUM_WSS_POOL } = CONSTANTS;
 
@@ -439,9 +439,11 @@ function onOracleChange(utxos){
   render();
 }
 
-// Whenever ANY of the 13 slot UTXOs changes, server pushes on SLOT_ADDR.
-// Decode the full list, update rows, and lazily subscribe to any newly-
-// observed publisher P2PKH so balances stay live.
+// v16: each of the 13 slots lives at its OWN P2SH-32 address. We subscribe
+// per-address and merge results into the same `state.slots` map keyed by
+// decoded sourceId. Decode the per-address UTXO list, update rows, and
+// lazily subscribe to any newly-observed publisher P2PKH so balances
+// stay live.
 function onSlotChange(utxos){
   state.fetchedAt = Math.floor(Date.now()/1000);
   const decoded = [];
@@ -501,8 +503,12 @@ document.getElementById('fulcrum-host').textContent = new URL(FULCRUM_WSS_POOL[0
 
 client.subscribeAndFetch(ORACLE_ADDR, ['include_tokens'], onOracleChange)
   .catch(e => { pushError('oracle subscribe: ' + e.message); render(); });
-client.subscribeAndFetch(SLOT_ADDR, ['include_tokens'], onSlotChange)
-  .catch(e => { pushError('slot subscribe: ' + e.message); render(); });
+// v16: subscribe to each of the 13 per-source slot addresses; merge into
+// the same `state.slots` keyed by sourceId.
+for (const addr of SLOT_ADDRS) {
+  client.subscribeAndFetch(addr, ['include_tokens'], onSlotChange)
+    .catch(e => { pushError('slot ' + addr.slice(0, 16) + '… subscribe: ' + e.message); render(); });
+}
 
 // 1-second tick: keep the "age" columns moving between pushes.
 setInterval(render, 1000);

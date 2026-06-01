@@ -23,7 +23,7 @@ use std::fs;
 use std::time::Duration;
 
 use ticker_core::chain::consts::{ORACLE_VERSION_BYTE, SLOT_VERSION_BYTE};
-use ticker_core::chain::sources::{packed_cn_hashes, SOURCES};
+use ticker_core::chain::sources::{source_cn_hash, SOURCES};
 use ticker_core::covenant::{
     locking::p2sh32_locking_bytecode, redeem_oracle, redeem_publisher_slot, redeem_ticker,
 };
@@ -163,16 +163,50 @@ pub fn deploy(
     println!("  P2SH-32 LB: {oracle_lb_hex}");
     println!("  address:    {oracle_addr}");
 
-    // ── 6. Build Slot redeem script + P2SH-32 LB ─────────────────────────
-    let cn_hashes = packed_cn_hashes();
-    let slot_redeem = redeem_publisher_slot(&cn_hashes, &oracle_cat_le, &oracle_lb)?;
-    let slot_lb: [u8; 35] = p2sh32_locking_bytecode(&slot_redeem);
-    let slot_addr = encode_p2sh32_cashaddr(&slot_lb, prefix);
-    let slot_lb_hex = hex::encode(slot_lb);
-    println!("PublisherSlot:");
-    println!("  redeem:     {} bytes", slot_redeem.len());
-    println!("  P2SH-32 LB: {slot_lb_hex}");
-    println!("  address:    {slot_addr}");
+    // ── 6. Build Slot redeems (v16 per-source) + P2SH-32 LBs ────────────
+    // v16: each of the 13 sources compiles to a distinct redeem (its own
+    // cnHash baked in) → distinct P2SH-32 address. v15 had one shared 625 B
+    // redeem; v16 has 13 distinct 262 B redeems. See /tmp/slot-experiments/
+    // v16-design.md for the rationale.
+    struct PerSlotDeploy {
+        source_id: u16,
+        cn_hash: [u8; 20],
+        lb: [u8; 35],
+        address: String,
+    }
+    let mut per_slot: Vec<PerSlotDeploy> = Vec::with_capacity(PUBLISHER_COUNT);
+    println!("PublisherSlot (v16 per-source):");
+    for s in SOURCES.iter() {
+        let cn_hash = source_cn_hash(s);
+        let redeem = redeem_publisher_slot(&cn_hash, &oracle_cat_le)?;
+        let lb: [u8; 35] = p2sh32_locking_bytecode(&redeem);
+        let address = encode_p2sh32_cashaddr(&lb, prefix);
+        println!(
+            "  [{:>2}] {:>20} redeem:{}B  addr:{}",
+            s.id,
+            s.name,
+            redeem.len(),
+            address
+        );
+        per_slot.push(PerSlotDeploy {
+            source_id: s.id,
+            cn_hash,
+            lb,
+            address,
+        });
+    }
+    // Sanity: all 13 addresses must be distinct.
+    let mut sorted_addrs: Vec<&String> = per_slot.iter().map(|p| &p.address).collect();
+    sorted_addrs.sort();
+    sorted_addrs.dedup();
+    if sorted_addrs.len() != PUBLISHER_COUNT {
+        return Err(format!(
+            "v16 invariant violation: 13 per-source slot addresses collapsed to {} \
+             distinct values — check that SOURCES has 13 unique canonical_cn values",
+            sorted_addrs.len()
+        )
+        .into());
+    }
 
     // ── 7. Build Oracle genesis tx ───────────────────────────────────────
     let oracle_initial_commit: [u8; 19] = {
@@ -199,14 +233,14 @@ pub fn deploy(
     )?;
     println!("Oracle genesis tx: {} bytes", oracle_tx.len());
 
-    // ── 8. Build Slot genesis tx ─────────────────────────────────────────
+    // ── 8. Build Slot genesis tx (v16: each NFT to its OWN P2SH-32) ──────
     let mut slot_outputs = Vec::with_capacity(PUBLISHER_COUNT);
     for (slot_idx, pkh) in publisher_pkhs.iter().enumerate() {
-        let source_id = SOURCES[slot_idx].id;
-        let commit = build_initial_slot_commit(source_id, pkh);
+        let pd = &per_slot[slot_idx];
+        let commit = build_initial_slot_commit(pd.source_id, pkh);
         slot_outputs.push(Output {
             value: SLOT_DUST,
-            locking_script: slot_lb.to_vec(),
+            locking_script: pd.lb.to_vec(),
             token: Some(TokenPrefix {
                 category_le: slot_cat_le,
                 capability: MUTABLE_CAPABILITY,
@@ -244,7 +278,7 @@ pub fn deploy(
         None
     };
 
-    // ── 10. Persist deploy-state.json ────────────────────────────────────
+    // ── 10. Persist deploy-state.json (v16 per-source slot fields) ───────
     let state = DeployState {
         ticker_address: Some(ticker_addr.clone()),
         ticker_locking_bytecode_hex: Some(ticker_lb_hex.clone()),
@@ -253,18 +287,26 @@ pub fn deploy(
         oracle_category: Some(oracle_cat_be_hex.clone()),
         oracle_mint_txid: oracle_txid,
         oracle_prep_txid: None,
-        slot_address: Some(slot_addr.clone()),
-        slot_locking_bytecode_hex: Some(slot_lb_hex.clone()),
+        // v16: singular slot_* fields are deprecated. v15 readers will see None.
+        // Per-slot data lives in slots_minted[] below.
+        slot_address: None,
+        slot_locking_bytecode_hex: None,
         slot_category: Some(slot_cat_be_hex.clone()),
         slot_mint_txid: slot_txid,
         slot_prep_txid: None,
         slots_minted: publisher_pkhs
             .iter()
             .enumerate()
-            .map(|(i, pkh)| crate::state::SlotMinted {
-                source_id: SOURCES[i].id,
-                pkh_hex: hex::encode(pkh),
-                publisher_label: format!("publisher-{i}"),
+            .map(|(i, pkh)| {
+                let pd = &per_slot[i];
+                crate::state::SlotMinted {
+                    source_id: pd.source_id,
+                    pkh_hex: hex::encode(pkh),
+                    publisher_label: format!("publisher-{i}"),
+                    address: Some(pd.address.clone()),
+                    locking_bytecode_hex: Some(hex::encode(pd.lb)),
+                    cn_hash_hex: Some(hex::encode(pd.cn_hash)),
+                }
             })
             .collect(),
         init_last_ts: None,

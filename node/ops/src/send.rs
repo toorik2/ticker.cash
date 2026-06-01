@@ -14,7 +14,11 @@ use ticker_core::tx::script::p2pkh_locking_script;
 use crate::p2pkh::{build_signed_p2pkh_tx, Signer};
 
 const ELECTRUM_TIMEOUT_SEC: u64 = 30;
-const TX_FEE_BUFFER: u64 = 1_500;
+/// Fee buffer for `send`. Sized to cover ~2 KB at ≥ 1 sat/byte min-relay-fee
+/// (10-input sweeps produce ~1.5-2 KB txs; previous 1_500 sat buffer was just
+/// below threshold for 1.5 KB txs, tripping BCHN's mempool with "min relay
+/// fee not met (code 66)").
+const TX_FEE_BUFFER: u64 = 2_500;
 
 pub fn send(
     seed_path: &str,
@@ -43,9 +47,30 @@ pub fn send(
         Duration::from_secs(ELECTRUM_TIMEOUT_SEC),
     )?;
     let utxos = electrum.list_unspent(&from_addr)?;
-    let non_token: Vec<_> = utxos.into_iter().filter(|u| u.token_data.is_none()).collect();
+    let mut non_token: Vec<_> = utxos.into_iter().filter(|u| u.token_data.is_none()).collect();
     let total: u64 = non_token.iter().map(|u| u.value).sum();
     println!("source balance:          {total} sats ({} utxos)", non_token.len());
+
+    // Select minimal UTXO set that covers amount + fee buffer. Sweeping ALL
+    // UTXOs blocks the genesis-prep pattern of "create N distinct vout=0
+    // UTXOs by bouncing master→master N times" because each sweep destroys
+    // all prior bounces. Prefer largest-first so we use few inputs.
+    non_token.sort_by(|a, b| b.value.cmp(&a.value));
+    let need = amount_sats + TX_FEE_BUFFER;
+    let mut acc = 0u64;
+    let mut selected: Vec<_> = Vec::new();
+    for u in non_token {
+        if acc >= need { break; }
+        acc += u.value;
+        selected.push(u);
+    }
+    if acc < need {
+        return Err(format!(
+            "insufficient master balance: have {acc} across selected, need {need}"
+        )
+        .into());
+    }
+    println!("selected {} utxo(s), total {acc} sats", selected.len());
 
     let to_pkh = decode_p2pkh_cashaddr(to_address, prefix)?;
     let outputs = vec![Output {
@@ -59,7 +84,7 @@ pub fn send(
         public_key: wallet.public_key,
         pkh: wallet.pkh,
     };
-    let raw = build_signed_p2pkh_tx(&signer, &non_token, outputs, TX_FEE_BUFFER, prefix)?;
+    let raw = build_signed_p2pkh_tx(&signer, &selected, outputs, TX_FEE_BUFFER, prefix)?;
     println!("\ntx hex ({} bytes):\n{}", raw.len(), hex::encode(&raw));
 
     if broadcast {

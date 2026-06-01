@@ -279,7 +279,6 @@ fn update_oracle<E: Env>(
         oracle_category_wire_le: cfg.oracle_category_wire_le,
         slot_category_wire_le: cfg.slot_category_wire_le,
         oracle_redeem_script: &cfg.oracle_redeem_script,
-        slot_redeem_script: &cfg.slot_redeem_script,
         ticker_redeem_script: &cfg.ticker_redeem_script,
         new_seq: snap.new_seq,
     };
@@ -325,7 +324,9 @@ fn map_update_error(e: UpdateError) -> CycleError {
         UpdateError::InsufficientFunds { have, need } => {
             CycleError::InsufficientFunds { have, need }
         }
-        UpdateError::Crypto(_) => CycleError::Internal(e.to_string()),
+        UpdateError::Crypto(_)
+        | UpdateError::InvalidSourceId { .. }
+        | UpdateError::Redeem(_) => CycleError::Internal(e.to_string()),
     }
 }
 
@@ -440,6 +441,7 @@ mod tests {
             ticker_redeem_script: vec![0u8; 100],
             oracle_scripthash_hex: "00".repeat(32),
             slot_scripthash_hex: "11".repeat(32),
+            all_slot_scripthashes_hex: vec!["11".repeat(32)],
             publisher_scripthash_hex: "22".repeat(32),
             oracle_category_be_hex: "00".repeat(32),
             slot_category_be_hex: "00".repeat(32),

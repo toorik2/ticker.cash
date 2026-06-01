@@ -137,38 +137,43 @@ impl Env for RealEnv {
     }
 
     fn get_slot_utxos(&mut self, cfg: &CycleConfig) -> Result<Vec<SlotInfo>, CycleError> {
-        let utxos = self
-            .electrum
-            .lock()
-            .unwrap()
-            .list_unspent_by_scripthash(&cfg.slot_scripthash_hex)
-            .map_err(|e| self.map_electrum(e))?;
-        let mut out = Vec::with_capacity(utxos.len());
-        for u in utxos {
-            let Some(td) = &u.token_data else { continue };
-            if td.category != cfg.slot_category_be_hex {
-                continue;
-            }
-            let Some(nft) = &td.nft else { continue };
-            if nft.capability != NftCapability::Mutable {
-                continue;
-            }
-            let raw = hex::decode(&nft.commitment).map_err(|_| {
-                CycleError::SlotCommitMalformed {
-                    txid: u.tx_hash.clone(),
-                    vout: u.tx_pos,
+        // v16: each of 13 slots has its OWN P2SH-32 address → its own
+        // scripthash. Aggregate by iterating all 13. (v15 used a single
+        // shared scripthash because all NFTs lived at one address.)
+        let mut out = Vec::with_capacity(13);
+        for sh in &cfg.all_slot_scripthashes_hex {
+            let utxos = self
+                .electrum
+                .lock()
+                .unwrap()
+                .list_unspent_by_scripthash(sh)
+                .map_err(|e| self.map_electrum(e))?;
+            for u in utxos {
+                let Some(td) = &u.token_data else { continue };
+                if td.category != cfg.slot_category_be_hex {
+                    continue;
                 }
-            })?;
-            let Some(commit) = decode_slot_commit(&raw) else { continue };
-            let mut commitment_raw = [0u8; 39];
-            commitment_raw.copy_from_slice(&raw);
-            out.push(SlotInfo {
-                txid_be: parse_txid_be(&u.tx_hash)?,
-                vout: u.tx_pos,
-                satoshis: u.value,
-                commit,
-                commitment_raw,
-            });
+                let Some(nft) = &td.nft else { continue };
+                if nft.capability != NftCapability::Mutable {
+                    continue;
+                }
+                let raw = hex::decode(&nft.commitment).map_err(|_| {
+                    CycleError::SlotCommitMalformed {
+                        txid: u.tx_hash.clone(),
+                        vout: u.tx_pos,
+                    }
+                })?;
+                let Some(commit) = decode_slot_commit(&raw) else { continue };
+                let mut commitment_raw = [0u8; 39];
+                commitment_raw.copy_from_slice(&raw);
+                out.push(SlotInfo {
+                    txid_be: parse_txid_be(&u.tx_hash)?,
+                    vout: u.tx_pos,
+                    satoshis: u.value,
+                    commit,
+                    commitment_raw,
+                });
+            }
         }
         Ok(out)
     }

@@ -40,9 +40,9 @@ pub fn resolve_identity(
 
     let id_hex = hex::encode(key.pkh);
     let slot = manifest
-        .publisher_pkhs
+        .slots
         .iter()
-        .position(|p| p == &id_hex)
+        .position(|s| s.publisher_pkh_hex == id_hex)
         .ok_or_else(|| IdentityError::KeyNotInManifest {
             ident_hex: id_hex.clone(),
         })? as u8;

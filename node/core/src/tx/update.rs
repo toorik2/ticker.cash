@@ -26,8 +26,10 @@ use crate::chain::consts::{
     TICKER_HEAD_COUNT,
 };
 use crate::chain::oracle_commit::{encode_oracle_commit, OracleState};
+use crate::chain::sources::{source_cn_hash, SOURCES};
 use crate::chain::ticker_commit::encode_ticker_commit;
 use crate::covenant::locking::p2sh32_locking_bytecode;
+use crate::covenant::redeem::{redeem_publisher_slot, RedeemScriptError};
 use crate::crypto::{double_sha256, sign_ecdsa, KeyError};
 use crate::tx::encode::{
     encode_tx, Input, Output, TokenPrefix, Tx, TxOutpoint, DEFAULT_SEQUENCE,
@@ -79,7 +81,8 @@ pub struct UpdateArgs<'a> {
     /// Wire-LE category bytes for the PublisherSlot.
     pub slot_category_wire_le: [u8; 32],
     pub oracle_redeem_script: &'a [u8],
-    pub slot_redeem_script: &'a [u8],
+    /// v16: per-slot redeems are derived inside the builder from each slot's
+    /// `commitment[1..3]` (source_id) — no shared slot redeem is passed in.
     pub ticker_redeem_script: &'a [u8],
     pub new_seq: u32,
 }
@@ -97,6 +100,10 @@ pub enum UpdateError {
     InsufficientFunds { have: u64, need: u64 },
     #[error("crypto: {0}")]
     Crypto(#[from] KeyError),
+    #[error("slot commit has invalid source_id {source_id} (expected 1..=13)")]
+    InvalidSourceId { source_id: u16 },
+    #[error("redeem build failure: {0}")]
+    Redeem(#[from] RedeemScriptError),
 }
 
 /// Build the `Oracle.update` raw transaction bytes ready for broadcast.
@@ -187,8 +194,28 @@ pub fn build_oracle_update_tx(args: &UpdateArgs) -> Result<Vec<u8>, UpdateError>
         args.oracle_redeem_script,
     );
 
-    // ─── 7. Build slot consume unlock script (one for all slots — identical) ──
-    let slot_consume_unlock = build_consume_unlock_script(args.slot_redeem_script);
+    // ─── 7. Build per-slot redeems + consume unlocks (v16: each slot's
+    //         redeem differs by its baked-in cnHash, derived from the
+    //         source_id encoded at byte 1..3 of the slot commit) ────────────
+    let per_slot_redeems: Vec<Vec<u8>> = slots
+        .iter()
+        .map(|s| {
+            let source_id = u16::from_le_bytes([s.commitment[1], s.commitment[2]]);
+            let idx = (source_id as usize).checked_sub(1)
+                .filter(|i| *i < SOURCES.len())
+                .ok_or(UpdateError::InvalidSourceId { source_id })?;
+            let cn_hash = source_cn_hash(&SOURCES[idx]);
+            Ok(redeem_publisher_slot(&cn_hash, &args.oracle_category_wire_le)?)
+        })
+        .collect::<Result<_, UpdateError>>()?;
+    let per_slot_consume_unlocks: Vec<Vec<u8>> = per_slot_redeems
+        .iter()
+        .map(|r| build_consume_unlock_script(r))
+        .collect();
+    let per_slot_lockings: Vec<[u8; 35]> = per_slot_redeems
+        .iter()
+        .map(|r| p2sh32_locking_bytecode(r))
+        .collect();
 
     // ─── 8. Build outputs ──────────────────────────────────────────────────
     let new_oracle_commit = encode_oracle_commit(&OracleState {
@@ -205,7 +232,6 @@ pub fn build_oracle_update_tx(args: &UpdateArgs) -> Result<Vec<u8>, UpdateError>
     });
 
     let oracle_locking = p2sh32_locking_bytecode(args.oracle_redeem_script);
-    let slot_locking = p2sh32_locking_bytecode(args.slot_redeem_script);
     let ticker_locking = p2sh32_locking_bytecode(args.ticker_redeem_script);
 
     let mut outputs = Vec::with_capacity(1 + slots.len() + 2 + 1);
@@ -222,10 +248,11 @@ pub fn build_oracle_update_tx(args: &UpdateArgs) -> Result<Vec<u8>, UpdateError>
         }),
     });
     // Slot re-emits, one per input, same satoshis, commit unchanged.
-    for s in &slots {
+    // v16: each slot output gets its OWN locking bytecode (per-source P2SH-32).
+    for (i, s) in slots.iter().enumerate() {
         outputs.push(Output {
             value: s.satoshis,
-            locking_script: slot_locking.to_vec(),
+            locking_script: per_slot_lockings[i].to_vec(),
             token: Some(TokenPrefix {
                 category_le: args.slot_category_wire_le,
                 capability: CAPABILITY_MUTABLE,
@@ -266,13 +293,13 @@ pub fn build_oracle_update_tx(args: &UpdateArgs) -> Result<Vec<u8>, UpdateError>
         unlock_script: oracle_unlock,
         sequence: DEFAULT_SEQUENCE,
     });
-    for s in &slots {
+    for (i, s) in slots.iter().enumerate() {
         inputs.push(Input {
             prev: TxOutpoint {
                 txid_be: s.txid_be,
                 vout: s.vout,
             },
-            unlock_script: slot_consume_unlock.clone(),
+            unlock_script: per_slot_consume_unlocks[i].clone(),
             sequence: DEFAULT_SEQUENCE,
         });
     }
@@ -306,11 +333,11 @@ pub fn build_oracle_update_tx(args: &UpdateArgs) -> Result<Vec<u8>, UpdateError>
             amount: 0,
         }),
     });
-    // [1..N+1] Slot inputs
-    for s in &slots {
+    // [1..N+1] Slot inputs — v16: per-slot locking bytecode
+    for (i, s) in slots.iter().enumerate() {
         sources.push(SpentOutput {
             value: s.satoshis,
-            locking_script: slot_locking.to_vec(),
+            locking_script: per_slot_lockings[i].to_vec(),
             token: Some(TokenPrefix {
                 category_le: args.slot_category_wire_le,
                 capability: CAPABILITY_MUTABLE,
@@ -449,6 +476,14 @@ mod tests {
     use super::*;
 
     fn slot(pkh_byte: u8, ts: u32, price: u64) -> CycleSlotUtxo {
+        // v16: commit must encode a valid source_id (1..=13) for the update
+        // builder to derive the per-slot redeem. Map pkh_byte → source_id.
+        let source_id = (pkh_byte as u16) + 1;
+        let mut commitment = [0u8; 39];
+        commitment[0] = crate::chain::consts::SLOT_VERSION_BYTE; // 0x76
+        commitment[1..3].copy_from_slice(&source_id.to_le_bytes());
+        commitment[3..23].copy_from_slice(&[pkh_byte; 20]);
+        // price/ts/cycleSeq left zero — test doesn't compare commit contents
         CycleSlotUtxo {
             txid_be: [0; 32],
             vout: 0,
@@ -456,7 +491,7 @@ mod tests {
             pkh: [pkh_byte; 20],
             price,
             timestamp: ts,
-            commitment: [0; 39],
+            commitment,
         }
     }
 
@@ -499,7 +534,6 @@ mod tests {
             oracle_category_wire_le: [0xee; 32],
             slot_category_wire_le: [0xff; 32],
             oracle_redeem_script: redeem,
-            slot_redeem_script: redeem,
             ticker_redeem_script: redeem,
             new_seq: 101,
         }
@@ -592,15 +626,17 @@ mod tests {
     /// LE-numeric says B < A because the high (last) byte of B is 0 < FF.
     #[test]
     fn sort_is_le_numeric_not_big_endian_lex() {
+        // Each `slot(pkh_byte, ...)` call sets commit source_id = pkh_byte + 1;
+        // we pass 0..6 so source_ids land at 1..=7, all in 1..=13.
         let mut a = slot(0, 1_780_000_100, 1);
         a.pkh = [0x01; 20];
         a.pkh[19] = 0xff; // a's "high" byte is large under LE numeric
-        let mut b = slot(0, 1_780_000_100, 2);
+        let mut b = slot(1, 1_780_000_100, 2);
         b.pkh = [0x01; 20];
         b.pkh[19] = 0x00; // b's "high" byte is small under LE numeric
-        // ... pad to quorum with distinct pkhs
+        // ... pad to quorum with distinct pkhs and distinct source_ids
         let mut others: Vec<CycleSlotUtxo> = (0..5)
-            .map(|i| slot((0x10 + i) as u8, 1_780_000_100, 1000))
+            .map(|i| slot((i + 2) as u8, 1_780_000_100, 1000)) // source_ids 3..=7
             .collect();
         // Replace first byte of `others` to ensure they sort highest.
         for (i, o) in others.iter_mut().enumerate() {

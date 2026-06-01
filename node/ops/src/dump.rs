@@ -20,17 +20,33 @@ pub fn dump(state_dir: &str) -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let manifest = match load_manifest(&manifest_path) {
-        Ok(m) => Some(json!({
-            "version": m.version,
-            "network": format!("{:?}", m.network).to_lowercase(),
-            "contracts": {
-                "ticker":  { "address": m.ticker.address,  "lockingBytecodeHex": m.ticker.locking_bytecode_hex },
-                "oracle":  { "address": m.oracle.address,  "lockingBytecodeHex": m.oracle.locking_bytecode_hex, "category": m.oracle.category },
-                "slot":    { "address": m.slot.address,    "lockingBytecodeHex": m.slot.locking_bytecode_hex,   "category": m.slot.category },
-            },
-            "publisherCount": m.publisher_pkhs.len(),
-            "electrum": { "host": m.electrum.host, "port": m.electrum.port, "tls": m.electrum.tls },
-        })),
+        Ok(m) => {
+            let slots_json: Vec<_> = m
+                .slots
+                .iter()
+                .map(|s| {
+                    json!({
+                        "sourceId": s.source_id,
+                        "sourceName": s.source_name,
+                        "publisherPkhHex": s.publisher_pkh_hex,
+                        "address": s.address,
+                        "lockingBytecodeHex": s.locking_bytecode_hex,
+                    })
+                })
+                .collect();
+            Some(json!({
+                "version": m.version,
+                "network": format!("{:?}", m.network).to_lowercase(),
+                "contracts": {
+                    "ticker":  { "address": m.ticker.address,  "lockingBytecodeHex": m.ticker.locking_bytecode_hex },
+                    "oracle":  { "address": m.oracle.address,  "lockingBytecodeHex": m.oracle.locking_bytecode_hex, "category": m.oracle.category },
+                    "slotCategory": m.slot_category,
+                    "slots": slots_json,
+                },
+                "publisherCount": m.slots.len(),
+                "electrum": { "host": m.electrum.host, "port": m.electrum.port, "tls": m.electrum.tls },
+            }))
+        }
         Err(ManifestError::NotFound(_)) => None,
         Err(e) => return Err(Box::new(e)),
     };

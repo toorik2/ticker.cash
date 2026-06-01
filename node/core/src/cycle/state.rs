@@ -119,7 +119,13 @@ pub struct CycleConfig {
     /// Pre-computed reversed-SHA-256 scripthashes for the Electrum
     /// `blockchain.scripthash.listunspent` method (lowercase hex).
     pub oracle_scripthash_hex: String,
+    /// THIS publisher's slot scripthash (used for subscriptions + identity).
     pub slot_scripthash_hex: String,
+    /// v16: all 13 slot scripthashes (in source-id order) for quorum-aggregation
+    /// queries. v15 used a single shared slot scripthash because all 13 NFTs
+    /// lived at one address; v16 has per-source addresses so each slot has its
+    /// own scripthash. Quorum aggregation must scan all 13.
+    pub all_slot_scripthashes_hex: Vec<String>,
     pub publisher_scripthash_hex: String,
     /// 64-hex Oracle category (display order, big-endian).
     pub oracle_category_be_hex: String,

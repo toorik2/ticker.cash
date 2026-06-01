@@ -200,7 +200,7 @@ fn build_publisher_cfg(
     let oracle_cat_be = hex::decode(&m.oracle.category)?;
     let mut oracle_cat_le: [u8; 32] = oracle_cat_be.as_slice().try_into()?;
     oracle_cat_le.reverse();
-    let slot_cat_be = hex::decode(&m.slot.category)?;
+    let slot_cat_be = hex::decode(&m.slot_category)?;
     let mut slot_cat_le: [u8; 32] = slot_cat_be.as_slice().try_into()?;
     slot_cat_le.reverse();
 
@@ -210,9 +210,6 @@ fn build_publisher_cfg(
     let oracle_lb: [u8; 35] = hex::decode(&m.oracle.locking_bytecode_hex)?
         .as_slice()
         .try_into()?;
-    let slot_lb_expected: [u8; 35] = hex::decode(&m.slot.locking_bytecode_hex)?
-        .as_slice()
-        .try_into()?;
 
     let oracle_redeem = redeem_oracle(&ticker_lb, &slot_cat_le)?;
     let oracle_lb_derived = p2sh32_locking_bytecode(&oracle_redeem);
@@ -220,24 +217,53 @@ fn build_publisher_cfg(
         return Err("oracle locking bytecode mismatch — wrong manifest?".into());
     }
 
-    let cn_hashes = ticker_core::chain::sources::packed_cn_hashes();
-    let slot_redeem = redeem_publisher_slot(&cn_hashes, &oracle_cat_le, &oracle_lb)?;
-    let slot_lb_derived = p2sh32_locking_bytecode(&slot_redeem);
-    if slot_lb_derived != slot_lb_expected {
-        return Err("slot locking bytecode mismatch — wrong manifest?".into());
-    }
-    let ticker_redeem = redeem_ticker()?;
-
-    // Source id is `slot + 1` because slot 0 → source 1, etc. (per current TS deploy).
+    // v16: this daemon's slot has its OWN redeem (per-source cnHash baked in).
+    // Source id is `slot + 1` (slot 0 → source 1, etc.).
     let source = SOURCES
         .get(slot as usize)
         .ok_or("slot exceeds SOURCES length")?;
+    let my_slot_entry = m
+        .slot_for(source.id)
+        .ok_or_else(|| format!("manifest missing slots[].sourceId={} entry", source.id))?;
+    let my_slot_lb_expected: [u8; 35] = hex::decode(&my_slot_entry.locking_bytecode_hex)?
+        .as_slice()
+        .try_into()?;
+    let my_cn_hash: [u8; 20] = hex::decode(&my_slot_entry.cn_hash_hex)?
+        .as_slice()
+        .try_into()?;
+    // Derive the redeem from this daemon's cnHash + oracle category, then
+    // assert it matches what the manifest claims. Catches manifest tampering
+    // or operator-keying-error at startup, fail-fast.
+    let slot_redeem = redeem_publisher_slot(&my_cn_hash, &oracle_cat_le)?;
+    let slot_lb_derived = p2sh32_locking_bytecode(&slot_redeem);
+    if slot_lb_derived != my_slot_lb_expected {
+        return Err(format!(
+            "slot locking bytecode mismatch for sourceId={}: derived {} vs manifest {} \
+             — wrong manifest or wrong cnHash?",
+            source.id,
+            hex::encode(slot_lb_derived),
+            hex::encode(my_slot_lb_expected),
+        )
+        .into());
+    }
+    let ticker_redeem = redeem_ticker()?;
 
     // Precompute Electrum scripthashes (sha256(locking_script) reversed, lowercase hex).
     let pub_lock = ticker_core::tx::script::p2pkh_locking_script(&key.pkh).to_vec();
     let publisher_scripthash_hex = scripthash_of(&pub_lock);
     let oracle_scripthash_hex = scripthash_of(&oracle_lb);
-    let slot_scripthash_hex = scripthash_of(&slot_lb_expected);
+    let slot_scripthash_hex = scripthash_of(&my_slot_lb_expected);
+
+    // v16: pre-compute scripthashes for ALL 13 slots (each lives at its own
+    // P2SH-32 in v16). Used by `get_slot_utxos` to aggregate the quorum.
+    let all_slot_scripthashes_hex: Vec<String> = m
+        .slots
+        .iter()
+        .map(|s| {
+            let lb = hex::decode(&s.locking_bytecode_hex)?;
+            Ok::<_, Box<dyn std::error::Error>>(scripthash_of(&lb))
+        })
+        .collect::<Result<_, _>>()?;
 
     Ok(CycleConfig {
         slot,
@@ -252,9 +278,10 @@ fn build_publisher_cfg(
         ticker_redeem_script: ticker_redeem,
         oracle_scripthash_hex,
         slot_scripthash_hex,
+        all_slot_scripthashes_hex,
         publisher_scripthash_hex,
         oracle_category_be_hex: m.oracle.category.clone(),
-        slot_category_be_hex: m.slot.category.clone(),
+        slot_category_be_hex: m.slot_category.clone(),
         poll_interval: Duration::from_secs(POLL_INTERVAL_SEC),
         quorum_wait: Duration::from_secs(QUORUM_WAIT_SEC),
     })

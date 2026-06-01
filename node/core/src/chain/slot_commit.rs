@@ -1,6 +1,7 @@
-//! PublisherSlot NFT commit (39 B, version `0x75` in v15).
+//! PublisherSlot NFT commit (39 B, version `0x75`).
 //!
-//! Layout:
+//! v15→v16 keeps the commit layout AND version byte unchanged (Oracle.cash
+//! hard-codes `0x75`; bumping would require an Oracle re-compile).
 //!
 //! | Offset | Size | Field        | Type      |
 //! |--------|------|--------------|-----------|
@@ -13,7 +14,7 @@
 //!
 //! `source_id` and `pkh` are **pinned at genesis** and never rewritten;
 //! only `(price, timestamp, cycle_seq)` mutate via `PublisherSlot.attest`.
-//! v15 covenant enforces MSB-clear on `timestamp` and `cycle_seq` to close
+//! v16 covenant enforces MSB-clear on `timestamp` and `cycle_seq` to close
 //! the sign-magnitude self-DoS class.
 
 use super::consts::{SLOT_COMMIT_LEN, SLOT_VERSION_BYTE};
@@ -80,9 +81,9 @@ mod tests {
         assert_eq!(bytes[0], 0x75);
     }
 
-    /// v14 commits (prefix 0x73) must NOT decode under v15.
+    /// Wrong-version commits (anything other than 0x75) must NOT decode.
     #[test]
-    fn rejects_v14_prefix() {
+    fn rejects_wrong_prefix() {
         let mut bytes = encode_slot_commit(&fixture());
         bytes[0] = 0x73;
         assert_eq!(decode_slot_commit(&bytes), None);
@@ -114,7 +115,7 @@ mod tests {
 
     #[test]
     fn known_vector_byte_for_byte() {
-        // Hand-computed expected bytes for the fixture (v15 prefix 0x75):
+        // Hand-computed expected bytes for the fixture (prefix 0x75):
         //   version 0x75
         //   source_id  = 1            → 01 00
         //   pkh        = 11..44        → 20 bytes

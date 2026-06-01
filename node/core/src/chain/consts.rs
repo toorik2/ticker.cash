@@ -46,10 +46,11 @@ pub const ORACLE_VERSION_BYTE: u8 = 0x65;
 /// covenant. Fresh on-chain category alone separates v14/v15).
 pub const TICKER_VERSION_BYTE: u8 = 0x80;
 
-/// PublisherSlot NFT commit version byte. `0x75` is v15's tag (bumped from
-/// v14's `0x73`, skipping `0x74` to leave space for a deprecated iteration
-/// that never shipped). The bump marks v15's MSB-clear gates, Schnorr-only
-/// sig length pin, and tokenAmount pin on slot re-emit.
+/// PublisherSlot NFT commit version byte. Held stable at `0x75` across
+/// v15→v16. v16 changed only the covenant (per-slot CN baking → distinct
+/// redeem/address per source); the commit format is bit-identical to v15,
+/// and Oracle.cash hard-codes `0x75` when decoding slot commits in its
+/// `update()` body. Bumping would require an Oracle re-compile too.
 pub const SLOT_VERSION_BYTE: u8 = 0x75;
 
 // ─── Capability bytes ──────────────────────────────────────────────────────

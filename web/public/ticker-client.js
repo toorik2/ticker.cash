@@ -26,14 +26,30 @@
       { url: 'wss://chipnet.imaginary.cash:50004', mode: 'subscribe' },
       { url: 'wss://chipnet.bch.ninja:50004',      mode: 'poll', pollMs: 12000 },
     ],
-    ORACLE_ADDR: 'bchtest:p0nrdzy7w9fm5rpl9jtc8udux5a9l8q5e5msn2n83xjuhp2kp0x3kr2ug7jck',
-    ORACLE_CATEGORY: '3dd6b6c3c57040d35df36f1bc9b9099b8d307b553a229683a250a67a15beb7ee',
-    SLOT_ADDR: 'bchtest:pvq90xk44lmnynfdmelwnvf5nct6dsxyw3u77zs8mcm2329gz30s2s5yy6wch',
-    SLOT_CATEGORY: 'de1c438b6969c90782fc637d759b609b1b2ac0880d7219669a689c47fb1b3ba5',
+    ORACLE_ADDR: 'bchtest:p0ljglrwn0hrqyzwkh9tez23qpg3u4t3j0a3cc4lpd2rnt3r68kaqzdmhsfgf',
+    ORACLE_CATEGORY: 'a0676b2c46bb04f37dd4324138997f03a0bf1055860a8702f19e1e977ad7d338',
+    // v16: per-source slot addresses (one P2SH-32 per source, vs v15's shared
+    // single address holding all 13 NFTs). SLOT_CATEGORY is still shared.
+    SLOT_ADDRS: [
+      'bchtest:pws2fmlknucug6u9vg7t0w8cdny0e4ak3tefwr73fj2wn7zl06dd76mk0zsyv', // 1 kraken
+      'bchtest:p0qpjch002wxqps2slv8de6rlmxx3tw0zj8uplse8uae3mc6e6yk6hx6fxexy', // 2 coinbase
+      'bchtest:pwlpa45wnv58dwvvcqh64sxzmt53fhma2mhtdwflkcs6qm83mhdvccrsgfj5r', // 3 gemini
+      'bchtest:pv9j8u0lnnrz3hdu3hu3r30xlnmwuflwz8nvsma7k9d3w65y4vv56qyanme9w', // 4 binance_us
+      'bchtest:p0sqr6xkuhf3lj86cpwk8nxmyjpp2ywcr6d2lay75r97n2suwfks6gd80yeqs', // 5 bitstamp
+      'bchtest:pduac2lps884rdq0mq89kashnkue0sp9f3mf4ldsd5a5gcgu7tesva492rxs6', // 6 cryptocom
+      'bchtest:pd2rmrs4lm5tg4hfcq8x2gmfn07gpznlhrumgjla6ruqx9g23dzk6wf5xxwuv', // 7 bitfinex
+      'bchtest:pvgxqs87jxdwh2zvarhyrsll2j532h8st0c9krcqmmrtren5qlggynenc0w3d', // 8 exmo
+      'bchtest:p0gn2vqc4tdwcsp7ksj7fl9ndwcl4guzr004zttl3tztxelu9zv5jdfr2d2cx', // 9 independentreserve
+      'bchtest:p03hwulu9e7axmh4z08xgt7ee32dh58g28trgwvj3nr9tslld3evuk7vjfuc7', // 10 okx_usdc
+      'bchtest:p0c7uua9d89wku72s55wuewmannc7ntnnst7uu7xrklm7z6axvpl74urqh0nv', // 11 kucoin_usdc
+      'bchtest:p0ww87mwzgcumvxm6ree2r7asz5wvggtm6mn0kzzx6h4rkglgqx5qkjne8d8l', // 12 bybit
+      'bchtest:pdkw35em47nr9n06d96gkplfem5f4dg5clpfdp0y3gr6xhs5gc8yuzqn5qne0', // 13 htx
+    ],
+    SLOT_CATEGORY: '1821165106db78e0430795a470b4c453eb0984cf97bfaf4cbf4a96947e54c486',
     CASHADDR_PREFIX: 'bchtest',
     STALE_SEC: 300,
     STRIDE_FLOOR_SEC: 60,
-    DEPLOYED_AT_SEC: Math.floor(new Date('2026-05-31T11:28:00.000Z').getTime() / 1000),
+    DEPLOYED_AT_SEC: Math.floor(new Date('2026-06-01T16:45:57.000Z').getTime() / 1000),
     EXPECTED_SATS_PER_CYCLE: 2000n + (20000n + 2n * 1500n) / 13n, // ~3769
     SOURCES: [
       { id: 1,  name: 'kraken' },
