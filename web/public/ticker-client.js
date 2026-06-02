@@ -89,13 +89,14 @@
     STRIDE_FLOOR_SEC: 60,
     DEPLOYED_AT_SEC: Math.floor(new Date('2026-06-02T18:09:00.000Z').getTime() / 1000),
     // Per-publisher per-cycle expected cost in sats (used for runway display).
-    // Formula: own_attest_fee + share of (Oracle.update + 2*Ticker_dust)/13.
-    // Measured empirically from chipnet on 2026-06-02: attest 615 B, update
-    // 5041 B (13 P2S slot inputs). At 1 sat/B + 2*1500 ticker dust:
-    //   615 + (5041 + 3000) / 13 = 615 + 619 = 1234 sats/cycle/publisher.
-    // Stale v15 estimate (3769) wildly overstated cost; v22 has actually
-    // ~3.1× more runway than the dashboard displayed pre-fix.
-    EXPECTED_SATS_PER_CYCLE: 615n + (5041n + 2n * 1500n) / 13n, // ~1234 (v22 measured)
+    // This is a FALLBACK constant — the dashboard calls
+    // `measureExpectedSatsPerCycle(client)` on init to derive the live value
+    // from recent on-chain tx sizes. The fallback applies only if the
+    // measurement RPC fails (e.g., empty history, all subs down).
+    // Formula: own_attest_fee + (Oracle.update + 2*Ticker_dust) / 13.
+    EXPECTED_SATS_PER_CYCLE: 615n + (5041n + 2n * 1500n) / 13n, // ~1234 (v22 fallback)
+    TICKER_DUST_SATS: 1500n,
+    TICKER_HEAD_COUNT: 2,
     SOURCES: [
       { id: 1,  name: 'kraken' },
       { id: 2,  name: 'coinbase' },
@@ -472,6 +473,46 @@
     }
   }
 
+  // ─── Dynamic per-cycle cost measurement ──────────────────────────────
+  // Reads recent on-chain tx sizes (median over a small sample) to derive
+  // the per-publisher per-cycle expected cost in sats. Uses any slot's
+  // scripthash history — every cycle that slot appears as input in one
+  // Oracle.update tx AND as output in one of its publisher's attest txs,
+  // so classifying recent tx sizes by a ~1500 B threshold separates the
+  // two populations.
+  //
+  // Returns BigInt sats or null on failure (caller should fall back to
+  // CONSTANTS.EXPECTED_SATS_PER_CYCLE).
+  async function measureExpectedSatsPerCycle(client, opts = {}) {
+    const {
+      slotScripthashHex = CONSTANTS.SLOT_SCRIPTHASHES?.[0],
+      sampleSize = 16,
+      tickerDustTotalSats = CONSTANTS.TICKER_DUST_SATS * BigInt(CONSTANTS.TICKER_HEAD_COUNT),
+      publisherCount = 13n,
+      attestUpdateThresholdBytes = 1500,
+    } = opts;
+    if (!slotScripthashHex) return null;
+    try {
+      const hist = await client.request('blockchain.scripthash.get_history', slotScripthashHex);
+      if (!Array.isArray(hist) || hist.length < 4) return null;
+      const recent = hist.slice(-sampleSize);
+      const rawHexes = await Promise.all(recent.map(
+        e => client.request('blockchain.transaction.get', e.tx_hash, false)
+      ));
+      const sizes = rawHexes.map(h => Math.floor(h.length / 2));
+      const attest = sizes.filter(s => s < attestUpdateThresholdBytes).sort((a, b) => a - b);
+      const update = sizes.filter(s => s >= attestUpdateThresholdBytes).sort((a, b) => a - b);
+      if (attest.length === 0 || update.length === 0) return null;
+      const medianAttest = BigInt(attest[Math.floor(attest.length / 2)]);
+      const medianUpdate = BigInt(update[Math.floor(update.length / 2)]);
+      // Per-publisher: own attest fee + 1/N share of (update fee + ticker dust)
+      // Fee assumption: 1 sat/byte at mainnet relay floor.
+      return medianAttest + (medianUpdate + tickerDustTotalSats) / publisherCount;
+    } catch (_) {
+      return null;
+    }
+  }
+
   // ─── Export ──────────────────────────────────────────────────────────
   window.TickerClient = {
     ElectrumWS,
@@ -480,6 +521,7 @@
     cashaddrEncodeP2PKH,
     hexToBytes,
     bytesToHex,
+    measureExpectedSatsPerCycle,
     CONSTANTS,
   };
 })();

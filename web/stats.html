@@ -152,7 +152,8 @@
 //    plumbing lives in /ticker-client.js.
 
 const { ElectrumWS, decodeOracleCommit, decodeSlotCommit, cashaddrEncodeP2PKH,
-        bytesToHex, hexToBytes, CONSTANTS } = window.TickerClient;
+        bytesToHex, hexToBytes, measureExpectedSatsPerCycle,
+        CONSTANTS } = window.TickerClient;
 
 const { ORACLE_ADDR, ORACLE_CATEGORY, SLOT_ADDRS, SLOT_SCRIPTHASHES, SLOT_CATEGORY,
         CASHADDR_PREFIX, STALE_SEC, STRIDE_FLOOR_SEC, DEPLOYED_AT_SEC,
@@ -169,6 +170,8 @@ const state = {
   fetchedAt: Math.floor(Date.now()/1000),
   publisherAddrs: new Map(),     // pkhHex → cashaddr (cached)
   subscribedPublishers: new Set(), // pkhHex (so we only subscribe once)
+  expectedSatsPerCycle: EXPECTED_SATS_PER_CYCLE,  // dynamic — refreshed from chain
+  expectedSatsSource: 'fallback', // 'fallback' | 'measured' — for debugging
 };
 
 // ─── Render helpers (unchanged in spirit from the polling version) ──
@@ -206,7 +209,7 @@ function computeAggregate(){
     s.cyclesBehind = Math.max(0, oracleSeq - s.cycleSeq);
     const sats = state.balances.get(s.publisherPkh) ?? 0n;
     s.walletBalanceSats = sats.toString();
-    s.cyclesOfRunway = Number(sats / EXPECTED_SATS_PER_CYCLE);
+    s.cyclesOfRunway = Number(sats / state.expectedSatsPerCycle);
     const stride = computeCycleStride();
     s.runwayDurationSec = s.cyclesOfRunway * stride;
     s.status = (s.cyclesOfRunway < 5) ? 'unfunded'
@@ -507,6 +510,23 @@ for (let i = 0; i < SLOT_SCRIPTHASHES.length; i++) {
   client.subscribeAndFetchByScripthash(sh, ['include_tokens'], (utxos) => onSlotChange(utxos, slotIdx))
     .catch(e => { pushError('slot[' + slotIdx + '] subscribe: ' + e.message); render(); });
 }
+
+// Dynamically refresh per-cycle cost from chain (measure recent tx sizes
+// at slot[0]'s scripthash). Falls back to CONSTANTS.EXPECTED_SATS_PER_CYCLE
+// if measurement fails. Re-measure every 10 minutes to track network.
+async function refreshExpectedSatsPerCycle(){
+  try {
+    const measured = await measureExpectedSatsPerCycle(client);
+    if (measured && measured > 0n) {
+      state.expectedSatsPerCycle = measured;
+      state.expectedSatsSource = 'measured';
+      render();
+    }
+  } catch (_) { /* keep fallback */ }
+}
+// Defer initial measurement so the page paints first (with fallback constant)
+setTimeout(refreshExpectedSatsPerCycle, 1500);
+setInterval(refreshExpectedSatsPerCycle, 10 * 60 * 1000);
 
 // 1-second tick: keep the "age" columns moving between pushes.
 setInterval(render, 1000);
