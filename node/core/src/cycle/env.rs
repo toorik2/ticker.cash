@@ -27,8 +27,8 @@ pub struct SlotInfo {
     pub vout: u32,
     pub satoshis: u64,
     pub commit: SlotCommit,
-    /// Raw 37-byte commitment (v17) — copied verbatim into Oracle.update outputs.
-    pub commitment_raw: [u8; 37],
+    /// Raw 36-byte commitment (v19) — copied verbatim into Oracle.update outputs.
+    pub commitment_raw: [u8; 36],
 }
 
 /// P2PKH funder UTXO returned by Fulcrum.

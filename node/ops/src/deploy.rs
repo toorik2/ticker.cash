@@ -22,7 +22,7 @@
 use std::fs;
 use std::time::Duration;
 
-use ticker_core::chain::consts::{ORACLE_VERSION_BYTE, SLOT_VERSION_BYTE};
+use ticker_core::chain::consts::ORACLE_VERSION_BYTE;
 use ticker_core::chain::sources::{source_cn_hash, SOURCES};
 use ticker_core::covenant::{
     locking::p2sh32_locking_bytecode, redeem_oracle, redeem_publisher_slot, redeem_ticker,
@@ -326,13 +326,11 @@ pub fn deploy(
     Ok(())
 }
 
-/// Build the 37-byte v17 initial slot commit: `0x75 | pkh(20) | 0x00..(16)`.
-/// (v16 had a 2-byte sourceId between version and pkh; v17 dropped it since
-/// per-source addressing makes sourceId-in-commit redundant.)
-fn build_initial_slot_commit(_source_id: u16, pkh: &[u8; 20]) -> [u8; 37] {
-    let mut c = [0u8; 37];
-    c[0] = SLOT_VERSION_BYTE;
-    c[1..21].copy_from_slice(pkh);
+/// Build the 36-byte v19 initial slot commit: `pkh(20) | 0x00..(16)`.
+/// (v18 had a `0x75` version byte at offset 0; v19 dropped it as redundant.)
+fn build_initial_slot_commit(_source_id: u16, pkh: &[u8; 20]) -> [u8; 36] {
+    let mut c = [0u8; 36];
+    c[0..20].copy_from_slice(pkh);
     // price (8), timestamp (4), cycleSeq (4) — all zeros at genesis
     c
 }

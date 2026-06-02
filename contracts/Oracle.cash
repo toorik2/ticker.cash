@@ -1,38 +1,16 @@
 pragma cashscript >= 0.13.0;
 
-// Oracle v18 — drop 3 self-trust gates + drop slot version-byte gate +
-// source-level loop cleanup (for→do-while, fuse K=2 ticker mints).
+// Oracle v19 — shift slot commit slices to match 36-B v19 slot layout.
 //
-// ── v17 → v18 changes ────────────────────────────────────────────────
+// ── v18 → v19 changes ────────────────────────────────────────────────
 //
-//   DROP-ORACLE-SELF-TRUST    v17 kept `oldCommit.length == 19` and
-//                             `oldCommit.slice(0,1) == 0x65` as belt+suspenders.
-//                             Oracle self-replicates via static concat
-//                             `0x65 + seqBytes + ts + median + activeBytes`
-//                             which is provably 19 B starting with 0x65 by
-//                             construction. The checks are tautological under
-//                             the chain-self-trust assumption that already
-//                             underlies the rest of the covenant.
+//   SLOT-36B                  v19 PublisherSlot drops the 0x75 version byte;
+//                             commit shrinks 37 B → 36 B. Oracle.update's
+//                             slot commit slice offsets shift -1 across the
+//                             board (pkh, price, timestamp, cycleSeq).
+//                             Length check tightens to 36.
 //
-//   DROP-SLOT-VERSION-BYTE    v17 kept `slotCommit.slice(0,1) == 0x75`.
-//                             PublisherSlot writes commits via static concat
-//                             with hardcoded 0x75 prefix; output-equality
-//                             pins force this. Redundant.
-//
-//   KEEP-SLOT-LENGTH          v18 KEEPS `slotCommit.length == 37`. This
-//                             check is LOAD-BEARING for v18 PublisherSlot's
-//                             dropped ts/cycleSeq length checks — a malicious
-//                             publisher who writes a malformed commit would
-//                             have it rejected here (self-DoS only).
-//
-//   SOURCE-CLEANUP            for→do-while in slot-walk + median-position
-//                             loops; fuse K=2 ticker mint pins into a loop;
-//                             algebraic simplification of the upper-vote
-//                             check (L+(N−L−U)>h ≡ N−U>h); inline pkh
-//                             extraction. Source-level only; same require
-//                             set; cashc emits ~50-60 fewer body bytes.
-//
-// All v15/v16/v17 audit-fix gates retained:
+// All v15/v16/v17/v18 audit-fix gates retained:
 //   F-OC1  tokenAmount pin on self-replicate
 //   F-OC2  tokenAmount pin on both Ticker mints
 //   F-OC3  value pin (1500) on both Ticker mints
@@ -40,30 +18,19 @@ pragma cashscript >= 0.13.0;
 //   F-OC7  pkh sort tier-split (BCH-2023 mainnet safe; ≤ 8-byte BIN2NUM)
 //   tx.outputs.length <= maxOutputs (token-leak guard)
 //
-//   VERSION-RETAINED          Oracle commit prefix stays 0x65; slot commit
-//                             prefix stays 0x75 (in slot covenant).
-//
-// All v15 audit-fix gates retained:
-//   F-OC1  tokenAmount pin on self-replicate
-//   F-OC2  tokenAmount pin on both Ticker mints
-//   F-OC3  value pin (1500) on both Ticker mints
-//   F-OC4  pricesBlob.length % 8 == 0 + 8-multiple enforcement
-//   F-OC7  pkh sort tier-split (BCH-2023 mainnet safe; ≤ 8-byte BIN2NUM)
-//
 // ── Commitment layouts ─────────────────────────────────────────────────
-// Oracle (19 B, version 0x65 in v17 — unchanged from v15):
+// Oracle (19 B, version 0x65 — unchanged):
 //   [0]       0x65                          1 B
 //   [1..5)    seq                          4 B   u32 LE
 //   [5..9)    lastTs                       4 B   u32 LE
 //   [9..17)   medianPrice                  8 B   u64 LE
 //   [17..19)  activeCount                  2 B   u16 LE
 //
-// Slot (37 B in v17, version 0x75) — sourceId dropped vs v16:
-//   [0]      0x75                           1 B
-//   [1..21)  publisherPkh                  20 B
-//   [21..29) price                          8 B   u64 LE
-//   [29..33) timestamp                      4 B   u32 LE — MSB-clear
-//   [33..37) cycleSeq                       4 B   u32 LE — MSB-clear
+// Slot (36 B in v19, NO version byte):
+//   [0..20)  publisherPkh                  20 B
+//   [20..28) price                          8 B   u64 LE
+//   [28..32) timestamp                      4 B   u32 LE
+//   [32..36) cycleSeq                       4 B   u32 LE
 //
 // Ticker (17 B, version 0x80) — unchanged.
 
@@ -129,13 +96,12 @@ contract Oracle(
             require(tx.inputs[slotIdx].tokenCategory == slotCategoryReversed + 0x01);
 
             bytes slotCommit = tx.inputs[slotIdx].nftCommitment;
-            // KEEP slot length check — load-bearing for v18 PublisherSlot's
+            // KEEP slot length check — load-bearing for PublisherSlot's
             // dropped ts/cycleSeq length checks (malformed commits rejected here).
-            require(slotCommit.length == 37);
+            require(slotCommit.length == 36);
 
             // Distinct + monotonically-sorted pkh (anti-Sybil, F-OC7 tier-split).
-            // v18 inline binding.
-            bytes pkh = slotCommit.slice(1, 21);
+            bytes pkh = slotCommit.slice(0, 20);
             if (i > 0) {
                 int pkhT2  = int(pkh.slice(14, 20) + 0x00);
                 int prevT2 = int(prevPkh.slice(14, 20) + 0x00);
@@ -156,7 +122,7 @@ contract Oracle(
             prevPkh = pkh;
 
             // Timestamp votes (median-of-medians, ±jitter window)
-            int slotTimestamp = int(slotCommit.slice(29, 33));
+            int slotTimestamp = int(slotCommit.slice(28, 32));
             if (slotTimestamp + jitter >= newTs) {
                 lowerVotes = lowerVotes + 1;
             }
@@ -165,10 +131,10 @@ contract Oracle(
             }
 
             // Cycle freshness: slot must attest to THIS cycle
-            require(int(slotCommit.slice(33, 37)) == newSeq);
+            require(int(slotCommit.slice(32, 36)) == newSeq);
 
             // Price matches caller-supplied blob
-            require(slotCommit.slice(21, 29) == pricesBlob.slice(i * 8, i * 8 + 8));
+            require(slotCommit.slice(20, 28) == pricesBlob.slice(i * 8, i * 8 + 8));
 
             i = i + 1;
         } while (i < numAttestations);

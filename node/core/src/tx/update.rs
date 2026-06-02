@@ -53,7 +53,7 @@ pub struct CycleSlotUtxo {
     /// Last attested timestamp (u32 LE) — contributes to median timestamp.
     pub timestamp: u32,
     /// Raw 39-byte slot commit, copied into the output verbatim (covenant invariant).
-    pub commitment: [u8; 37],
+    pub commitment: [u8; 36],
 }
 
 /// Oracle UTXO being spent (minting NFT).
@@ -483,11 +483,10 @@ mod tests {
     use super::*;
 
     fn slot(pkh_byte: u8, ts: u32, price: u64) -> CycleSlotUtxo {
-        // v17: 37-byte commit (no sourceId). Per-slot redeem derived from
+        // v19: 36-byte commit (no version byte). Per-slot redeem derived from
         // pkh via the pkh_to_cn_hash lookup table provided in UpdateArgs.
-        let mut commitment = [0u8; 37];
-        commitment[0] = crate::chain::consts::SLOT_VERSION_BYTE; // 0x75
-        commitment[1..21].copy_from_slice(&[pkh_byte; 20]);
+        let mut commitment = [0u8; 36];
+        commitment[0..20].copy_from_slice(&[pkh_byte; 20]);
         CycleSlotUtxo {
             txid_be: [0; 32],
             vout: 0,

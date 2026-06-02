@@ -28,9 +28,9 @@ pub struct CycleSnapshot {
     pub mine_slot_vout: u32,
     pub mine_slot_satoshis: u64,
     pub mine_slot_commit: SlotCommit,
-    /// Raw 39-byte slot commitment as it sits on chain RIGHT NOW (before
+    /// Raw 36-byte slot commitment as it sits on chain RIGHT NOW (before
     /// this cycle's attest rewrites it). Needed by the CashTokens sighash.
-    pub mine_slot_commitment_raw: [u8; 37],
+    pub mine_slot_commitment_raw: [u8; 36],
 }
 
 impl CycleSnapshot {

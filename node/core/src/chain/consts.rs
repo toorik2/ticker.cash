@@ -31,10 +31,10 @@ pub const ORACLE_COMMIT_LEN: usize = 19;
 pub const TICKER_COMMIT_LEN: usize = 17;
 
 /// Length of a PublisherSlot NFT commit, bytes.
-/// v17 layout: `0x75 | pkh(20 B) | price(u64 LE) | timestamp(u32 LE) | cycle_seq(u32 LE)` = 37 B.
-/// (v16 had a sourceId(u16 LE) between version byte and pkh; v17 dropped it since
-/// per-slot addressing in v16 made sourceId-in-commit redundant.)
-pub const SLOT_COMMIT_LEN: usize = 37;
+/// v19 layout: `pkh(20 B) | price(u64 LE) | timestamp(u32 LE) | cycle_seq(u32 LE)` = 36 B.
+/// (v18 had a `0x75` version byte at offset 0; v19 dropped it as redundant —
+/// slot identity is enforced by commit length + token-category gates.)
+pub const SLOT_COMMIT_LEN: usize = 36;
 
 // ─── Version bytes ─────────────────────────────────────────────────────────
 
@@ -47,13 +47,6 @@ pub const ORACLE_VERSION_BYTE: u8 = 0x65;
 /// (Ticker is consumer-facing; bumping it would churn every downstream
 /// covenant. Fresh on-chain category alone separates v14/v15).
 pub const TICKER_VERSION_BYTE: u8 = 0x80;
-
-/// PublisherSlot NFT commit version byte. Held stable at `0x75` across
-/// v15→v16. v16 changed only the covenant (per-slot CN baking → distinct
-/// redeem/address per source); the commit format is bit-identical to v15,
-/// and Oracle.cash hard-codes `0x75` when decoding slot commits in its
-/// `update()` body. Bumping would require an Oracle re-compile too.
-pub const SLOT_VERSION_BYTE: u8 = 0x75;
 
 // ─── Capability bytes ──────────────────────────────────────────────────────
 

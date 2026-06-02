@@ -40,7 +40,7 @@ pub struct SlotUtxo {
     /// Raw 37-byte commitment of the slot UTXO being spent (the OLD commit,
     /// before this attest rewrites it). Needed to construct the CashTokens
     /// `hashUtxos` field of the funder input sighash.
-    pub commitment_raw: [u8; 37],
+    pub commitment_raw: [u8; 36],
 }
 
 /// Funder UTXO (P2PKH) being spent.
@@ -331,7 +331,7 @@ mod tests {
                 txid_be: [0x11; 32],
                 vout: 7,
                 satoshis: 1000,
-                commitment_raw: [0u8; 37],
+                commitment_raw: [0u8; 36],
             },
             publisher_pkh: [0x42; 20],
             publisher_privkey: [0x01; 32],
