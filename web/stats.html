@@ -108,7 +108,7 @@
     <span class="sep">·</span>
     <span class="metric" id="ss-age-metric"><span class="v" id="ss-age">—</span><span class="k">ago</span></span>
     <span class="sep">·</span>
-    <span class="metric" id="ss-quorum-metric"><span class="k">quorum</span><span class="v" id="ss-quorum">—</span></span>
+    <span class="metric" id="ss-quorum-metric" title="Publishers caught up to current cycle (out of 13). Minimum 7 required for Oracle.update to succeed; the stripe flips DEGRADED if fewer."><span class="k">active</span><span class="v" id="ss-quorum">—</span><span class="k" style="opacity:0.6;margin-left:0.35em">(min 7)</span></span>
     <span class="sep">·</span>
     <span class="metric"><span class="k">stride</span><span class="v" id="ss-stride">—</span></span>
   </div>
@@ -120,7 +120,7 @@
         <th title="The CEX this slot fetches its price from. Click 'copy' to grab the publisher's full P2PKH address for top-ups.">Source</th>
         <th class="r" title="Wall-clock age of the slot's most recent attest. For an active publisher this should stay below ~60s.">Last attest</th>
         <th class="r" title="Cycles behind oracle.seq. 0 = caught up. 1-3 = lagging. >3 = stalled.">Behind</th>
-        <th class="r" title="Estimated time until wallet depletes at ~3.8k sats/cycle.">Runway</th>
+        <th class="r" title="Estimated time until wallet depletes. Per-cycle cost measured live from recent on-chain attest + Oracle.update tx sizes.">Runway</th>
         <th class="r" title="Current publisher wallet balance in sats. Top up via the copy button next to Source.">Balance</th>
         <th class="r" title="ok = caught up + funded. lagging = 1-3 cycles behind. unfunded = <5 cycles of runway. stalled = >3 cycles behind.">Status</th>
       </tr></thead>
