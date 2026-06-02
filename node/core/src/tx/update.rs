@@ -196,9 +196,11 @@ pub fn build_oracle_update_tx(args: &UpdateArgs) -> Result<Vec<u8>, UpdateError>
         args.oracle_redeem_script,
     );
 
-    // ─── 7. Build per-slot redeems + consume unlocks (v17: each slot's
+    // ─── 7. Build per-slot redeems + consume unlocks (v18: each slot's
     //         redeem differs by its baked-in cnHash, looked up from each
-    //         slot's pkh via the manifest-derived pkh→cnHash table) ──────────
+    //         slot's pkh via the manifest-derived pkh→cnHash table.
+    //         v18: covenant takes hash160(oracleCat) instead of full 32 B). ──
+    let oracle_cat_hash = crate::crypto::hash160(&args.oracle_category_wire_le);
     let per_slot_redeems: Vec<Vec<u8>> = slots
         .iter()
         .map(|s| {
@@ -210,7 +212,7 @@ pub fn build_oracle_update_tx(args: &UpdateArgs) -> Result<Vec<u8>, UpdateError>
                 .ok_or_else(|| UpdateError::UnknownSlotPkh {
                     pkh_hex: hex::encode(s.pkh),
                 })?;
-            Ok(redeem_publisher_slot(&cn_hash, &args.oracle_category_wire_le)?)
+            Ok(redeem_publisher_slot(&cn_hash, &oracle_cat_hash)?)
         })
         .collect::<Result<_, UpdateError>>()?;
     let per_slot_consume_unlocks: Vec<Vec<u8>> = per_slot_redeems

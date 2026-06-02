@@ -1,72 +1,79 @@
 pragma cashscript >= 0.13.0;
 
-// PublisherSlot v17 — drop serverName from unlock + drop sourceId from commit.
+// PublisherSlot v18 — hash160(oracleCat) ctor + drop redundant length/MSB gates.
 //
-// v16 → v17 changes (covenant + commit format; trust model unchanged):
+// v17 → v18 changes (covenant only; commit format unchanged):
 //
-//   DROP-SERVERNAME             v16 passed `serverName` (raw hostname bytes)
-//                               in the attest unlock; covenant hashed it
-//                               and checked `hash160(serverName) == cnHash`.
-//                               Redundant — cnHash is cryptographically
-//                               pinned by P2SH-32 address derivation (any
-//                               spender MUST provide the matching redeem
-//                               which contains cnHash). v17 uses cnHash
-//                               directly in the publisher sig payload.
-//                               Saves: -14 B per attest unlock + ~5 B body.
-//                               Side effect: hostnames no longer appear in
-//                               cleartext on chain. Net per-cycle: ~377 B.
+//   HASH160-ORACLECAT-CTOR    v17 took `bytes32 oracleCategoryReversed`
+//                             (33 B push). v18 takes `bytes20 oracleCatHash`
+//                             = `hash160(oracleCategoryReversed)` (21 B push).
+//                             Per-redeem -12 B; consume() body grows ~4 B from
+//                             the added hash160 op. Net: ~$336/yr.
 //
-//   DROP-SOURCEID-FROM-COMMIT   v16 commit carried `sourceId(2)` to identify
-//                               which exchange the slot belongs to. In v16
-//                               each source has its own P2SH-32 address, so
-//                               sourceId-in-commit is redundant with the
-//                               address itself. v17 drops it; commit shrinks
-//                               39 → 37 B. Daemon derives sourceId by
-//                               address lookup against the manifest.
-//                               Saves: -2 B per commit emission × 14 = 28
-//                               B/cycle. Plus body shrink.
+//                             Risk: zero — preimage of hash160 is the public
+//                             32-byte token category. Collision-resistance
+//                             on 160-bit hash (>>2^80) means uniqueness is
+//                             preserved.
 //
-//   VERSION-BYTE-RETAINED       Commit prefix STAYS 0x75 as a
-//                               self-identifying tag. Forward compatibility:
-//                               keeps the option for multi-version chain
-//                               coexistence open. Cheap insurance (1 B per
-//                               commit).
+//   DROP-TS-LENGTH-CHECK      v17's `require(timestamp.length == 4)` removed.
+//                             Wrong-length ts produces wrong-length newCommit;
+//                             output equality forces the slot to a malformed
+//                             state. Next attest's `oldCommit.length == 37`
+//                             rejects → slot self-bricks. Oracle.update's
+//                             `slotCommit.length == 37` (KEPT in v18 Oracle)
+//                             rejects the malformed slot from consume.
+//                             Self-DoS only; no exploit gain.
 //
-//   PUBSLOT-DER-SIG-LENGTH-FORK Same accepted-latent posture as v15/v16.
+//   DROP-CYCLESEQ-LENGTH      v17's `require(cycleSeq.length == 4)` removed.
+//                             Same self-DoS-only safety argument.
 //
-// All v15 audit-fix gates retained:
-//   PUBSLOT-TIMESTAMP-SIGNMAG  MSB-clear gate
-//   PUBSLOT-CYCLESEQ-SIGNMAG   MSB-clear gate
-//   tokenAmount==0 pin         defense-in-depth on slot re-emit
+//   DROP-CYCLESEQ-MSB         v17's `require((cycleSeq.slice(3,4) & 0x80)
+//                             == 0x00)` removed. The `int(cycleSeq) > int(old)`
+//                             monotonicity check naturally enforces non-
+//                             negative values: MSB-set bytes decode as
+//                             negative under sign-magnitude, comparison fails.
+//                             From genesis (cycleSeq=0) onwards, no malicious
+//                             cycleSeq can ever satisfy monotonicity.
 //
-// Combined-with-v16-bundle empirical estimate: $604/yr from A + $1,200/yr
-// from C' (drop sourceId) + ~$152/yr from Oracle.cash scrub + $1,539/yr
-// from BUDGET_PAD reduction = ~$3,500/yr mainnet floor on top of v16's
-// $14,500/yr.
+//                             TS MSB-clear gate RETAINED — ts has no
+//                             monotonicity natural enforcement; the explicit
+//                             MSB check stays.
+//
+// All v15/v16/v17 audit-fix gates retained:
+//   PUBSLOT-TIMESTAMP-SIGNMAG  MSB-clear gate on timestamp (KEPT)
+//   tokenAmount==0 pin         attest() + consume()
+//   replay protection          int(cycleSeq) > int(oldCommit.slice(33,37))
+//   value pin                  output[idx].value == input[idx].value
+//
+// PUBSLOT-DER-SIG-LENGTH-FORK accepted-latent (same as v15/v16/v17).
+//
+// Combined v17→v18 estimate: ~$1,430/yr from PublisherSlot changes alone,
+// plus ~$104/yr from Oracle.cash bundled changes = ~$1,534/yr on top of v17.
 //
 // ── Trust model unchanged ──────────────────────────────────────────────
 // 7-of-13 publisher quorum. Sybil resistance via distinct-publisherPkh
-// check in Oracle.update. v17 does NOT add slot rotation.
+// check in Oracle.update.
 //
 // ── Genesis ────────────────────────────────────────────────────────────
 //   1. Spend designated non-token P2PKH outpoint X (genesis input).
 //      slotCategoryReversed = HASH256(X).reverse()
 //   2. Create 13 outputs — ONE PER SOURCE — each with:
-//        - lockingBytecode = P2SH-32 of PublisherSlot(cnHash_i, oracleCat)
+//        - lockingBytecode = P2SH-32 of
+//          PublisherSlot(cnHash_i, hash160(oracleCategoryReversed))
 //        - tokenCategory   = slotCategoryReversed + 0x01 (mutable)
 //        - nftCommitment   = 0x75 + publisherPkh(20) + 0x00..(16)   ← 37 B
 //   3. NO other token outputs of this category.
 //
-// ── Slot commitment (37 B, version 0x75) ───────────────────────────────
+// ── Slot commitment (37 B, version 0x75) — unchanged from v17 ──────────
 //   [0]      version 0x75              1 B   self-identifying tag
 //   [1..21)  publisherPkh             20 B   IMMUTABLE — pinned at genesis
 //   [21..29) price                     8 B   rewritten by attest()
 //   [29..33) timestamp                 4 B   rewritten by attest() — MSB-clear
-//   [33..37) cycleSeq                  4 B   rewritten by attest() — MSB-clear
+//   [33..37) cycleSeq                  4 B   rewritten by attest()
 
 contract PublisherSlot(
-    bytes20 cnHash,                    // hash160(canonical serverName) for THIS source
-    bytes32 oracleCategoryReversed     // pin Oracle's 32-byte category (LE wire)
+    bytes20 cnHash,                 // hash160(canonical serverName) for THIS source
+    bytes20 oracleCatHash           // hash160(oracleCategoryReversed) — pin Oracle's category
 ) {
     function attest(
         bytes   price,             // 8 B u64 LE
@@ -76,15 +83,12 @@ contract PublisherSlot(
         bytes   cycleSeq           // 4 B u32 LE — Oracle cycle this attests to
     ) {
         // ── 0. Input-shape sanity ─────────────────────────────────────
+        // ts/cycleSeq length checks dropped (self-DoS-only if violated).
         require(price.length == 8);
-        require(timestamp.length == 4);
-        require(cycleSeq.length == 4);
 
-        // PUBSLOT-TIMESTAMP-SIGNMAG + PUBSLOT-CYCLESEQ-SIGNMAG —
-        // sign-magnitude protection. Parens mandatory: `&` binds looser
-        // than `==` in cashscript.
+        // PUBSLOT-TIMESTAMP-SIGNMAG — MSB-clear gate retained for ts.
+        // (cycleSeq MSB-clear naturally enforced by int monotonicity below.)
         require((timestamp.slice(3, 4) & 0x80) == 0x00);
-        require((cycleSeq.slice(3, 4) & 0x80) == 0x00);
 
         // ── 1. Read slot identity from commitment ─────────────────────
         int idx = this.activeInputIndex;
@@ -96,13 +100,13 @@ contract PublisherSlot(
         // ── 2. Identity gate: caller is the slot's pinned publisher ───
         require(hash160(publisherPubkey) == publisherPkh);
 
-        // ── 2b. cycleSeq monotonicity (anti-MEV last-look protection) ─
+        // ── 2b. cycleSeq monotonicity (also natural cycleSeq MSB enforcement) ─
+        // Sign-magnitude: MSB-set bytes decode as negative via BIN2NUM.
+        // Any MSB-set cycleSeq will fail this comparison vs a non-negative
+        // oldCommit cycleSeq, so the explicit MSB gate is redundant.
         require(int(cycleSeq) > int(oldCommit.slice(33, 37)));
 
         // ── 3. Publisher sig over committed payload (cnHash directly) ─
-        // v16's `hash160(serverName) == cnHash` check is structurally
-        // redundant — cnHash is pinned by the slot's P2SH-32 address
-        // derivation. Use cnHash directly in the sig payload.
         bytes pubMessage = price + timestamp + publisherPkh + cycleSeq + cnHash;
         require(checkDataSig(publisherSig, pubMessage, publisherPubkey));
 
@@ -119,9 +123,12 @@ contract PublisherSlot(
     function consume() {
         int idx = this.activeInputIndex;
 
-        // Oracle at input[0]: only the Oracle covenant holds the minting NFT
-        // of the slot category, so this gate suffices.
-        require(tx.inputs[0].tokenCategory == oracleCategoryReversed + 0x02);
+        // Oracle at input[0]: split tokenCategory into 32 B category-id +
+        // 1 B capability. Verify capability is minting (0x02) AND the
+        // category hashes to the pinned oracleCatHash.
+        bytes catId, bytes capability = tx.inputs[0].tokenCategory.split(32);
+        require(capability == 0x02);
+        require(hash160(catId) == oracleCatHash);
 
         // Re-emit slot identically at matching output index.
         require(tx.outputs[idx].lockingBytecode == tx.inputs[idx].lockingBytecode);

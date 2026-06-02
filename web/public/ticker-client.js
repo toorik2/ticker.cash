@@ -26,26 +26,27 @@
       { url: 'wss://chipnet.imaginary.cash:50004', mode: 'subscribe' },
       { url: 'wss://chipnet.bch.ninja:50004',      mode: 'poll', pollMs: 12000 },
     ],
-    ORACLE_ADDR: 'bchtest:pw79txszuf5nwtdw3jjxjv9fhdvjljjh99gtksyu8es8d3yehldqyrhwjwzsq',
-    ORACLE_CATEGORY: '80261ad2e79eb3af2b9dcfdfde864a9961d8349c4869f3ae771f6119bf305226',
-    // v17: per-source slot addresses (same shape as v16; new addresses from
-    // re-genesis). Slot commit is 37 B (sourceId dropped vs v16).
+    ORACLE_ADDR: 'bchtest:pdzglr0pn43gz5j3cnjl3a5klxenhva04ctad4ztv33aasl3ndedzq4lnyc7z',
+    ORACLE_CATEGORY: 'b8d13226f5fa7de6bac1f7b5e85b68bab5439565ea2029dfe671f0ed4513fdff',
+    // v18: per-source slot addresses (new from re-genesis). Slot covenant adds
+    // hash160(oracleCat) ctor + drops ts/seq length + cycleSeq MSB checks.
+    // Commit format unchanged (37 B, version 0x75).
     SLOT_ADDRS: [
-      'bchtest:p0245z5vd99rujn90tl55x0fe0x6ss0kguppntzswuljqmxd4dsrvglfhw0u0', // 1 kraken
-      'bchtest:p0xh9a6wjnwg4vtwt3pp9teqfy4y5ev232mxxk9pe667uddelzyrxupd3jz0q', // 2 coinbase
-      'bchtest:pv75pm988xua9h33ujxhy9smrut8rk7u5unqaldf6w2zznhsgsp5z65fjajqp', // 3 gemini
-      'bchtest:pdjzvut722qzz9s2akhxp8tve7jyqcgnf26dahm82zl08zaew2kekaay6mhcy', // 4 binance_us
-      'bchtest:pwla8gtgmdmclxqczflarg7856xhrt0fgyg2s5ec6hremqhx8c5mzwqc2t6ut', // 5 bitstamp
-      'bchtest:pdsugp7rhlg9adczc4zctdzejt6kkczdrawzpu9n68kedfrzzpp3vvn9222af', // 6 cryptocom
-      'bchtest:pvmqshpep5z0flgvgz3msrejzcheyek3k246748c2fcugssuslu3zcrcc6yvv', // 7 bitfinex
-      'bchtest:pdnwan3ndnfrp2mxweuyzrmk8h6r5n4cw7nfcmvdrd5qsx9y88axqc3sr60yg', // 8 exmo
-      'bchtest:pvwksxqp4dasydfajvu3pzq75g0gtfj02pal7vfezcpkcgnx9vluc3397d27q', // 9 independentreserve
-      'bchtest:pw4luy606xt5rpyjthf2c3rg7kqaq9s35v8spn0pm94ncra073pjgy2qxjatp', // 10 okx_usdc
-      'bchtest:p0sxwpjkvqtjgfktgjwskvdvyfwerj5ch76h72e3eche0zh0fwcpgugqc32ft', // 11 kucoin_usdc
-      'bchtest:pwyfdnlmztr2034lev5znygr4zhxq23ghlem8e8lprmtjuw3t2mmw276x7j6d', // 12 bybit
-      'bchtest:p0880ysl7mdnrlsud5muq0t6q65p09vu52yrfjcr9gy4ej90a9tx6ggw8vmwc', // 13 htx
+      'bchtest:pwg5456quw42s95vf0xsecmf2msg4z3t0zcg5f8sdpf793e3x953xcsqs0end', // 1 kraken
+      'bchtest:p09cy866rc28h7pjeejhgrq8ph6j06du60p949sus8cufaagc8my2d2wyqya7', // 2 coinbase
+      'bchtest:p0h464zp24hl5g9ph6m253jpcy676huwtynfr773g60j0cpgf0ck5s46h9x8d', // 3 gemini
+      'bchtest:pdfgaqlkjqs9v7gz6z8l8yj7lusde4hv9q270fumv7kk3sp4ldhasjs44rkrj', // 4 binance_us
+      'bchtest:pdvwu8etud8p8h7fyvklcv53ujjuqzwkqwy5rcur9usz5r5ye7x2g8528n0np', // 5 bitstamp
+      'bchtest:pw4ewtrt39c2gx0srkrk6e78gcn37cgp3738luz825g26tklm2u52emuj94eg', // 6 cryptocom
+      'bchtest:p038ew986xgclgpqfanpeu59fjntfj0dkhjmyn0kaplf74jtkh4sch9y8qu8z', // 7 bitfinex
+      'bchtest:p0l4e4ntc6mcasav5x89utwc32h7dt5zwsssldmuc2qgclfv4escymu3skpf4', // 8 exmo
+      'bchtest:pwps3hsgrzusg3jh6cxnya5s4rxauhx83gseupkccqtsd6d4d7ryvv48kr42e', // 9 independentreserve
+      'bchtest:pdf4nku9jtyl55fqjpmlpxuesn776cc8ug7gdmudkxmf08733xypg7ehram7q', // 10 okx_usdc
+      'bchtest:pv2yj5q0v957k5t5fe6xu3pnc9zxjr4se0c2kyaujhr9l4gtw00swkh9vsa6z', // 11 kucoin_usdc
+      'bchtest:pwt6hf5dhkkl55g9vxpcr72xzxu5czvxdzva0vg4hyqlgq4eaz6cgu0gv8crw', // 12 bybit
+      'bchtest:pwuz8w96g624jx642v7lrfatctvunrwkr0w53tdv5652lmhthjk8v7jyck7ak', // 13 htx
     ],
-    SLOT_CATEGORY: '294947d6f7567183c48e3caacf6b898034cdfecc18475a1dc193879860dc0f52',
+    SLOT_CATEGORY: '85c5b9e5ce92a531398ffc4ebce28d2d0685bd556cfd0ec3b67a4041dd5af4aa',
     // v17: per-source publisher pkhs (in source-id order). Used by stats.html
     // to map a decoded slot commit's pkh to a slot index (since v17 commits
     // no longer carry sourceId).
@@ -67,7 +68,7 @@
     CASHADDR_PREFIX: 'bchtest',
     STALE_SEC: 300,
     STRIDE_FLOOR_SEC: 60,
-    DEPLOYED_AT_SEC: Math.floor(new Date('2026-06-02T05:02:50.000Z').getTime() / 1000),
+    DEPLOYED_AT_SEC: Math.floor(new Date('2026-06-02T09:52:53.000Z').getTime() / 1000),
     EXPECTED_SATS_PER_CYCLE: 2000n + (20000n + 2n * 1500n) / 13n, // ~3769
     SOURCES: [
       { id: 1,  name: 'kraken' },

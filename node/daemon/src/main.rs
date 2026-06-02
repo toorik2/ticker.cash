@@ -231,10 +231,12 @@ fn build_publisher_cfg(
     let my_cn_hash: [u8; 20] = hex::decode(&my_slot_entry.cn_hash_hex)?
         .as_slice()
         .try_into()?;
-    // Derive the redeem from this daemon's cnHash + oracle category, then
-    // assert it matches what the manifest claims. Catches manifest tampering
-    // or operator-keying-error at startup, fail-fast.
-    let slot_redeem = redeem_publisher_slot(&my_cn_hash, &oracle_cat_le)?;
+    // Derive the redeem from this daemon's cnHash + hash160(oracle category),
+    // then assert it matches what the manifest claims. Catches manifest
+    // tampering or operator-keying-error at startup, fail-fast.
+    // v18: covenant takes 20-byte hash160(oracleCat) instead of full 32 B.
+    let oracle_cat_hash = ticker_core::crypto::hash160(&oracle_cat_le);
+    let slot_redeem = redeem_publisher_slot(&my_cn_hash, &oracle_cat_hash)?;
     let slot_lb_derived = p2sh32_locking_bytecode(&slot_redeem);
     if slot_lb_derived != my_slot_lb_expected {
         return Err(format!(

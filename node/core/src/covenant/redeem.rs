@@ -57,23 +57,25 @@ pub fn redeem_oracle(
     Ok(s)
 }
 
-/// Build a v16 PublisherSlot covenant redeem script for ONE source.
+/// Build a v18 PublisherSlot covenant redeem script for ONE source.
 ///
-/// v16 bakes a single per-source cnHash into the redeem (rather than the
-/// 260-byte packed table v15 used). Each of the 13 sources therefore has a
-/// distinct redeem and a distinct P2SH-32 address.
+/// v16 bakes per-source cnHash. v18 also replaces the 32-byte
+/// `oracleCategoryReversed` constructor with its 20-byte hash160 — the
+/// covenant's consume() check is rewritten as
+/// `hash160(input[0].tokenCategory.slice(0,32)) == oracleCatHash`. Saves
+/// 12 B per redeem push.
 ///
 /// Args:
-///   * `cn_hash`                   — 20 B `hash160(canonicalCN)` for THIS source.
-///   * `oracle_category_reversed`  — 32 B Oracle category in little-endian wire order.
+///   * `cn_hash`        — 20 B `hash160(canonicalCN)` for THIS source.
+///   * `oracle_cat_hash` — 20 B `hash160(oracle_category_reversed)`.
 pub fn redeem_publisher_slot(
     cn_hash: &[u8; 20],
-    oracle_category_reversed: &[u8; 32],
+    oracle_cat_hash: &[u8; 20],
 ) -> Result<Vec<u8>, RedeemScriptError> {
     let bytecode = publisher_slot_bytecode()?;
-    let mut s = Vec::with_capacity(bytecode.len() + 60);
-    // Reverse declaration order.
-    push_data(&mut s, oracle_category_reversed);
+    let mut s = Vec::with_capacity(bytecode.len() + 48);
+    // Reverse declaration order: oracleCatHash pushed first.
+    push_data(&mut s, oracle_cat_hash);
     push_data(&mut s, cn_hash);
     s.extend_from_slice(bytecode);
     Ok(s)
@@ -94,43 +96,41 @@ mod tests {
     /// Ticker has no constructor args, so its redeem is deterministic — pin
     /// to ensure the artifact hasn't drifted.
     #[test]
-    fn ticker_redeem_matches_v15_bytecode() {
+    fn ticker_redeem_matches_v18_bytecode() {
         let redeem = redeem_ticker().unwrap();
         let lb = p2sh32_locking_bytecode(&redeem);
-        let v15_hex = "aa208e80af66f9834d331fea34bc88d0c71e0f89b156389bb30e51f1a37d0f87a85b87";
-        assert_eq!(hex::encode(lb), v15_hex);
+        // v18 Ticker (24 B body, drops version + length + output-cap checks)
+        let v18_hex = "aa20777eb832fc504fc203dc4651bf78bc35db62787d45430ea3139b0ae16dd9f3d387";
+        assert_eq!(hex::encode(lb), v18_hex);
     }
 
-    /// v16 PublisherSlot redeem is now ~262 B (was 625 B in v15). Per-source
-    /// redeems differ only in their cnHash push. Verify the shape.
+    /// v18 PublisherSlot redeem: both constructor args are 20 B (cnHash +
+    /// hash160(oracleCat)).
     #[test]
-    fn publisher_slot_redeem_v16_shape() {
+    fn publisher_slot_redeem_v18_shape() {
         let cn_hash = [0x42u8; 20];
-        let oracle_cat = [0xeeu8; 32];
-        let redeem = redeem_publisher_slot(&cn_hash, &oracle_cat).unwrap();
-        // Push order is REVERSED declaration order: oracleCat (arg 1) pushed
-        // first, cnHash (arg 0) pushed second, then body.
-        // Layout: push(32) + 32B oracleCat + push(20) + 20B cnHash + body
+        let oracle_cat_hash = [0xeeu8; 20];
+        let redeem = redeem_publisher_slot(&cn_hash, &oracle_cat_hash).unwrap();
+        // Push order is REVERSED declaration order: oracleCatHash (arg 1)
+        // pushed first, cnHash (arg 0) pushed second, then body.
+        // Layout: push(20) + 20B oracleCatHash + push(20) + 20B cnHash + body
         let body = publisher_slot_bytecode().unwrap();
-        assert_eq!(redeem.len(), 1 + 32 + 1 + 20 + body.len());
-        assert_eq!(redeem[0], 0x20); // push 32 — oracleCat first
-        assert_eq!(redeem[33], 0x14); // push 20 — cnHash second
+        assert_eq!(redeem.len(), 1 + 20 + 1 + 20 + body.len());
+        assert_eq!(redeem[0], 0x14); // push 20 — oracleCatHash first
+        assert_eq!(redeem[21], 0x14); // push 20 — cnHash second
     }
 
-    /// Two different sources must produce two different redeems / addresses
-    /// — the load-bearing v16 property.
     #[test]
     fn per_source_redeems_differ() {
-        let oracle_cat = [0xeeu8; 32];
-        // Compute cnHashes for the first two configured sources.
+        let oracle_cat_hash = [0xeeu8; 20];
         let cn_a = source_cn_hash(&SOURCES[0]);
         let cn_b = source_cn_hash(&SOURCES[1]);
         assert_ne!(cn_a, cn_b, "fixture: first two sources must have distinct cn names");
-        let r_a = redeem_publisher_slot(&cn_a, &oracle_cat).unwrap();
-        let r_b = redeem_publisher_slot(&cn_b, &oracle_cat).unwrap();
-        assert_ne!(r_a, r_b, "v16 per-source redeems must differ");
+        let r_a = redeem_publisher_slot(&cn_a, &oracle_cat_hash).unwrap();
+        let r_b = redeem_publisher_slot(&cn_b, &oracle_cat_hash).unwrap();
+        assert_ne!(r_a, r_b, "per-source redeems must differ");
         let lb_a = p2sh32_locking_bytecode(&r_a);
         let lb_b = p2sh32_locking_bytecode(&r_b);
-        assert_ne!(lb_a, lb_b, "v16 per-source P2SH-32 LBs must differ");
+        assert_ne!(lb_a, lb_b, "per-source P2SH-32 LBs must differ");
     }
 }

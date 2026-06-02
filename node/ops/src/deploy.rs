@@ -175,10 +175,12 @@ pub fn deploy(
         address: String,
     }
     let mut per_slot: Vec<PerSlotDeploy> = Vec::with_capacity(PUBLISHER_COUNT);
-    println!("PublisherSlot (v16 per-source):");
+    // v18: hash160(oracleCat) is the constructor arg.
+    let oracle_cat_hash = ticker_core::crypto::hash160(&oracle_cat_le);
+    println!("PublisherSlot (v18 per-source):");
     for s in SOURCES.iter() {
         let cn_hash = source_cn_hash(s);
-        let redeem = redeem_publisher_slot(&cn_hash, &oracle_cat_le)?;
+        let redeem = redeem_publisher_slot(&cn_hash, &oracle_cat_hash)?;
         let lb: [u8; 35] = p2sh32_locking_bytecode(&redeem);
         let address = encode_p2sh32_cashaddr(&lb, prefix);
         println!(
