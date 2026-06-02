@@ -164,7 +164,7 @@ impl Env for RealEnv {
                     }
                 })?;
                 let Some(commit) = decode_slot_commit(&raw) else { continue };
-                let mut commitment_raw = [0u8; 39];
+                let mut commitment_raw = [0u8; 37];
                 commitment_raw.copy_from_slice(&raw);
                 out.push(SlotInfo {
                     txid_be: parse_txid_be(&u.tx_hash)?,

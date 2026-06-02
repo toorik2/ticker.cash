@@ -1,4 +1,4 @@
-//! `PublisherSlot.attest` transaction builder (v13).
+//! `PublisherSlot.attest` transaction builder (v17).
 //!
 //! Tx shape:
 //!   inputs:  [0] PublisherSlot UTXO with covenant unlock script
@@ -6,13 +6,13 @@
 //!   outputs: [0] PublisherSlot re-emit (mutable NFT, new commit, same satoshis)
 //!            [1] optional P2PKH change to publisher address
 //!
-//! Unlock-script layout (v13 PublisherSlot.attest, function index 0 of 2):
+//! Unlock-script layout (v17 PublisherSlot.attest, function index 0 of 2):
 //!   push(cycleSeq, 4 B LE) push(publisherSig, 70-72 B ECDSA-DER)
 //!   push(publisherPubkey, 33 B) push(timestamp, 4 B LE) push(price, 8 B LE)
-//!   push(serverName, variable) push(0, fn selector) push(redeemScript)
+//!   push(0, fn selector) push(redeemScript)
 //!
-//! v12 carried two extra pushes (notarySig + notaryIdx) between serverName and
-//! the fn selector. v13 drops the notary tier entirely (see PR13a / Phase B).
+//! v16→v17 dropped the `serverName` push (was between price and selector); the
+//! covenant now uses cnHash directly (already in redeem). Save ~14 B per attest.
 //!
 //! Per cashscript convention, declaration order of args is REVERSED before
 //! pushing — last declared arg is pushed first.
@@ -22,7 +22,7 @@ use crate::chain::consts::{
 };
 use crate::chain::digest::publisher_sig_digest;
 use crate::chain::slot_commit::{encode_slot_commit, SlotCommit};
-use crate::crypto::{double_sha256, hash160, sign_ecdsa, KeyError};
+use crate::crypto::{double_sha256, sign_ecdsa, KeyError};
 use crate::tx::encode::{
     encode_tx, Input, Output, TokenPrefix, Tx, TxOutpoint, DEFAULT_SEQUENCE,
 };
@@ -37,10 +37,10 @@ pub struct SlotUtxo {
     pub txid_be: [u8; 32],
     pub vout: u32,
     pub satoshis: u64,
-    /// Raw 39-byte commitment of the slot UTXO being spent (the OLD commit,
+    /// Raw 37-byte commitment of the slot UTXO being spent (the OLD commit,
     /// before this attest rewrites it). Needed to construct the CashTokens
     /// `hashUtxos` field of the funder input sighash.
-    pub commitment_raw: [u8; 39],
+    pub commitment_raw: [u8; 37],
 }
 
 /// Funder UTXO (P2PKH) being spent.
@@ -51,13 +51,15 @@ pub struct FunderUtxo {
     pub satoshis: u64,
 }
 
-/// Inputs to [`build_attest_tx`]. The publisher is the source of truth for
-/// `(price, timestamp, server_name)` in v13 — no notary tier exists.
+/// Inputs to [`build_attest_tx`].
+///
+/// v17: dropped `source_id` (no longer in commit) and `server_name` (no longer
+/// in unlock script — covenant uses cnHash directly). Caller passes
+/// `cn_hash20` which goes into the publisher signing payload (and which the
+/// covenant has baked into the redeem).
 #[derive(Debug, Clone)]
 pub struct AttestArgs<'a> {
     pub slot_utxo: SlotUtxo,
-    /// Current slot commit's `source_id` and `pkh` (pinned at genesis; carry forward).
-    pub source_id: u16,
     pub publisher_pkh: [u8; 20],
     /// Publisher's 32-byte private key — used for both the data-sig and funder P2PKH sigs.
     pub publisher_privkey: [u8; 32],
@@ -67,13 +69,13 @@ pub struct AttestArgs<'a> {
     pub slot_category_wire_le: [u8; 32],
     /// Full PublisherSlot redeem script (built at startup from manifest+artifact).
     pub slot_redeem_script: &'a [u8],
+    /// `hash160(canonical_cn)` for this source — must match the cnHash baked
+    /// into the slot's redeem. Used only for the publisher sig payload.
+    pub cn_hash20: [u8; 20],
     /// USD price scaled by 1e8 (matching the covenant's price scale).
     pub price: u64,
     /// Publisher's wall-clock at fetch time, unix seconds.
     pub timestamp: u32,
-    /// CN claimed by the publisher; the covenant checks `hash160(server_name)`
-    /// against the slot's pinned `sourceCNHashes` entry.
-    pub server_name: String,
     pub new_cycle_seq: u32,
 }
 
@@ -105,19 +107,14 @@ pub fn build_attest_tx(args: &AttestArgs) -> Result<Vec<u8>, AttestError> {
     let change = funder_balance - MAX_ATTEST_FEE_HINT;
 
     // ─── 2. Build the slot input's covenant unlock script ──────────────────
-    let server_name_bytes = args.server_name.as_bytes();
-    let cn_hash20 = hash160(server_name_bytes);
-
-    // Publisher signs the publisher digest with their privkey. v15 keeps
-    // ECDSA-DER (v14-compatible). PUBSLOT-DER-SIG-LENGTH-FORK is
-    // ACCEPTED-LATENT — see PublisherSlot.cash header for rationale.
+    // v17: publisher signs payload that uses cnHash (the slot's baked-in
+    // identifier from its redeem) — no longer hash160(serverName) on-the-fly.
     let publisher_digest = publisher_sig_digest(
-        args.source_id,
         args.price,
         args.timestamp,
         &args.publisher_pkh,
         args.new_cycle_seq,
-        &cn_hash20,
+        &args.cn_hash20,
     );
     let publisher_sig = sign_ecdsa(&args.publisher_privkey, &publisher_digest)?;
 
@@ -127,13 +124,11 @@ pub fn build_attest_tx(args: &AttestArgs) -> Result<Vec<u8>, AttestError> {
         &args.publisher_pubkey,
         args.timestamp,
         args.price,
-        server_name_bytes,
         args.slot_redeem_script,
     );
 
     // ─── 3. Build outputs ──────────────────────────────────────────────────
     let new_commit = encode_slot_commit(&SlotCommit {
-        source_id: args.source_id,
         pkh: args.publisher_pkh,
         price: args.price,
         timestamp: args.timestamp,
@@ -291,31 +286,28 @@ fn sign_all_funders(
     Ok(())
 }
 
-/// Compose the v15 slot.attest unlock script bytes.
+/// Compose the v17 slot.attest unlock script bytes.
 ///
 /// Push order (last declared arg first, per cashscript convention):
 ///   cycleSeq → publisherSig → publisherPubkey → timestamp → price →
-///   serverName → fn-selector(0) → redeem-script
+///   fn-selector(0) → redeem-script
 ///
-/// `publisherSig` is a 64-byte Schnorr signature in v15; the PublisherSlot
-/// covenant pins `bytes(publisherSig).length == 64` so any non-64 sig
-/// rejects pre-VERIFY.
+/// v16→v17 dropped serverName (the covenant uses cnHash directly from its
+/// redeem). ECDSA-DER signatures (PUBSLOT-DER-SIG-LENGTH-FORK accepted-latent).
 fn build_attest_unlock_script(
     cycle_seq: u32,
     publisher_sig: &[u8],
     publisher_pubkey: &[u8; 33],
     timestamp: u32,
     price: u64,
-    server_name: &[u8],
     redeem_script: &[u8],
 ) -> Vec<u8> {
-    let mut s = Vec::with_capacity(redeem_script.len() + 256);
+    let mut s = Vec::with_capacity(redeem_script.len() + 128);
     push_data(&mut s, &cycle_seq.to_le_bytes());
     push_data(&mut s, publisher_sig);
     push_data(&mut s, publisher_pubkey);
     push_data(&mut s, &timestamp.to_le_bytes());
     push_data(&mut s, &price.to_le_bytes());
-    push_data(&mut s, server_name);
     push_int(&mut s, 0); // function selector for attest (function index 0)
     push_data(&mut s, redeem_script);
     s
@@ -339,18 +331,17 @@ mod tests {
                 txid_be: [0x11; 32],
                 vout: 7,
                 satoshis: 1000,
-                commitment_raw: [0u8; 39],
+                commitment_raw: [0u8; 37],
             },
-            source_id: 1,
             publisher_pkh: [0x42; 20],
             publisher_privkey: [0x01; 32],
             publisher_pubkey: [0x02; 33], // not a real pubkey; for unlock-script structure tests only
             funder_utxos: &[],            // overridden via leak below
             slot_category_wire_le: [0x33; 32],
             slot_redeem_script: &[],      // overridden via leak below
+            cn_hash20: [0x77; 20],
             price: 350_000_000,
             timestamp: 1_780_000_000,
-            server_name: "api.kraken.com".to_string(),
             new_cycle_seq: 42,
         };
         (args, redeem, funders)

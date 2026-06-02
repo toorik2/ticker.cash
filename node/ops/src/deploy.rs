@@ -324,12 +324,13 @@ pub fn deploy(
     Ok(())
 }
 
-/// Build the 39-byte v15 initial slot commit: `0x75 | sourceId(2) | pkh(20) | 0x00..(16)`.
-fn build_initial_slot_commit(source_id: u16, pkh: &[u8; 20]) -> [u8; 39] {
-    let mut c = [0u8; 39];
+/// Build the 37-byte v17 initial slot commit: `0x75 | pkh(20) | 0x00..(16)`.
+/// (v16 had a 2-byte sourceId between version and pkh; v17 dropped it since
+/// per-source addressing makes sourceId-in-commit redundant.)
+fn build_initial_slot_commit(_source_id: u16, pkh: &[u8; 20]) -> [u8; 37] {
+    let mut c = [0u8; 37];
     c[0] = SLOT_VERSION_BYTE;
-    c[1..3].copy_from_slice(&source_id.to_le_bytes());
-    c[3..23].copy_from_slice(pkh);
+    c[1..21].copy_from_slice(pkh);
     // price (8), timestamp (4), cycleSeq (4) — all zeros at genesis
     c
 }

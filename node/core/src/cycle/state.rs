@@ -30,7 +30,7 @@ pub struct CycleSnapshot {
     pub mine_slot_commit: SlotCommit,
     /// Raw 39-byte slot commitment as it sits on chain RIGHT NOW (before
     /// this cycle's attest rewrites it). Needed by the CashTokens sighash.
-    pub mine_slot_commitment_raw: [u8; 39],
+    pub mine_slot_commitment_raw: [u8; 37],
 }
 
 impl CycleSnapshot {
@@ -104,6 +104,10 @@ pub struct PublisherState {
 pub struct CycleConfig {
     pub slot: u8,
     pub my_pkh: [u8; 20],
+    /// v17: hash160(canonical_cn) for THIS daemon's source. Used as the
+    /// source-identifying field in the publisher signing digest (was the
+    /// `source_id` field in v16).
+    pub my_cn_hash20: [u8; 20],
     pub publisher_privkey: [u8; 32],
     pub publisher_pubkey: [u8; 33],
     /// Source assigned to this publisher slot (from [`chain::sources::SOURCES`]).
@@ -126,6 +130,11 @@ pub struct CycleConfig {
     /// lived at one address; v16 has per-source addresses so each slot has its
     /// own scripthash. Quorum aggregation must scan all 13.
     pub all_slot_scripthashes_hex: Vec<String>,
+    /// v17: pkh→cnHash mapping for all 13 publisher slots. Used by Oracle.update
+    /// to derive each consumed slot's redeem (the cnHash that's baked into the
+    /// per-source redeem) from the slot commit's pkh field. v16 had sourceId
+    /// in the commit; v17 dropped it, so we look up by pkh instead.
+    pub all_pkh_to_cn_hash: Vec<([u8; 20], [u8; 20])>,
     pub publisher_scripthash_hex: String,
     /// 64-hex Oracle category (display order, big-endian).
     pub oracle_category_be_hex: String,

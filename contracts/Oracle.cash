@@ -1,38 +1,56 @@
 pragma cashscript >= 0.13.0;
 
-// Oracle v15 — PublisherSlot-based attestation aggregator.
+// Oracle v17 — covenant scrub + slot commit format catch-up.
 //
-// ── Version history (most recent first) ────────────────────────────────
-// v15 — Structural hardening pass closing the bedrock-usd-ticker security
-//       audit findings. No protocol-level behavior change; no new fields.
-//       Closures:
-//         F-OC1  tokenAmount pinned to 0 on Oracle self-replicate
-//         F-OC2  tokenAmount pinned to 0 on both Ticker mint outputs
-//         F-OC3  value pinned to 1500 on both Ticker mint outputs
-//                (matches daemon TICKER_DUST const in node/core/src/chain/consts.rs)
-//         F-OC4  pricesBlob.length % 8 == 0 + bounded 56..104
-//         F-OC5  drop the tautological budgetPad >= 0
-//         F-OC7  pkh sort rewritten as tier-split, BCH-2023 mainnet safe
-//         F-OC8  pricesBlob upper-bounded (was unbounded above)
-//       Slot prefix bumped to 0x75 in lockstep with PublisherSlot v15.
-//       New oracle commit prefix 0x65. New on-chain category (fresh genesis).
-// v14 — Stride floor raised from 30 s to 60 s.
-// v13 — Notary tier dropped (PublisherSlot.cash change only).
-// v12 — PublisherSlot inputs replace burn-on-consume VAs.
-// v11 — Walked VA inputs, burned each one.
+// ── v16 → v17 changes ────────────────────────────────────────────────
+//
+//   ADJUST-FOR-SLOT-37        v17 PublisherSlot commit is 37 B (sourceId
+//                             dropped). All positional slot-commit slices
+//                             shift down by 2. Length check follows.
+//
+//   SCRUB                     Drop redundant/tautological require()s:
+//                             - tickerLockingBytecode.length == 35   (type-system)
+//                             - pricesBlob.length >= 56              (redundant w/ thr-floor + %8)
+//                             - pricesBlob.length <= 104             (redundant)
+//                             - numAttestations >= 7                 (thr-floor enforces)
+//                             - newTs > prevTs                       (implied by >= 60 stride)
+//                             - newOracleCommit.length == 19         (static concat tautology)
+//                             - newTickerCommit.length == 17         (static concat tautology)
+//                             - tickerCategory.length == 33          (static concat tautology)
+//                             - tx.outputs.length >= minOutputs      (implied by ticker idx access)
+//                             - slot tokenCategory split-then-compare → single concat-compare
+//
+//                             KEEPS (covenant-chain trust, belt+suspenders):
+//                             - oldCommit.length / version-byte checks
+//                             - slotCommit.length / version-byte checks
+//                             - tx.outputs.length <= maxOutputs (token-leak guard)
+//
+//   VERSION-RETAINED          Oracle commit prefix stays 0x65; slot commit
+//                             prefix stays 0x75. Forward compat preserved.
+//
+// All v15 audit-fix gates retained:
+//   F-OC1  tokenAmount pin on self-replicate
+//   F-OC2  tokenAmount pin on both Ticker mints
+//   F-OC3  value pin (1500) on both Ticker mints
+//   F-OC4  pricesBlob.length % 8 == 0 + 8-multiple enforcement
+//   F-OC7  pkh sort tier-split (BCH-2023 mainnet safe; ≤ 8-byte BIN2NUM)
 //
 // ── Commitment layouts ─────────────────────────────────────────────────
-// Oracle (19 B, version 0x65 in v15):
+// Oracle (19 B, version 0x65 in v17 — unchanged from v15):
 //   [0]       0x65                          1 B
-//   [1..5)    seq                          4 B   u32 LE  +1 per cycle
-//   [5..9)    lastTs                       4 B   u32 LE  publisher-attested median time
-//   [9..17)   medianPrice                  8 B   u64 LE  sat-scaled USD/BCH
-//   [17..19)  activeCount                  2 B   u16 LE  threshold ratchet
+//   [1..5)    seq                          4 B   u32 LE
+//   [5..9)    lastTs                       4 B   u32 LE
+//   [9..17)   medianPrice                  8 B   u64 LE
+//   [17..19)  activeCount                  2 B   u16 LE
 //
-// Slot (39 B, version 0x75 in v15) — see PublisherSlot.cash for full layout.
+// Slot (37 B in v17, version 0x75) — sourceId dropped vs v16:
+//   [0]      0x75                           1 B
+//   [1..21)  publisherPkh                  20 B
+//   [21..29) price                          8 B   u64 LE
+//   [29..33) timestamp                      4 B   u32 LE — MSB-clear
+//   [33..37) cycleSeq                       4 B   u32 LE — MSB-clear
 //
-// Ticker (17 B, version 0x80 — unchanged; consumer-facing prefix held stable
-// across the v14→v15 cutover since the category change alone separates them).
+// Ticker (17 B, version 0x80) — unchanged.
 
 contract Oracle(
     bytes35 tickerLockingBytecode,
@@ -44,36 +62,23 @@ contract Oracle(
         bytes claimedNewTs,
         bytes budgetPad
     ) {
-        require(tickerLockingBytecode.length == 35);
         require(claimedMedian.length == 8);
         require(claimedNewTs.length == 4);
-        // F-OC5 fix — v14 had `require(budgetPad.length >= 0)`, a tautology.
-        // v15 enforces a real upper bound: the daemon pads ~1 KiB to inflate
-        // the per-input op-cost budget (per reference §Operational Limits the
-        // budget is (41 + unlocking_length) × 800); 10 KiB is a defensive
-        // ceiling that allows legitimate padding while blocking absurd
-        // amplification.
+        // F-OC5 — keep upper bound to block absurd amplification.
         require(budgetPad.length <= 10240);
 
         int idx = this.activeInputIndex;
 
-        // F-OC4 / F-OC8 — bound pricesBlob shape strictly: 7..13 × 8 bytes,
-        // and force exact multiples of 8. Closes the silent-tail-drop +
-        // unbounded-padding amplification surfaces.
-        require(pricesBlob.length >= 56);
-        require(pricesBlob.length <= 104);
+        // F-OC4 — strict multiple-of-8 only; bounds derived from numAttestations.
         require(pricesBlob.length % 8 == 0);
         int numAttestations = pricesBlob.length / 8;
-        require(numAttestations >= 7);
         require(numAttestations <= 13);
 
         // ── Self-replication (Oracle state NFT) ──────────────────────
         require(tx.outputs[0].lockingBytecode == tx.inputs[idx].lockingBytecode);
         require(tx.outputs[0].tokenCategory == tx.inputs[idx].tokenCategory);
         require(tx.outputs[0].value == 2000);
-        // F-OC1 — pin tokenAmount on the self-replicate so Oracle category
-        // FT supply stays at zero by covenant (was: enforced only by genesis
-        // hygiene; load-bearing post-federation-split).
+        // F-OC1 — pin tokenAmount on the self-replicate.
         require(tx.outputs[0].tokenAmount == 0);
 
         // ── Read previous Oracle state ───────────────────────────────
@@ -84,7 +89,7 @@ contract Oracle(
         int newTs  = int(claimedNewTs);
 
         // ── Time stride (publisher-attested median, monotonic) ───────
-        require(newTs > prevTs);
+        // `newTs > prevTs` is implied by `newTs - prevTs >= 60`.
         require(newTs - prevTs >= 60);
 
         int newSeq    = int(oldCommit.slice(1, 5)) + 1;
@@ -105,25 +110,15 @@ contract Oracle(
         for (int i = 0; i < numAttestations; i = i + 1) {
             int slotIdx = i + 1;
 
-            // Category: 32-byte slot category + mutable capability byte
-            require(tx.inputs[slotIdx].tokenCategory.slice(0, 32) == slotCategoryReversed);
-            require(tx.inputs[slotIdx].tokenCategory.slice(32, 33) == 0x01);
+            // Category gate — folded into single concat-compare.
+            require(tx.inputs[slotIdx].tokenCategory == slotCategoryReversed + 0x01);
 
             bytes slotCommit = tx.inputs[slotIdx].nftCommitment;
-            require(slotCommit.length == 39);
+            require(slotCommit.length == 37);
             require(slotCommit.slice(0, 1) == 0x75);
 
-            // Distinct + monotonically-sorted pkh (anti-Sybil).
-            //
-            // F-OC7 fix — v14 used `int(pkh + 0x00) > int(prevPkh + 0x00)`
-            // which forces a 21-byte OP_BIN2NUM. That works on BCH-2025+
-            // (cap 10000) but halts on BCH-2023 mainnet (cap 8). The
-            // tier-split below decomposes the same LE-int order into three
-            // windows that are each ≤ 8 bytes, with explicit MSB-clear
-            // padding so each BIN2NUM decodes non-negative. Total order is
-            // byte-for-byte identical to the v14 implementation, so the
-            // off-chain sort fixture stays unchanged.
-            bytes pkh = slotCommit.slice(3, 23);
+            // Distinct + monotonically-sorted pkh (anti-Sybil, F-OC7 tier-split).
+            bytes pkh = slotCommit.slice(1, 21);
             if (i > 0) {
                 int pkhT2  = int(pkh.slice(14, 20) + 0x00);
                 int prevT2 = int(prevPkh.slice(14, 20) + 0x00);
@@ -144,7 +139,7 @@ contract Oracle(
             prevPkh = pkh;
 
             // Timestamp votes (median-of-medians, ±jitter window)
-            int slotTimestamp = int(slotCommit.slice(31, 35));
+            int slotTimestamp = int(slotCommit.slice(29, 33));
             if (slotTimestamp + jitter >= newTs) {
                 lowerVotes = lowerVotes + 1;
             }
@@ -153,10 +148,10 @@ contract Oracle(
             }
 
             // Cycle freshness: slot must attest to THIS cycle
-            require(int(slotCommit.slice(35, 39)) == newSeq);
+            require(int(slotCommit.slice(33, 37)) == newSeq);
 
             // Price matches caller-supplied blob
-            require(slotCommit.slice(23, 31) == pricesBlob.slice(i * 8, i * 8 + 8));
+            require(slotCommit.slice(21, 29) == pricesBlob.slice(i * 8, i * 8 + 8));
         }
         require(lowerVotes * 2 > numAttestations);
         require(upperVotes * 2 > numAttestations);
@@ -197,23 +192,16 @@ contract Oracle(
         bytes seqBytes         = toPaddedBytes(newSeq, 4);
         bytes activeCountBytes = toPaddedBytes(newActive, 2);
         bytes newOracleCommit  = 0x65 + seqBytes + claimedNewTs + claimedMedian + activeCountBytes;
-        require(newOracleCommit.length == 19);
         require(tx.outputs[0].nftCommitment == newOracleCommit);
 
         // ── K=2 Mutable Ticker mints ────────────────────────────────
         bytes newTickerCommit = 0x80 + seqBytes + claimedNewTs + claimedMedian;
-        require(newTickerCommit.length == 17);
-
-        // Ticker token category = bare 32-byte Oracle category + 0x01
-        bytes tickerCategory = tx.inputs[idx].tokenCategory.slice(0, 32) + 0x01;
-        require(tickerCategory.length == 33);
+        bytes tickerCategory  = tx.inputs[idx].tokenCategory.slice(0, 32) + 0x01;
 
         int tickerIdx0 = numAttestations + 1;
         int tickerIdx1 = numAttestations + 2;
 
-        // F-OC2 / F-OC3 — pin value and tokenAmount on both Ticker mints
-        // so a malicious operator can't (a) inflate dust on mint, (b)
-        // co-mint FT under the Oracle category onto the Ticker NFT.
+        // F-OC2 / F-OC3 — pin both Ticker mints
         require(tx.outputs[tickerIdx0].lockingBytecode == tickerLockingBytecode);
         require(tx.outputs[tickerIdx0].tokenCategory == tickerCategory);
         require(tx.outputs[tickerIdx0].nftCommitment == newTickerCommit);
@@ -226,10 +214,8 @@ contract Oracle(
         require(tx.outputs[tickerIdx1].value == 1500);
         require(tx.outputs[tickerIdx1].tokenAmount == 0);
 
-        // ── Output-count constraint ──────────────────────────────────
-        int minOutputs = numAttestations + 3;
+        // ── Output-count cap (token-leak guard, KEEP) ────────────────
         int maxOutputs = numAttestations + 4;
-        require(tx.outputs.length >= minOutputs);
         require(tx.outputs.length <= maxOutputs);
         if (tx.outputs.length == maxOutputs) {
             require(tx.outputs[numAttestations + 3].tokenCategory == 0x);

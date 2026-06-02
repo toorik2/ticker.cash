@@ -31,8 +31,10 @@ pub const ORACLE_COMMIT_LEN: usize = 19;
 pub const TICKER_COMMIT_LEN: usize = 17;
 
 /// Length of a PublisherSlot NFT commit, bytes.
-/// Layout: `0x75 | source_id(u16 LE) | pkh(20 B) | price(u64 LE) | timestamp(u32 LE) | cycle_seq(u32 LE)`.
-pub const SLOT_COMMIT_LEN: usize = 39;
+/// v17 layout: `0x75 | pkh(20 B) | price(u64 LE) | timestamp(u32 LE) | cycle_seq(u32 LE)` = 37 B.
+/// (v16 had a sourceId(u16 LE) between version byte and pkh; v17 dropped it since
+/// per-slot addressing in v16 made sourceId-in-commit redundant.)
+pub const SLOT_COMMIT_LEN: usize = 37;
 
 // ─── Version bytes ─────────────────────────────────────────────────────────
 
@@ -93,6 +95,14 @@ pub const FEE_EPSILON_SATS: u64 = 50;
 /// Bitcoin Cash dust threshold (sats). Outputs below this are not produced.
 pub const DUST_THRESHOLD: u64 = 546;
 
-/// Bytes of `OP_0` padding added to the Oracle.update unlock script.
-/// Reserves CashScript op-budget for the worst-case 13-slot loop path.
-pub const BUDGET_PAD_LEN: usize = 1024;
+/// Bytes of padding added to the Oracle.update unlock script.
+///
+/// Reserves CashScript op-budget for the worst-case 13-slot loop path. Per
+/// reference §Operational Limits, per-input budget is
+/// `(41 + unlocking_length) × 800`.
+///
+/// v17 bisected from 1024 → 64 after empirical libauth measurement showed
+/// the 13-slot Oracle.update loop uses ~575k op-cost; budget at pad=64 is
+/// ~900k (35% headroom at N=13, ~10% margin even at hypothetical N=18).
+/// Saves ~960 B per cycle = ~$1,539/yr at mainnet 1 sat/B floor.
+pub const BUDGET_PAD_LEN: usize = 64;

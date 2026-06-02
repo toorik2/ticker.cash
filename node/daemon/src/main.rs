@@ -265,9 +265,29 @@ fn build_publisher_cfg(
         })
         .collect::<Result<_, _>>()?;
 
+    // v17: pre-compute the pkh→cnHash table for all 13 slots. Used by
+    // Oracle.update builder to derive each slot input's redeem from the
+    // slot commit's pkh (v16 used commit sourceId; v17 dropped it).
+    let all_pkh_to_cn_hash: Vec<([u8; 20], [u8; 20])> = m
+        .slots
+        .iter()
+        .map(|s| {
+            let pkh: [u8; 20] = hex::decode(&s.publisher_pkh_hex)?
+                .as_slice()
+                .try_into()
+                .map_err(|_| "slot pkh hex not 20 B")?;
+            let cn: [u8; 20] = hex::decode(&s.cn_hash_hex)?
+                .as_slice()
+                .try_into()
+                .map_err(|_| "slot cnHash hex not 20 B")?;
+            Ok::<_, Box<dyn std::error::Error>>((pkh, cn))
+        })
+        .collect::<Result<_, _>>()?;
+
     Ok(CycleConfig {
         slot,
         my_pkh: key.pkh,
+        my_cn_hash20: my_cn_hash,
         publisher_privkey: key.private_key,
         publisher_pubkey: key.public_key,
         source_id: source.id,
@@ -279,6 +299,7 @@ fn build_publisher_cfg(
         oracle_scripthash_hex,
         slot_scripthash_hex,
         all_slot_scripthashes_hex,
+        all_pkh_to_cn_hash,
         publisher_scripthash_hex,
         oracle_category_be_hex: m.oracle.category.clone(),
         slot_category_be_hex: m.slot_category.clone(),

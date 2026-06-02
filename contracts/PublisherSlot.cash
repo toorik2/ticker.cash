@@ -1,104 +1,78 @@
 pragma cashscript >= 0.13.0;
 
-// PublisherSlot v16 — per-slot CN baking + structural minimization.
+// PublisherSlot v17 — drop serverName from unlock + drop sourceId from commit.
 //
-// v15 → v16 changes (covenant only; trust model + commit layout unchanged):
+// v16 → v17 changes (covenant + commit format; trust model unchanged):
 //
-//   PER-SLOT-CN              Constructor takes one 20-byte cnHash instead of
-//                            a 260-byte packed CN-hash table. Each of the 13
-//                            slots now compiles to a DIFFERENT redeem and
-//                            lives at a DIFFERENT P2SH-32 address. The
-//                            sourceId range check (1..13) is dropped since
-//                            the cnHash itself implicitly pins the source.
+//   DROP-SERVERNAME             v16 passed `serverName` (raw hostname bytes)
+//                               in the attest unlock; covenant hashed it
+//                               and checked `hash160(serverName) == cnHash`.
+//                               Redundant — cnHash is cryptographically
+//                               pinned by P2SH-32 address derivation (any
+//                               spender MUST provide the matching redeem
+//                               which contains cnHash). v17 uses cnHash
+//                               directly in the publisher sig payload.
+//                               Saves: -14 B per attest unlock + ~5 B body.
+//                               Side effect: hostnames no longer appear in
+//                               cleartext on chain. Net per-cycle: ~377 B.
 //
-//   DROP-ORACLE-LB-PIN       The oracleLockingBytecode constructor arg is
-//                            removed. v15 used it in consume() to pin the
-//                            parent UTXO's covenant; the existing
-//                            `tx.inputs[0].tokenCategory == oracleCat + 0x02`
-//                            check is sufficient (only the Oracle covenant
-//                            holds the minting NFT). Day-4 empirical matrix:
-//                            consume() with non-Oracle parent category →
-//                            reject (OP_VERIFY).
+//   DROP-SOURCEID-FROM-COMMIT   v16 commit carried `sourceId(2)` to identify
+//                               which exchange the slot belongs to. In v16
+//                               each source has its own P2SH-32 address, so
+//                               sourceId-in-commit is redundant with the
+//                               address itself. v17 drops it; commit shrinks
+//                               39 → 37 B. Daemon derives sourceId by
+//                               address lookup against the manifest.
+//                               Saves: -2 B per commit emission × 14 = 28
+//                               B/cycle. Plus body shrink.
 //
-//   DROP-OUTPUT-COUNT-CAP    v15's `tx.outputs.length <= idx + 2` cap is
-//                            removed. The cap protected against a publisher
-//                            attaching extra outputs to an attest tx; but
-//                            only the publisher can sign a valid attest and
-//                            has no incentive to pay fees for extra outputs
-//                            they don't benefit from. CashTokens consensus
-//                            already enforces "one mutable NFT child per
-//                            mutable parent input" so the slot itself can't
-//                            be duplicated. Day-4 attack matrix confirmed.
+//   VERSION-BYTE-RETAINED       Commit prefix STAYS 0x75 as a
+//                               self-identifying tag. Forward compatibility:
+//                               keeps the option for multi-version chain
+//                               coexistence open. Cheap insurance (1 B per
+//                               commit).
 //
-//   DROP-NEWCOMMIT-LEN       v15's `require(newCommit.length == 39)` was a
-//                            tautology — the LHS is a static concatenation
-//                            of fixed-length parts whose sum is exactly 39.
-//                            Removed.
-//
-//   DROP-SERVERNAME-RANGE    v15 had `serverName.length >= 4 / <= 64`. With
-//                            per-slot cnHash baking, hash160(serverName) ==
-//                            cnHash is itself a length-discriminating gate
-//                            (collisions vanishingly unlikely). Removed.
-//
-//   DROP-IDX-GE-1            v15 consume() had `require(idx >= 1)` to
-//                            forbid slot at input[0]. The
-//                            `tx.inputs[0].tokenCategory == oracleCat + 0x02`
-//                            check already forces input[0] to be the Oracle,
-//                            so the slot can't be at index 0. Removed.
-//
-//   VERSION-UNCHANGED        Commit prefix stays `0x75`. Oracle.cash
-//                            hard-codes 0x75 in its slot-commit decode; we
-//                            keep it stable to avoid an Oracle re-compile.
-//                            The covenant CHANGE is per-slot CN baking;
-//                            the COMMIT FORMAT is bit-identical to v15.
-//
-//   PUBSLOT-DER-SIG-LENGTH-FORK  Same accepted-latent posture as v15.
-//                                See header in v15 source for rationale.
+//   PUBSLOT-DER-SIG-LENGTH-FORK Same accepted-latent posture as v15/v16.
 //
 // All v15 audit-fix gates retained:
-//   PUBSLOT-TIMESTAMP-SIGNMAG  MSB-clear gate (line 26 below).
-//   PUBSLOT-CYCLESEQ-SIGNMAG   MSB-clear gate (line 27).
-//   tokenAmount==0 pin         attest() + consume() (defense-in-depth;
-//                              token consensus already enforces in most
-//                              paths but covenant gating is explicit).
+//   PUBSLOT-TIMESTAMP-SIGNMAG  MSB-clear gate
+//   PUBSLOT-CYCLESEQ-SIGNMAG   MSB-clear gate
+//   tokenAmount==0 pin         defense-in-depth on slot re-emit
 //
-// Empirical proof: 27/27 mem-cash matrix at /tmp/slot-test-harness/ —
-// includes canonical happy-path, 12-vector attack matrix, cross-slot
-// replay, heterogeneous-LB consensus property.
+// Combined-with-v16-bundle empirical estimate: $604/yr from A + $1,200/yr
+// from C' (drop sourceId) + ~$152/yr from Oracle.cash scrub + $1,539/yr
+// from BUDGET_PAD reduction = ~$3,500/yr mainnet floor on top of v16's
+// $14,500/yr.
 //
 // ── Trust model unchanged ──────────────────────────────────────────────
 // 7-of-13 publisher quorum. Sybil resistance via distinct-publisherPkh
-// check in Oracle.update. v16 does NOT add slot rotation; that requires
-// another re-genesis.
+// check in Oracle.update. v17 does NOT add slot rotation.
 //
 // ── Genesis ────────────────────────────────────────────────────────────
 //   1. Spend designated non-token P2PKH outpoint X (genesis input).
 //      slotCategoryReversed = HASH256(X).reverse()
 //   2. Create 13 outputs — ONE PER SOURCE — each with:
 //        - lockingBytecode = P2SH-32 of PublisherSlot(cnHash_i, oracleCat)
-//                            (different cnHash per sourceId → different LB)
 //        - tokenCategory   = slotCategoryReversed + 0x01 (mutable)
-//        - nftCommitment   = 0x75 + sourceId(2) + publisherPkh(20) + 0x00..(16)
+//        - nftCommitment   = 0x75 + publisherPkh(20) + 0x00..(16)   ← 37 B
 //   3. NO other token outputs of this category.
 //
-// ── Slot commitment (39 B, version 0x75 — same as v15) ─────────────────
-//   [0]      version 0x75              1 B
-//   [1..3)   sourceId                  2 B   IMMUTABLE — pinned at genesis
-//   [3..23)  publisherPkh             20 B   IMMUTABLE — pinned at genesis
-//   [23..31) price                     8 B   rewritten by attest()
-//   [31..35) timestamp                 4 B   rewritten by attest() — MSB-clear
-//   [35..39) cycleSeq                  4 B   rewritten by attest() — MSB-clear
+// ── Slot commitment (37 B, version 0x75) ───────────────────────────────
+//   [0]      version 0x75              1 B   self-identifying tag
+//   [1..21)  publisherPkh             20 B   IMMUTABLE — pinned at genesis
+//   [21..29) price                     8 B   rewritten by attest()
+//   [29..33) timestamp                 4 B   rewritten by attest() — MSB-clear
+//   [33..37) cycleSeq                  4 B   rewritten by attest() — MSB-clear
 
 contract PublisherSlot(
     bytes20 cnHash,                    // hash160(canonical serverName) for THIS source
     bytes32 oracleCategoryReversed     // pin Oracle's 32-byte category (LE wire)
 ) {
     function attest(
-        bytes   serverName,        // raw CN/SAN bytes (length implicitly gated by cnHash)
         bytes   price,             // 8 B u64 LE
         bytes   timestamp,         // 4 B u32 LE — publisher's observation time
         pubkey  publisherPubkey,   // 33 B publisher pubkey (must match slot)
-        datasig publisherSig,      // ECDSA-DER (accepted-latent, see header)
+        datasig publisherSig,      // ECDSA-DER (accepted-latent)
         bytes   cycleSeq           // 4 B u32 LE — Oracle cycle this attests to
     ) {
         // ── 0. Input-shape sanity ─────────────────────────────────────
@@ -115,26 +89,25 @@ contract PublisherSlot(
         // ── 1. Read slot identity from commitment ─────────────────────
         int idx = this.activeInputIndex;
         bytes oldCommit = tx.inputs[idx].nftCommitment;
-        require(oldCommit.length == 39);
+        require(oldCommit.length == 37);
         require(oldCommit.slice(0, 1) == 0x75);
-        bytes sourceId = oldCommit.slice(1, 3);
-        bytes20 publisherPkh = oldCommit.slice(3, 23);
+        bytes20 publisherPkh = oldCommit.slice(1, 21);
 
         // ── 2. Identity gate: caller is the slot's pinned publisher ───
         require(hash160(publisherPubkey) == publisherPkh);
 
         // ── 2b. cycleSeq monotonicity (anti-MEV last-look protection) ─
-        require(int(cycleSeq) > int(oldCommit.slice(35, 39)));
+        require(int(cycleSeq) > int(oldCommit.slice(33, 37)));
 
-        // ── 3. Server-name binding (per-slot cnHash) ──────────────────
-        require(hash160(serverName) == cnHash);
-
-        // ── 4. Publisher sig over committed payload ───────────────────
-        bytes pubMessage = sourceId + price + timestamp + publisherPkh + cycleSeq + hash160(serverName);
+        // ── 3. Publisher sig over committed payload (cnHash directly) ─
+        // v16's `hash160(serverName) == cnHash` check is structurally
+        // redundant — cnHash is pinned by the slot's P2SH-32 address
+        // derivation. Use cnHash directly in the sig payload.
+        bytes pubMessage = price + timestamp + publisherPkh + cycleSeq + cnHash;
         require(checkDataSig(publisherSig, pubMessage, publisherPubkey));
 
-        // ── 5. Re-emit slot at same index, identity preserved ─────────
-        bytes newCommit = 0x75 + sourceId + publisherPkh + price + timestamp + cycleSeq;
+        // ── 4. Re-emit slot at same index, identity preserved ─────────
+        bytes newCommit = 0x75 + publisherPkh + price + timestamp + cycleSeq;
         require(tx.outputs[idx].lockingBytecode == tx.inputs[idx].lockingBytecode);
         require(tx.outputs[idx].tokenCategory == tx.inputs[idx].tokenCategory);
         require(tx.outputs[idx].nftCommitment == newCommit);
@@ -147,9 +120,7 @@ contract PublisherSlot(
         int idx = this.activeInputIndex;
 
         // Oracle at input[0]: only the Oracle covenant holds the minting NFT
-        // of the slot category, so this gate suffices. Direct LB pin removed
-        // (v15 had `oracleLockingBytecode` arg; v16 trusts the
-        // minting-capability gate to be unforgeable).
+        // of the slot category, so this gate suffices.
         require(tx.inputs[0].tokenCategory == oracleCategoryReversed + 0x02);
 
         // Re-emit slot identically at matching output index.

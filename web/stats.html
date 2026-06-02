@@ -456,18 +456,21 @@ function onSlotChange(utxos){
   }
   const seen = new Set();
   for (const d of decoded) {
-    const slot = SOURCES.findIndex(s => s.id === d.sourceId);
-    if (slot < 0) { pushError('unknown sourceId ' + d.sourceId); continue; }
+    // v17 commit no longer carries sourceId — look it up by pkh against the
+    // per-source publisher list shipped in CONSTANTS.PUBLISHER_PKHS.
+    const pkhHex = bytesToHex(d.pkh);
+    const slot = (CONSTANTS.PUBLISHER_PKHS || []).indexOf(pkhHex);
+    if (slot < 0) { pushError('unknown publisher pkh ' + pkhHex.slice(0, 12)); continue; }
     if (seen.has(slot)) { pushError('dup slot ' + slot); continue; }
     seen.add(slot);
-    const pkhHex = bytesToHex(d.pkh);
+    const sourceId = SOURCES[slot].id;
     let addr = state.publisherAddrs.get(pkhHex);
     if (!addr) {
       addr = cashaddrEncodeP2PKH(CASHADDR_PREFIX, d.pkh);
       state.publisherAddrs.set(pkhHex, addr);
     }
     state.slots.set(slot, {
-      slot, sourceId: d.sourceId, sourceName: SOURCES[slot].name,
+      slot, sourceId, sourceName: SOURCES[slot].name,
       publisherPkh: pkhHex, publisherAddress: addr,
       lastAttestTs: d.timestamp, cycleSeq: d.cycleSeq,
       // computed by aggregate(): cyclesBehind, walletBalanceSats, cyclesOfRunway, runwayDurationSec, status

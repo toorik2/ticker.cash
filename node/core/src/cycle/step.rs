@@ -126,16 +126,17 @@ fn attest<E: Env>(
             satoshis: snap.mine_slot_satoshis,
             commitment_raw: snap.mine_slot_commitment_raw,
         },
-        source_id: snap.mine_slot_commit.source_id,
         publisher_pkh: cfg.my_pkh,
         publisher_privkey: cfg.publisher_privkey,
         publisher_pubkey: cfg.publisher_pubkey,
         funder_utxos: &funders,
         slot_category_wire_le: cfg.slot_category_wire_le,
         slot_redeem_script: &cfg.slot_redeem_script,
+        // v17: cnHash carries the source identity into the publisher digest.
+        // Derived from the source the daemon serves (configured at startup).
+        cn_hash20: cfg.my_cn_hash20,
         price: observation.price,
         timestamp: observation.timestamp,
-        server_name: observation.server_name,
         new_cycle_seq: snap.new_seq,
     };
 
@@ -280,6 +281,7 @@ fn update_oracle<E: Env>(
         slot_category_wire_le: cfg.slot_category_wire_le,
         oracle_redeem_script: &cfg.oracle_redeem_script,
         ticker_redeem_script: &cfg.ticker_redeem_script,
+        pkh_to_cn_hash: &cfg.all_pkh_to_cn_hash,
         new_seq: snap.new_seq,
     };
 
@@ -325,13 +327,14 @@ fn map_update_error(e: UpdateError) -> CycleError {
             CycleError::InsufficientFunds { have, need }
         }
         UpdateError::Crypto(_)
-        | UpdateError::InvalidSourceId { .. }
+        | UpdateError::UnknownSlotPkh { .. }
         | UpdateError::Redeem(_) => CycleError::Internal(e.to_string()),
     }
 }
 
-// Compile-time sanity: BUDGET_PAD_LEN is the documented value.
-const _: () = assert!(BUDGET_PAD_LEN == 1024);
+// Compile-time sanity: BUDGET_PAD_LEN matches the documented v17 floor.
+// v17 bisected from 1024 → 64 after empirical libauth op-cost measurement.
+const _: () = assert!(BUDGET_PAD_LEN == 64);
 
 // ─── Tests ─────────────────────────────────────────────────────────────────
 
@@ -431,6 +434,7 @@ mod tests {
         CycleConfig {
             slot: 0,
             my_pkh: [0x42; 20],
+            my_cn_hash20: [0x55; 20],
             publisher_privkey: [0x11; 32],
             publisher_pubkey: [0x02; 33],
             source_id: 1,
@@ -442,6 +446,7 @@ mod tests {
             oracle_scripthash_hex: "00".repeat(32),
             slot_scripthash_hex: "11".repeat(32),
             all_slot_scripthashes_hex: vec!["11".repeat(32)],
+            all_pkh_to_cn_hash: vec![([0x42; 20], [0x55; 20])],
             publisher_scripthash_hex: "22".repeat(32),
             oracle_category_be_hex: "00".repeat(32),
             slot_category_be_hex: "00".repeat(32),
@@ -466,7 +471,6 @@ mod tests {
 
     fn slot_info(pkh: [u8; 20], cycle_seq: u32, ts: u32, price: u64) -> SlotInfo {
         let commit = SlotCommit {
-            source_id: 1,
             pkh,
             price,
             timestamp: ts,
