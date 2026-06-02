@@ -28,9 +28,9 @@ pub struct CycleSnapshot {
     pub mine_slot_vout: u32,
     pub mine_slot_satoshis: u64,
     pub mine_slot_commit: SlotCommit,
-    /// Raw 36-byte slot commitment as it sits on chain RIGHT NOW (before
+    /// Raw 16-byte slot commitment as it sits on chain RIGHT NOW (before
     /// this cycle's attest rewrites it). Needed by the CashTokens sighash.
-    pub mine_slot_commitment_raw: [u8; 36],
+    pub mine_slot_commitment_raw: [u8; 16],
 }
 
 impl CycleSnapshot {
@@ -61,8 +61,9 @@ pub enum CycleState {
         snap: CycleSnapshot,
         /// Slots after dedupe + sort. Ready to feed `tx::update::build_oracle_update_tx`.
         cycle_slot_commits: Vec<SlotCommit>,
-        /// Slot UTXO outpoints (parallel to commits).
-        cycle_slot_utxos: Vec<(Txid, u32, u64)>,
+        /// Slot UTXO outpoints (parallel to commits): (txid_be, vout, satoshis, pkh).
+        /// v22: pkh added as 4th tuple element since SlotCommit no longer carries it.
+        cycle_slot_utxos: Vec<(Txid, u32, u64, [u8; 20])>,
     },
     /// Phase 4 done — cycle resets to `Idle` for the next iteration.
     Updated {
@@ -135,6 +136,18 @@ pub struct CycleConfig {
     /// per-source redeem) from the slot commit's pkh field. v16 had sourceId
     /// in the commit; v17 dropped it, so we look up by pkh instead.
     pub all_pkh_to_cn_hash: Vec<([u8; 20], [u8; 20])>,
+    /// v22: per-source pkhs in source-id order (parallel to all_slot_scripthashes_hex).
+    /// Used to populate SlotInfo.pkh from the scripthash query result, since
+    /// commit no longer carries pkh. Also used as the address→pkh lookup.
+    pub all_slot_pkhs: Vec<[u8; 20]>,
+    /// v22: per-source locking bytecodes (specialized P2S bodies) in source-id order.
+    /// Each LB IS the slot's compiled body bytes (no P2SH-32 wrapper).
+    /// Used as the slot input's covered-script for sighash computation and as
+    /// the slot output's locking_script.
+    pub all_slot_lockings: Vec<Vec<u8>>,
+    /// v22: pkh → slot locking-bytecode lookup table built once at startup.
+    /// Used by Oracle.update tx builder to construct per-slot outputs + sighashes.
+    pub all_pkh_to_locking: Vec<([u8; 20], Vec<u8>)>,
     pub publisher_scripthash_hex: String,
     /// 64-hex Oracle category (display order, big-endian).
     pub oracle_category_be_hex: String,

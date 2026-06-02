@@ -24,13 +24,13 @@ use std::time::Duration;
 
 use ticker_core::chain::sources::{source_cn_hash, SOURCES};
 use ticker_core::covenant::{
-    locking::p2sh32_locking_bytecode, redeem_oracle, redeem_publisher_slot, redeem_ticker,
+    locking::p2sh32_locking_bytecode, redeem_oracle, redeem_ticker, specialize_slot_body,
 };
 use ticker_core::crypto::{double_sha256, sign_ecdsa};
 use ticker_core::electrum::{types::Utxo, ElectrumClient};
 use ticker_core::identity::manifest::Network;
 use ticker_core::identity::seed::{derive_wallet, load_seed};
-use ticker_core::tx::cashaddr::{encode_p2sh32_cashaddr, encode_p2pkh_cashaddr, AddressPrefix};
+use ticker_core::tx::cashaddr::{encode_p2sh32_cashaddr, encode_p2s_cashaddr, encode_p2pkh_cashaddr, AddressPrefix};
 use ticker_core::tx::encode::{
     encode_tx, Input, Output, TokenPrefix, Tx, TxOutpoint, DEFAULT_SEQUENCE, MINTING_CAPABILITY,
     MUTABLE_CAPABILITY,
@@ -153,7 +153,9 @@ pub fn deploy(
     println!("Slot   category (display BE): {slot_cat_be_hex}");
 
     // ── 5. Build Oracle redeem script + P2SH-32 LB ───────────────────────
-    let oracle_redeem = redeem_oracle(&ticker_lb, &slot_cat_le)?;
+    // v22: Oracle has 1 ctor arg (tickerLockingBytecode); slot category is no
+    // longer a ctor arg because Oracle dropped the per-iter category check.
+    let oracle_redeem = redeem_oracle(&ticker_lb)?;
     let oracle_lb: [u8; 35] = p2sh32_locking_bytecode(&oracle_redeem);
     let oracle_addr = encode_p2sh32_cashaddr(&oracle_lb, prefix);
     let oracle_lb_hex = hex::encode(oracle_lb);
@@ -162,36 +164,35 @@ pub fn deploy(
     println!("  P2SH-32 LB: {oracle_lb_hex}");
     println!("  address:    {oracle_addr}");
 
-    // ── 6. Build Slot redeems (v16 per-source) + P2SH-32 LBs ────────────
-    // v16: each of the 13 sources compiles to a distinct redeem (its own
-    // cnHash baked in) → distinct P2SH-32 address. v15 had one shared 625 B
-    // redeem; v16 has 13 distinct 262 B redeems. See /tmp/slot-experiments/
-    // v16-design.md for the rationale.
+    // ── 6. Build Slot P2S lockings (v22 per-source specialized) ───────────
+    // v22: each of 13 sources compiles to a distinct P2S body (its pkh +
+    // cnHash + oracleCatHash baked as script literals). LB IS the body.
     struct PerSlotDeploy {
         source_id: u16,
         cn_hash: [u8; 20],
-        lb: [u8; 35],
+        pkh: [u8; 20],
+        lb: Vec<u8>, // P2S: variable length body
         address: String,
     }
     let mut per_slot: Vec<PerSlotDeploy> = Vec::with_capacity(PUBLISHER_COUNT);
-    // v18: hash160(oracleCat) is the constructor arg.
     let oracle_cat_hash = ticker_core::crypto::hash160(&oracle_cat_le);
-    println!("PublisherSlot (v18 per-source):");
-    for s in SOURCES.iter() {
+    println!("PublisherSlot (v22 P2S per-source specialized):");
+    for (i, s) in SOURCES.iter().enumerate() {
         let cn_hash = source_cn_hash(s);
-        let redeem = redeem_publisher_slot(&cn_hash, &oracle_cat_hash)?;
-        let lb: [u8; 35] = p2sh32_locking_bytecode(&redeem);
-        let address = encode_p2sh32_cashaddr(&lb, prefix);
+        let pkh = publisher_pkhs[i];
+        let lb = specialize_slot_body(&pkh, &cn_hash, &oracle_cat_hash)?;
+        let address = encode_p2s_cashaddr(&lb, prefix);
         println!(
-            "  [{:>2}] {:>20} redeem:{}B  addr:{}",
+            "  [{:>2}] {:>20} P2S body:{}B  addr:{}",
             s.id,
             s.name,
-            redeem.len(),
+            lb.len(),
             address
         );
         per_slot.push(PerSlotDeploy {
             source_id: s.id,
             cn_hash,
+            pkh,
             lb,
             address,
         });
@@ -202,17 +203,17 @@ pub fn deploy(
     sorted_addrs.dedup();
     if sorted_addrs.len() != PUBLISHER_COUNT {
         return Err(format!(
-            "v16 invariant violation: 13 per-source slot addresses collapsed to {} \
-             distinct values — check that SOURCES has 13 unique canonical_cn values",
+            "v22 invariant violation: 13 per-source slot addresses collapsed to {} \
+             distinct values — check that publisher_pkhs has 13 unique values",
             sorted_addrs.len()
         )
         .into());
     }
 
     // ── 7. Build Oracle genesis tx ───────────────────────────────────────
-    // v20: 18-byte commit (no version byte). seq (4), lastTs (4), medianUsd
-    // (8), activeCount (2) — all zeros at genesis.
-    let oracle_initial_commit: [u8; 18] = [0u8; 18];
+    // v22: 16-byte commit (no version, no activeCount).
+    // seq (4) + lastTs (4) + medianUsd (8) — all zeros at genesis.
+    let oracle_initial_commit: [u8; 16] = [0u8; 16];
     let oracle_tx = build_p2pkh_to_token_tx(
         &oracle_genesis,
         &master.private_key,
@@ -238,7 +239,7 @@ pub fn deploy(
         let commit = build_initial_slot_commit(pd.source_id, pkh);
         slot_outputs.push(Output {
             value: SLOT_DUST,
-            locking_script: pd.lb.to_vec(),
+            locking_script: pd.lb.clone(),
             token: Some(TokenPrefix {
                 category_le: slot_cat_le,
                 capability: MUTABLE_CAPABILITY,
@@ -302,7 +303,7 @@ pub fn deploy(
                     pkh_hex: hex::encode(pkh),
                     publisher_label: format!("publisher-{i}"),
                     address: Some(pd.address.clone()),
-                    locking_bytecode_hex: Some(hex::encode(pd.lb)),
+                    locking_bytecode_hex: Some(hex::encode(&pd.lb)),
                     cn_hash_hex: Some(hex::encode(pd.cn_hash)),
                 }
             })
@@ -322,13 +323,11 @@ pub fn deploy(
     Ok(())
 }
 
-/// Build the 36-byte v19 initial slot commit: `pkh(20) | 0x00..(16)`.
-/// (v18 had a `0x75` version byte at offset 0; v19 dropped it as redundant.)
-fn build_initial_slot_commit(_source_id: u16, pkh: &[u8; 20]) -> [u8; 36] {
-    let mut c = [0u8; 36];
-    c[0..20].copy_from_slice(pkh);
-    // price (8), timestamp (4), cycleSeq (4) — all zeros at genesis
-    c
+/// Build the 16-byte v22 initial slot commit: price(8) + ts(4) + cycleSeq(4).
+/// v22: pkh moved out of commit into the slot's P2S body literal — initial
+/// commit is all zeros.
+fn build_initial_slot_commit(_source_id: u16, _pkh: &[u8; 20]) -> [u8; 16] {
+    [0u8; 16]
 }
 
 /// Build + sign a tx that spends ONE P2PKH UTXO (at input[0]) and emits
@@ -347,9 +346,9 @@ fn build_p2pkh_to_token_tx(
     pkh: &[u8; 20],
     mut outputs: Vec<Output>,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-    // Reserve a fixed fee buffer; for genesis txs (always ≤ 2 KB) at 1 sat/byte
-    // this is comfortable.
-    const GENESIS_FEE_BUFFER: u64 = 3_000;
+    // Reserve a fixed fee buffer. v22 slot genesis is ~3.5 KB (each of 13
+    // P2S slot outputs carries a 196 B body) so bump to comfortable margin.
+    const GENESIS_FEE_BUFFER: u64 = 5_000;
 
     let token_dust: u64 = outputs.iter().map(|o| o.value).sum();
     if genesis_utxo.value < token_dust + GENESIS_FEE_BUFFER {

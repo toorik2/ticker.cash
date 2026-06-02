@@ -2,8 +2,8 @@
 //
 // Exports (as window globals):
 //   TickerClient.ElectrumWS                — pool-aware, subscribe-aware WS client
-//   TickerClient.decodeOracleCommit(hex)   — 18-byte Oracle commit → object (v20)
-//   TickerClient.decodeSlotCommit(hex)     — 36-byte Slot commit → object (v19)
+//   TickerClient.decodeOracleCommit(hex)   — 16-byte Oracle commit → object (v22)
+//   TickerClient.decodeSlotCommit(hex)     — 16-byte Slot commit → object (v22)
 //   TickerClient.cashaddrEncodeP2PKH(...)  — pkh20 → bchtest:q…
 //   TickerClient.CONSTANTS                  — addresses, categories, sources, fulcrum pool
 
@@ -26,28 +26,46 @@
       { url: 'wss://chipnet.imaginary.cash:50004', mode: 'subscribe' },
       { url: 'wss://chipnet.bch.ninja:50004',      mode: 'poll', pollMs: 12000 },
     ],
-    ORACLE_ADDR: 'bchtest:pdrd4e0tnxr7hfx6nwrylh9h4v5l6r0gwlw780h6fm6pledt88sfjlm4mekcw',
-    ORACLE_CATEGORY: '6ec7af2f0853d3cefb48935e169f972450ff830ebef33a3a2572e43dcab4d434',
-    // v20: per-source slot addresses (new from re-genesis). Covenant drops
-    // length checks + consensus-redundant tokenAmount pins + Oracle 0x65
-    // version byte; replaces F-OC7 tier-split with single 21-B BIN2NUM
-    // (BCH-2026 BigInt). Oracle commit shrinks 19 → 18 B.
+    ORACLE_ADDR: 'bchtest:pw5j9jpl3qazcl3rljm69dhpxfdq5jgq0lcm7x7n3laj7lj026rrkz8yqpcpm',
+    ORACLE_CATEGORY: '3f341d39cf06e78d2caaf39431471fcf529d20f80e334ce7843701c1e25c1f80',
+    // v22: P2S slot addresses (CHIP-2024-12). Each slot's LB IS its compiled
+    // body (per-source specialized with pkh + cnHash + oracleCatHash inlined
+    // as script literals). Fulcrum 2.x doesn't decode P2S cashaddrs yet, so
+    // the dashboard subscribes by SCRIPTHASH (see SLOT_SCRIPTHASHES below).
+    // SLOT_ADDRS kept for display + cashaddr generation.
     SLOT_ADDRS: [
-      'bchtest:pvzzh5u4ftn92t8d7u2fm8wr6a3l5nklz9xss4e7je5r4rxvkxsgx7chdju8n', // 1 kraken
-      'bchtest:pdfhr2jyu22v6gnsnj2nu6nwdwraz0pt5ggy9k92cf6yksx76llkk86ghufer', // 2 coinbase
-      'bchtest:pvltturrmyrn7xjtg3wc0ae9j662dg46n2l6a4esvzn4yw0ne4htwwn9jgd64', // 3 gemini
-      'bchtest:pdknh9k6fkhgdwht2ux5cq3v66ywwtcsgnujp6rjzenfk3x5wtzqyw74r7nxl', // 4 binance_us
-      'bchtest:pv2pcc9a09h4c59yc57r3rdum9mqex380sxzgk0ukyuv0f66l9av2lc2z8qdg', // 5 bitstamp
-      'bchtest:pd7ft2fgmtyedt0mckymxksq9g4v7ul2q0crs6qk88ftpmge70nqw3jzjs68f', // 6 cryptocom
-      'bchtest:p056vcjlyz70w5wypwjvd5xh5283hpl0tfyxr7www0qrqj5wykht29ursv2hq', // 7 bitfinex
-      'bchtest:pvkdqupvgnqevlsnurvpvh9yy6hs8l0ex4xg4t2g7hxh2uv48rwpxqz0kcqk2', // 8 exmo
-      'bchtest:pdwq49wjk4f986qx709dgmcqksy35q406rkhpxa9t0heq0ld0jd5j7k696nuz', // 9 independentreserve
-      'bchtest:pvevutsygxxkupx4af0uv4jdj3nzwv8d0d4vgscw0ej3ag6jt0zl6rr3wcpr7', // 10 okx_usdc
-      'bchtest:pwzjrct7x89jvrf59k5l8akvw8xsjl4q376j25lcjxrtewhvclgtjrlxcw6p8', // 11 kucoin_usdc
-      'bchtest:pw5w8uyxja2ut4lt9r0n5kvuucnzhdxfs3w4qqn4a5jvwj97e5gscrpt3uhnw', // 12 bybit
-      'bchtest:pddtmvpfgma0satpfysnh9fxeaj5yyg8w2g5fd8q7dm9ru6fa547z4cpc2hsd', // 13 htx
+      'bchtest:zpmqp8rrcpmv79yvutg8k43j5kz474q36wcgtsdu68q8596k0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpf0lzjvdyrgrrfq2wn50q2fdp9st39ulrcljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5wpfc5jfu22ah45mwlmwnnf27pjyes47g3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35qnynu57a7', // 1 kraken
+      'bchtest:zpmqp8rrcpmv79pn8ewxxg0evd3zxdjzrfjxvlef3ccuq5jk0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpf3v02l5fs4m2l6q43vhdxwpkq0xmgja65ljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5wpfc5jfu22ah45mwlmwnnf27pjyes47g3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35qtsaskw7w', // 2 coinbase
+      'bchtest:zpmqp8rrcpmv7980x60747qvp6jlvkmq0y305tq3ryltkxzk0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpfef5vkal8e23ca7hnpkccwtrjdmjcwggcljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5wpfc5jfu22ah45mwlmwnnf27pjyes47g3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35qfumgy04z', // 3 gemini
+      'bchtest:zpmqp8rrcpmv79xgchpgtlgn8ytvek6nxv0x3lg9rc6pwf6k0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpfvyqfyt0j5txnqk4wf2vtnpeatlera2sxljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5wpfc5jfu22ah45mwlmwnnf27pjyes47g3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35q80j99g2z', // 4 binance_us
+      'bchtest:zpmqp8rrcpmv799k8ya3s8hfhj062e9duh9rmcajw9l3tkzk0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpfej3c72vs37x6zezg2eya7shjjjhafyx2ljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5wpfc5jfu22ah45mwlmwnnf27pjyes47g3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35ql7hehgrw', // 5 bitstamp
+      'bchtest:zpmqp8rrcpmv79qsdgl4xyga5h94f9mrqa2zue93lylcc6zk0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpgzrgkhr077em3xr58eu33sypupzwlwm2cljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5wpfc5jfu22ah45mwlmwnnf27pjyes47g3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35qztlswdxs', // 6 cryptocom
+      'bchtest:zpmqp8rrcpmv7982c30se4thsxqutf9ukxxpeezc7zmee02k0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpg3vls4w7za2ms53dx0a2c75xx7dhyluf2ljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5wpfc5jfu22ah45mwlmwnnf27pjyes47g3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35q3qaj7l4j', // 7 bitfinex
+      'bchtest:zpmqp8rrcpmv798jg0476ylt7vqvkk7mj2lew5rtzcrangzk0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpfxgd4x67sfe32ml2eqganm2pafn8m0j0xljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5wpfc5jfu22ah45mwlmwnnf27pjyes47g3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35qzgqsjc4n', // 8 exmo
+      'bchtest:zpmqp8rrcpmv79xq2ydxj4lw7u895m46zx5ue73jeputdazk0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpfjnva4v4965v4c08jv6w6txeffayg4ul7ljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5wpfc5jfu22ah45mwlmwnnf27pjyes47g3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35q48zneja2', // 9 independentreserve
+      'bchtest:zpmqp8rrcpmv79yfk8slu6j6jxd7ywnpwryyanaeuqxaq0zk0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpf7u4u8nvruhxjgzxvn5u8ssaj9dqlwxq6ljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5wpfc5jfu22ah45mwlmwnnf27pjyes47g3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35qpfdp2myz', // 10 okx_usdc
+      'bchtest:zpmqp8rrcpmv79yuhdkccqtgj9ydnfxw092lckzyruj3vg6k0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpfe5gvgk0wg9elzjc9dlnrwm26hyxmwh32ljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5wpfc5jfu22ah45mwlmwnnf27pjyes47g3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35qcf2lzkx9', // 11 kucoin_usdc
+      'bchtest:zpmqp8rrcpmv79yswz5fy75dfhenatjangy9fp3eacmh222k0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpg2a4rhktlkv5lwredurwhunfqs4qjky2vljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5wpfc5jfu22ah45mwlmwnnf27pjyes47g3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35qnhljyepe', // 12 bybit
+      'bchtest:zpmqp8rrcpmv79pz45sxmugt44natxhppzgsrycc3v9wd42k0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpgatkg4r344qnqqd2hzre6v5vvyyulftqqljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5wpfc5jfu22ah45mwlmwnnf27pjyes47g3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35q7f9hq6ak', // 13 htx
     ],
-    SLOT_CATEGORY: '573e119754a82c68ed01968bfd39365238c511c7a44bcabf43b387c8d709ed25',
+    // v22: scripthashes for Fulcrum subscription (P2S addresses not yet
+    // decoded by Fulcrum 2.x). Each is sha256(slot_LB) reversed-bytes hex.
+    SLOT_SCRIPTHASHES: [
+      '308556302d5ec33a19bb9936639d9957894e93c45fc005ae5439c9d197d4c51d', // 1 kraken
+      'ab5e65ea632c09475ee7fb82ed503eb1f5d92b4702d2f9fd951cc73a594f535d', // 2 coinbase
+      '4f9171ef60641b1849bf8390ca204a3960d3ce213af89381bddf54d4326f7f58', // 3 gemini
+      '381ef3dace49ea14aa96edebc4f93f8e36ba5257dcde08256045c98613b5e180', // 4 binance_us
+      '869f2104a4a7a7220be11206a4c7b3fd9700961aad4e06a2414c1510742db178', // 5 bitstamp
+      '8d6ee5d6badb23b2670381a89bcd7416c31f47ce79e365f30b2ac022e99a6852', // 6 cryptocom
+      '0a115a9e2d7cac148d01b56fabf19814e104d31cc3cca1179fa52504e8b77d43', // 7 bitfinex
+      '6b99293784c41b6c5477df04cb214d5855a416f9966b408a771d5c861b61691f', // 8 exmo
+      '52095bab93aa9df7a381cda42e06043bce437fe0e64d62e4ddd3063caad36515', // 9 independentreserve
+      'c61b004d514befaf8b6d017f74c690ec8b70f7abc137e8a23028279a059d58b1', // 10 okx_usdc
+      'c331783b3e021feeb1644689844a6e6be361d711464825038caabad45994ff82', // 11 kucoin_usdc
+      '88f59868c03699baf69276fef8fe8c944e0c0702c75983f4b7f4850bd754c8a6', // 12 bybit
+      '8ee4c472e41499276db3ecbf44ac44a32c2052c5f852a662f88a6e6a75bc0c55', // 13 htx
+    ],
+    SLOT_CATEGORY: 'f701fd8bf84c35c8adeb3ba268f065736805dac9c148571340176f78797a7929',
     // v17: per-source publisher pkhs (in source-id order). Used by stats.html
     // to map a decoded slot commit's pkh to a slot index (since v17 commits
     // no longer carry sourceId).
@@ -69,7 +87,7 @@
     CASHADDR_PREFIX: 'bchtest',
     STALE_SEC: 300,
     STRIDE_FLOOR_SEC: 60,
-    DEPLOYED_AT_SEC: Math.floor(new Date('2026-06-02T12:23:55.000Z').getTime() / 1000),
+    DEPLOYED_AT_SEC: Math.floor(new Date('2026-06-02T18:09:00.000Z').getTime() / 1000),
     EXPECTED_SATS_PER_CYCLE: 2000n + (20000n + 2n * 1500n) / 13n, // ~3769
     SOURCES: [
       { id: 1,  name: 'kraken' },
@@ -135,9 +153,9 @@
 
   // ─── Commit decoders ─────────────────────────────────────────────────
   function decodeOracleCommit(hex) {
-    // v20: 18-byte commit, no version byte. Layout:
-    //   seq(4) + lastTs(4) + median(8) + activeCount(2)
-    if (hex.length !== 36) return null; // 18 B × 2 hex chars
+    // v22: 16-byte commit, no version, no activeCount. Layout:
+    //   seq(4) + lastTs(4) + median(8)
+    if (hex.length !== 32) return null; // 16 B × 2 hex chars
     const b = hexToBytes(hex);
     const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
     const scaled = dv.getBigUint64(8, true);
@@ -146,21 +164,21 @@
       lastTs: dv.getUint32(4, true),
       medianPrice: scaled,
       medianUsd: Number(scaled) / 1e8,
-      activeCount: dv.getUint16(16, true),
+      activeCount: 13,  // v22: activeCount dropped; consumers see synthetic constant
     };
   }
   function decodeSlotCommit(hex) {
-    // v19: 36-byte commit. Layout: pkh(20) + price(8) + ts(4) + seq(4).
-    // No version byte (v18's 0x75 dropped as redundant). Caller derives
-    // sourceId by matching pkh against the manifest's per-source pkh table.
-    if (hex.length !== 72) return null; // 36 B × 2 hex chars
+    // v22: 16-byte commit. Layout: price(8) + ts(4) + seq(4).
+    // No pkh field — pkh lives in the slot's P2S locking_bytecode literal.
+    // Caller derives sourceId by matching the UTXO's address against the
+    // manifest's per-source SLOT_ADDRS table (positional).
+    if (hex.length !== 32) return null; // 16 B × 2 hex chars
     const b = hexToBytes(hex);
     const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
     return {
-      pkh: b.slice(0, 20),
-      price: dv.getBigUint64(20, true),
-      timestamp: dv.getUint32(28, true),
-      cycleSeq: dv.getUint32(32, true),
+      price: dv.getBigUint64(0, true),
+      timestamp: dv.getUint32(8, true),
+      cycleSeq: dv.getUint32(12, true),
     };
   }
 
@@ -234,14 +252,23 @@
     // endpoint's mode. On reconnect or endpoint switch, the watch is
     // automatically re-established in whatever mode the new endpoint uses.
     async subscribeAndFetch(address, params, onChange) {
-      this.watches.set(address, { params, onChange });
+      this.watches.set(address, { params, onChange, kind: 'address' });
       await this.connect();
-      // attachWatch was called from setupWatches() during connect, so by now
-      // either a subscribe was issued or a poll timer is running. Do an
-      // immediate seed fetch so the caller can render before the first push
-      // (or first poll tick) arrives.
       try {
         const utxos = await this.request('blockchain.address.listunspent', address, ...params);
+        onChange(utxos);
+      } catch (e) { /* connection path retries; ignore */ }
+    }
+
+    // Like subscribeAndFetch but addresses Fulcrum by scripthash directly —
+    // required for P2S (CHIP-2024-12) UTXOs since Fulcrum 2.x does NOT yet
+    // decode `bchtest:z…` style P2S cashaddrs (it returns "Invalid address").
+    // Compute scripthash = sha256(lockingBytecode) reversed; pass hex here.
+    async subscribeAndFetchByScripthash(scripthashHex, params, onChange) {
+      this.watches.set('sh:' + scripthashHex, { params, onChange, kind: 'scripthash', scripthashHex });
+      await this.connect();
+      try {
+        const utxos = await this.request('blockchain.scripthash.listunspent', scripthashHex, ...params);
         onChange(utxos);
       } catch (e) { /* connection path retries; ignore */ }
     }
@@ -313,26 +340,34 @@
       this.stopPolling(); // belt-and-braces: clear any leftover polls
       const mode = this.currentMode();
       if (mode === 'subscribe') {
-        for (const [addr, { params, onChange }] of this.watches) {
+        for (const [key, w] of this.watches) {
           try {
-            await this.request('blockchain.address.subscribe', addr);
-            // Refetch on reconnect so the caller refreshes whatever was
-            // missed during the gap. Cheap; same call we'd do on push.
-            this.request('blockchain.address.listunspent', addr, ...params)
-              .then(onChange).catch(() => {});
+            if (w.kind === 'scripthash') {
+              await this.request('blockchain.scripthash.subscribe', w.scripthashHex);
+              this.request('blockchain.scripthash.listunspent', w.scripthashHex, ...w.params)
+                .then(w.onChange).catch(() => {});
+            } else {
+              await this.request('blockchain.address.subscribe', key);
+              this.request('blockchain.address.listunspent', key, ...w.params)
+                .then(w.onChange).catch(() => {});
+            }
           } catch (e) { /* connection path retries */ }
         }
       } else if (mode === 'poll') {
         const pollMs = this.currentEndpoint().pollMs ?? 12000;
-        for (const [addr, { params, onChange }] of this.watches) {
-          // Kick off one fetch right away; setInterval handles the rest.
-          this.request('blockchain.address.listunspent', addr, ...params)
-            .then(onChange).catch(() => {});
-          const id = setInterval(() => {
-            this.request('blockchain.address.listunspent', addr, ...params)
-              .then(onChange).catch(() => {});
-          }, pollMs);
-          this.pollTimers.set(addr, id);
+        for (const [key, w] of this.watches) {
+          const doFetch = () => {
+            if (w.kind === 'scripthash') {
+              this.request('blockchain.scripthash.listunspent', w.scripthashHex, ...w.params)
+                .then(w.onChange).catch(() => {});
+            } else {
+              this.request('blockchain.address.listunspent', key, ...w.params)
+                .then(w.onChange).catch(() => {});
+            }
+          };
+          doFetch();
+          const id = setInterval(doFetch, pollMs);
+          this.pollTimers.set(key, id);
         }
       }
     }
@@ -396,6 +431,13 @@
         const watch = this.watches.get(addr);
         if (watch) {
           this.request('blockchain.address.listunspent', addr, ...watch.params)
+            .then(watch.onChange).catch(() => {});
+        }
+      } else if (msg.method === 'blockchain.scripthash.subscribe' && Array.isArray(msg.params)) {
+        const [sh] = msg.params;
+        const watch = this.watches.get('sh:' + sh);
+        if (watch) {
+          this.request('blockchain.scripthash.listunspent', sh, ...watch.params)
             .then(watch.onChange).catch(() => {});
         }
       }

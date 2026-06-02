@@ -28,7 +28,7 @@ use crate::chain::consts::{
 use crate::chain::oracle_commit::{encode_oracle_commit, OracleState};
 use crate::chain::ticker_commit::encode_ticker_commit;
 use crate::covenant::locking::p2sh32_locking_bytecode;
-use crate::covenant::redeem::{redeem_publisher_slot, RedeemScriptError};
+use crate::covenant::redeem::RedeemScriptError;
 use crate::crypto::{double_sha256, sign_ecdsa, KeyError};
 use crate::tx::encode::{
     encode_tx, Input, Output, TokenPrefix, Tx, TxOutpoint, DEFAULT_SEQUENCE,
@@ -52,8 +52,8 @@ pub struct CycleSlotUtxo {
     pub price: u64,
     /// Last attested timestamp (u32 LE) — contributes to median timestamp.
     pub timestamp: u32,
-    /// Raw 39-byte slot commit, copied into the output verbatim (covenant invariant).
-    pub commitment: [u8; 36],
+    /// Raw 16-byte slot commit, copied into the output verbatim (covenant invariant).
+    pub commitment: [u8; 16],
 }
 
 /// Oracle UTXO being spent (minting NFT).
@@ -81,11 +81,11 @@ pub struct UpdateArgs<'a> {
     pub slot_category_wire_le: [u8; 32],
     pub oracle_redeem_script: &'a [u8],
     pub ticker_redeem_script: &'a [u8],
-    /// v17: pkh → cnHash mapping for all 13 sources. The builder derives each
-    /// slot input's redeem from `redeem_publisher_slot(cn_hash, oracle_cat)`
-    /// where cn_hash is looked up from the slot commit's pkh. v16 used the
-    /// commit's sourceId field directly; v17 dropped sourceId from the commit.
-    pub pkh_to_cn_hash: &'a [([u8; 20], [u8; 20])],
+    /// v22: pkh → slot locking bytecode (= P2S specialized body) lookup.
+    /// Daemon pre-computes via `specialize_slot_body(pkh, cn_hash, oracle_cat_hash)`
+    /// once at startup. The builder uses these directly as slot output LBs and
+    /// as the sighash `coveredScript` for slot input verification.
+    pub pkh_to_locking: &'a [([u8; 20], Vec<u8>)],
     pub new_seq: u32,
 }
 
@@ -102,7 +102,7 @@ pub enum UpdateError {
     InsufficientFunds { have: u64, need: u64 },
     #[error("crypto: {0}")]
     Crypto(#[from] KeyError),
-    #[error("slot commit pkh {pkh_hex} not in pkh→cnHash map (manifest mismatch?)")]
+    #[error("slot pkh {pkh_hex} not in pkh→locking map (manifest mismatch?)")]
     UnknownSlotPkh { pkh_hex: String },
     #[error("redeem build failure: {0}")]
     Redeem(#[from] RedeemScriptError),
@@ -158,14 +158,9 @@ pub fn build_oracle_update_tx(args: &UpdateArgs) -> Result<Vec<u8>, UpdateError>
     // TS daemon uses `Math.floor((len - 1) / 2)` for prices — lower-middle on even arrays.
     let claimed_median = price_values[(price_values.len() - 1) / 2];
 
-    // ─── 3. Compute new activeCount (0.9× decay, floor at THR_FLOOR or current) ──
-    let decayed = (args.oracle_utxo.prev_state.active_count as u64) * 9 / 10;
-    let n = slots.len() as u64;
-    let mut new_active = n.max(decayed);
-    if new_active < THR_FLOOR as u64 {
-        new_active = THR_FLOOR as u64;
-    }
-    let new_active = new_active.min(u16::MAX as u64) as u16;
+    // ─── 3. (T2 — v22) activeCount field dropped entirely. The Oracle covenant's
+    //         threshold gate collapses to constant `numAttestations >= 7` because
+    //         `oldActive*5/10 ≤ 6 < 7` always. Drop computation + storage.
 
     // ─── 4. Funder balance (gate on worst-case hint; actual fee comes from
     //         the dynamic-size pass below) ─────────────────────────────────
@@ -196,32 +191,25 @@ pub fn build_oracle_update_tx(args: &UpdateArgs) -> Result<Vec<u8>, UpdateError>
         args.oracle_redeem_script,
     );
 
-    // ─── 7. Build per-slot redeems + consume unlocks (v18: each slot's
-    //         redeem differs by its baked-in cnHash, looked up from each
-    //         slot's pkh via the manifest-derived pkh→cnHash table.
-    //         v18: covenant takes hash160(oracleCat) instead of full 32 B). ──
-    let oracle_cat_hash = crate::crypto::hash160(&args.oracle_category_wire_le);
-    let per_slot_redeems: Vec<Vec<u8>> = slots
+    // ─── 7. v22: per-slot lockings come from the daemon's pre-computed
+    //         specialize_slot_body table (pkh → Vec<u8>). Each LB IS the
+    //         slot's compiled body bytes (P2S, no hash wrapper). Used both
+    //         for slot output LB and for sighash coveredScript.
+    let per_slot_lockings: Vec<Vec<u8>> = slots
         .iter()
         .map(|s| {
-            let cn_hash = args
-                .pkh_to_cn_hash
+            args.pkh_to_locking
                 .iter()
                 .find(|(p, _)| *p == s.pkh)
-                .map(|(_, c)| *c)
+                .map(|(_, lb)| lb.clone())
                 .ok_or_else(|| UpdateError::UnknownSlotPkh {
                     pkh_hex: hex::encode(s.pkh),
-                })?;
-            Ok(redeem_publisher_slot(&cn_hash, &oracle_cat_hash)?)
+                })
         })
         .collect::<Result<_, UpdateError>>()?;
-    let per_slot_consume_unlocks: Vec<Vec<u8>> = per_slot_redeems
-        .iter()
-        .map(|r| build_consume_unlock_script(r))
-        .collect();
-    let per_slot_lockings: Vec<[u8; 35]> = per_slot_redeems
-        .iter()
-        .map(|r| p2sh32_locking_bytecode(r))
+    // v22: consume unlock is just the function selector — no redeem reveal under P2S.
+    let per_slot_consume_unlocks: Vec<Vec<u8>> = (0..slots.len())
+        .map(|_| build_consume_unlock_script())
         .collect();
 
     // ─── 8. Build outputs ──────────────────────────────────────────────────
@@ -229,13 +217,11 @@ pub fn build_oracle_update_tx(args: &UpdateArgs) -> Result<Vec<u8>, UpdateError>
         seq: args.new_seq,
         last_ts: claimed_new_ts,
         median_usd: claimed_median,
-        active_count: new_active,
     });
     let new_ticker_commit = encode_ticker_commit(&OracleState {
         seq: args.new_seq,
         last_ts: claimed_new_ts,
         median_usd: claimed_median,
-        active_count: 0, // ignored by ticker commit encoder
     });
 
     let oracle_locking = p2sh32_locking_bytecode(args.oracle_redeem_script);
@@ -259,7 +245,7 @@ pub fn build_oracle_update_tx(args: &UpdateArgs) -> Result<Vec<u8>, UpdateError>
     for (i, s) in slots.iter().enumerate() {
         outputs.push(Output {
             value: s.satoshis,
-            locking_script: per_slot_lockings[i].to_vec(),
+            locking_script: per_slot_lockings[i].clone(),
             token: Some(TokenPrefix {
                 category_le: args.slot_category_wire_le,
                 capability: CAPABILITY_MUTABLE,
@@ -344,7 +330,7 @@ pub fn build_oracle_update_tx(args: &UpdateArgs) -> Result<Vec<u8>, UpdateError>
     for (i, s) in slots.iter().enumerate() {
         sources.push(SpentOutput {
             value: s.satoshis,
-            locking_script: per_slot_lockings[i].to_vec(),
+            locking_script: per_slot_lockings[i].clone(),
             token: Some(TokenPrefix {
                 category_le: args.slot_category_wire_le,
                 capability: CAPABILITY_MUTABLE,
@@ -470,11 +456,10 @@ fn build_update_unlock_script(
     s
 }
 
-/// Compose PublisherSlot.consume unlock script (no args, fn index 1 of 2).
-fn build_consume_unlock_script(redeem_script: &[u8]) -> Vec<u8> {
-    let mut s = Vec::with_capacity(redeem_script.len() + 8);
+/// Compose v22 PublisherSlot.consume unlock script (no args; P2S — no redeem reveal).
+fn build_consume_unlock_script() -> Vec<u8> {
+    let mut s = Vec::with_capacity(4);
     push_int(&mut s, 1); // function selector for consume
-    push_data(&mut s, redeem_script);
     s
 }
 
@@ -483,10 +468,8 @@ mod tests {
     use super::*;
 
     fn slot(pkh_byte: u8, ts: u32, price: u64) -> CycleSlotUtxo {
-        // v19: 36-byte commit (no version byte). Per-slot redeem derived from
-        // pkh via the pkh_to_cn_hash lookup table provided in UpdateArgs.
-        let mut commitment = [0u8; 36];
-        commitment[0..20].copy_from_slice(&[pkh_byte; 20]);
+        // v22: 16-byte commit (no version byte, no pkh — pkh in LB).
+        let commitment = [0u8; 16];
         CycleSlotUtxo {
             txid_be: [0; 32],
             vout: 0,
@@ -507,7 +490,6 @@ mod tests {
                 seq: 100,
                 last_ts: 1_780_000_000,
                 median_usd: 350_000_000,
-                active_count: 10,
             },
         }
     }
@@ -522,16 +504,15 @@ mod tests {
             .collect()
     }
 
-    /// Build a pkh→cnHash lookup table covering the unique pkhs in the test
-    /// slots. cnHash bytes are deterministic but arbitrary (just need to be
-    /// stable per pkh so per-slot redeems can be derived).
-    fn pkh_to_cn_hash_for(slots: &[CycleSlotUtxo]) -> Vec<([u8; 20], [u8; 20])> {
-        let mut out: Vec<([u8; 20], [u8; 20])> = Vec::new();
+    /// v22: build a pkh→locking lookup. The "locking" is just deterministic
+    /// dummy bytes per pkh (200 B fixed) — tests don't exercise script semantics.
+    fn pkh_to_locking_for(slots: &[CycleSlotUtxo]) -> Vec<([u8; 20], Vec<u8>)> {
+        let mut out: Vec<([u8; 20], Vec<u8>)> = Vec::new();
         for s in slots {
             if !out.iter().any(|(p, _)| *p == s.pkh) {
-                let mut cn = [0u8; 20];
-                cn[0] = s.pkh[0].wrapping_add(0x40); // arbitrary derivation
-                out.push((s.pkh, cn));
+                let mut lb = vec![0u8; 200];
+                lb[0] = s.pkh[0]; // arbitrary derivation to make each unique
+                out.push((s.pkh, lb));
             }
         }
         out
@@ -541,7 +522,7 @@ mod tests {
         cycle_slots: &'a [CycleSlotUtxo],
         funder_utxos: &'a [FunderUtxo],
         redeem: &'a [u8],
-        pkh_to_cn_hash: &'a [([u8; 20], [u8; 20])],
+        pkh_to_locking: &'a [([u8; 20], Vec<u8>)],
     ) -> UpdateArgs<'a> {
         UpdateArgs {
             oracle_utxo: oracle_utxo(),
@@ -554,7 +535,7 @@ mod tests {
             slot_category_wire_le: [0xff; 32],
             oracle_redeem_script: redeem,
             ticker_redeem_script: redeem,
-            pkh_to_cn_hash,
+            pkh_to_locking,
             new_seq: 101,
         }
     }
@@ -564,7 +545,7 @@ mod tests {
         let slots: Vec<CycleSlotUtxo> = (0..6).map(|i| slot(i as u8, 1_780_000_100, 100)).collect();
         let funders = funders(1, 100_000);
         let redeem = vec![0u8; 500];
-        let pkh_map = pkh_to_cn_hash_for(&slots);
+        let pkh_map = pkh_to_locking_for(&slots);
         let args = dummy_args(&slots, &funders, &redeem, &pkh_map);
         assert!(matches!(
             build_oracle_update_tx(&args),
@@ -578,7 +559,7 @@ mod tests {
         slots[6].pkh = slots[0].pkh; // duplicate
         let funders = funders(1, 100_000);
         let redeem = vec![0u8; 500];
-        let pkh_map = pkh_to_cn_hash_for(&slots);
+        let pkh_map = pkh_to_locking_for(&slots);
         let args = dummy_args(&slots, &funders, &redeem, &pkh_map);
         assert!(matches!(
             build_oracle_update_tx(&args),
@@ -592,7 +573,7 @@ mod tests {
         let slots: Vec<CycleSlotUtxo> = (0..7).map(|i| slot(i as u8, 1_780_000_005, 100)).collect();
         let funders = funders(1, 100_000);
         let redeem = vec![0u8; 500];
-        let pkh_map = pkh_to_cn_hash_for(&slots);
+        let pkh_map = pkh_to_locking_for(&slots);
         let args = dummy_args(&slots, &funders, &redeem, &pkh_map);
         assert!(matches!(
             build_oracle_update_tx(&args),
@@ -606,7 +587,7 @@ mod tests {
         let slots: Vec<CycleSlotUtxo> = (0..7).map(|i| slot(i as u8, 1_780_000_100, 100)).collect();
         let funders = funders(1, 10_000);
         let redeem = vec![0u8; 500];
-        let pkh_map = pkh_to_cn_hash_for(&slots);
+        let pkh_map = pkh_to_locking_for(&slots);
         let args = dummy_args(&slots, &funders, &redeem, &pkh_map);
         assert!(matches!(
             build_oracle_update_tx(&args),
@@ -621,7 +602,7 @@ mod tests {
             .collect();
         let funders = funders(1, 100_000);
         let redeem = vec![0u8; 500];
-        let pkh_map = pkh_to_cn_hash_for(&slots);
+        let pkh_map = pkh_to_locking_for(&slots);
         let args = dummy_args(&slots, &funders, &redeem, &pkh_map);
         let bytes = build_oracle_update_tx(&args).unwrap();
         assert!(!bytes.is_empty());
@@ -637,7 +618,7 @@ mod tests {
             .collect();
         let funders = funders(1, 100_000);
         let redeem = vec![0u8; 500];
-        let pkh_map = pkh_to_cn_hash_for(&slots);
+        let pkh_map = pkh_to_locking_for(&slots);
         let args = dummy_args(&slots, &funders, &redeem, &pkh_map);
         let bytes = build_oracle_update_tx(&args).unwrap();
         // v17 BUDGET_PAD_LEN = 64 → length byte 0x40 followed by 64 zero bytes.
@@ -678,7 +659,7 @@ mod tests {
         slots.extend(others);
         let funders = funders(1, 100_000);
         let redeem = vec![0u8; 500];
-        let pkh_map = pkh_to_cn_hash_for(&slots);
+        let pkh_map = pkh_to_locking_for(&slots);
         let args = dummy_args(&slots, &funders, &redeem, &pkh_map);
         // If sort works correctly, build doesn't error.
         let _bytes = build_oracle_update_tx(&args).unwrap();

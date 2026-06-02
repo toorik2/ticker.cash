@@ -1,109 +1,110 @@
 pragma cashscript >= 0.13.0;
 
-// PublisherSlot v20 — drop length checks + consensus-redundant tokenAmount pins.
+// PublisherSlot v22 — fully specialized P2S slot (C4 + NamespaceSlot + slot
+//                     does pkh-sort).
 //
-// v19 → v20 changes (commit format unchanged at 36 B):
+// ── v20 → v22 ────────────────────────────────────────────────────────
 //
-//   S1  DROP-PRICE-LENGTH        `require(price.length == 8)` removed.
-//                                Wrong-length price → newCommit length mismatch →
-//                                output equality fails → self-DoS only.
+//   A22 COMPOSE      cnHash + oracleCatHash + publisherPkh all inlined as
+//                    script literals. ZERO constructor args. Each of 13
+//                    publishers compiles to its own template (13 distinct
+//                    P2S fingerprints). Commit shrinks 36 → 16 B (pkh moves
+//                    out of commit, into the script body).
 //
-//   S2  DROP-OLDCOMMIT-LENGTH    `require(oldCommit.length == 36)` removed.
-//                                Wrong-length commit fails slice() on the
-//                                cycleSeq read (offset 32..36) → safe abort.
-//                                Slot is only ever written by attest() which
-//                                emits 36 B by construction; chain origin pins.
+//   AGENT3 SORT      consume() verifies pkh-monotonicity vs left neighbor
+//                    (reads tx.inputs[idx-1].lockingBytecode at the same
+//                    template-invariant offset). Oracle drops its slot-walk
+//                    pkh-sort gate in return.
 //
-//   S6  DROP-TOKENAMOUNT-PINS    `require(tx.outputs[idx].tokenAmount == 0)`
-//                                removed from both attest() and consume().
-//                                Consensus enforces CashTokens conservation
-//                                per-category. Slot category was minted with
-//                                zero FT amount (NFTs only). Funder inputs
-//                                are non-token. So no FT can ever enter an
-//                                attest tx → conservation pins output FT to 0.
+//   AGENT3 CAT-DROP  consume()'s parent-Oracle check (hash160(catId) ==
+//                    oracleCatHash literal + minting capability) is the only
+//                    identity gate; Oracle's per-iter `slotCategory + 0x01`
+//                    check is defensive only and is dropped from Oracle.
+//                    Trust intact: slot LB is unique per genesis (template +
+//                    pkh literal); no rogue slot UTXOs can exist.
 //
-// All v15..v19 audit-fix gates retained that aren't consensus-redundant:
-//   replay protection          int(cycleSeq) > int(oldCommit.slice(32, 36))
-//   value pin                  output[idx].value == input[idx].value
-//   identity gate              hash160(publisherPubkey) == publisherPkh
-//   output equality (LB/cat/commit)
+// ── Slot commit (16 B, no version byte, no pkh) ──────────────────────
+//   [0..8)   price        u64 LE
+//   [8..12)  timestamp    u32 LE
+//   [12..16) cycleSeq     u32 LE
 //
-// PUBSLOT-DER-SIG-LENGTH-FORK accepted-latent (same as v15..v19).
+// ── Trust model unchanged from v20 ───────────────────────────────────
+//   1. Identity: hash160(publisherPubkey) == publisherPkh (LITERAL)
+//   2. Replay:   cycleSeq > oldCommit.slice(12,16)
+//   3. Sig:      checkDataSig over (price+ts+pkh+seq+cnHash[LITERAL])
+//   4. Output:   LB/cat/commit/value pinned at same index
+//   5. Sybil:    pkh-monotonic via consume()'s cross-input introspection
+//                of tx.inputs[idx-1].lockingBytecode (skip first slot at idx=1)
 //
-// ── Trust model unchanged ──────────────────────────────────────────────
-// 7-of-13 publisher quorum. Sybil resistance via distinct-publisherPkh
-// check in Oracle.update (now via single 21-B BIN2NUM — see v20 Oracle).
+// ── Genesis ──────────────────────────────────────────────────────────
+// Per source, mint 1 slot UTXO whose LB is this exact compiled body (P2S).
+// 13 sources = 13 distinct P2S fingerprints. The build pipeline produces
+// 13 artifacts from this template, each with publisherPkh + cnHash
+// substituted for the source's actual values.
 //
-// ── Genesis (unchanged from v19) ───────────────────────────────────────
-//   1. Spend designated non-token P2PKH outpoint X (genesis input).
-//      slotCategoryReversed = HASH256(X).reverse()
-//   2. Create 13 outputs — ONE PER SOURCE — each with:
-//        - lockingBytecode = P2SH-32 of
-//          PublisherSlot(cnHash_i, hash160(oracleCategoryReversed))
-//        - tokenCategory   = slotCategoryReversed + 0x01 (mutable)
-//        - nftCommitment   = publisherPkh(20) + 0x00..(16)   ← 36 B
-//   3. NO other token outputs of this category.
-//
-// ── Slot commitment (36 B, no version byte — unchanged from v19) ───────
-//   [0..20)  publisherPkh             20 B   IMMUTABLE — pinned at genesis
-//   [20..28) price                     8 B   rewritten by attest()
-//   [28..32) timestamp                 4 B   rewritten by attest()
-//   [32..36) cycleSeq                  4 B   rewritten by attest()
+// ── Per-template offset invariant ────────────────────────────────────
+// cashc emits the body deterministically — only the 3 literal byte ranges
+// differ across the 13 templates. The publisherPkh literal sits at body
+// bytes [8..28); the byte at offset 28 is template-invariant. The slot
+// pkh-sort in consume() uses slice(8, 29) — 21 bytes covering pkh + one
+// invariant suffix byte. Relative ordering by pkh is preserved because the
+// shared suffix is identical across all 13 templates.
 
-contract PublisherSlot(
-    bytes20 cnHash,                 // hash160(canonical serverName) for THIS source
-    bytes20 oracleCatHash           // hash160(oracleCategoryReversed) — pin Oracle's category
-) {
+contract PublisherSlot() {
     function attest(
-        bytes   price,             // 8 B u64 LE (length not pinned; self-DoS if wrong)
-        bytes   timestamp,         // 4 B u32 LE — publisher's observation time
-        pubkey  publisherPubkey,   // 33 B publisher pubkey (must match slot)
-        datasig publisherSig,      // ECDSA-DER (accepted-latent)
-        bytes   cycleSeq           // 4 B u32 LE — Oracle cycle this attests to
+        bytes   price,
+        bytes   timestamp,
+        pubkey  publisherPubkey,
+        datasig publisherSig,
+        bytes   cycleSeq
     ) {
-        // ── 1. Read slot identity from commitment ─────────────────────
         int idx = this.activeInputIndex;
         bytes oldCommit = tx.inputs[idx].nftCommitment;
-        // S2: oldCommit.length check dropped (safe abort on mismatch).
 
-        bytes20 publisherPkh = oldCommit.slice(0, 20);
-
-        // ── 2. Identity gate: caller is the slot's pinned publisher ───
+        // ── 1. Identity gate — pkh is a SCRIPT LITERAL ──
+        bytes20 publisherPkh = 0xDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF;
         require(hash160(publisherPubkey) == publisherPkh);
 
-        // ── 2b. cycleSeq monotonicity (natural cycleSeq MSB enforcement) ─
-        require(int(cycleSeq) > int(oldCommit.slice(32, 36)));
+        // ── 2. cycleSeq monotonicity (commit shrank; offset 12..16) ──
+        require(int(cycleSeq) > int(oldCommit.slice(12, 16)));
 
-        // ── 3. Publisher sig over committed payload (cnHash directly) ─
-        // S1: price.length check dropped (self-DoS if wrong).
-        bytes pubMessage = price + timestamp + publisherPkh + cycleSeq + cnHash;
+        // ── 3. Publisher sig — cnHash is also a SCRIPT LITERAL ──
+        bytes pubMessage =
+            price + timestamp + publisherPkh + cycleSeq +
+            0xCAFEBABECAFEBABECAFEBABECAFEBABECAFEBABE;     // cnHash literal
         require(checkDataSig(publisherSig, pubMessage, publisherPubkey));
 
-        // ── 4. Re-emit slot at same index, identity preserved ─────────
-        bytes newCommit = publisherPkh + price + timestamp + cycleSeq;
+        // ── 4. Re-emit slot (newCommit shrinks to 16 B) ──
+        bytes newCommit = price + timestamp + cycleSeq;
         require(tx.outputs[idx].lockingBytecode == tx.inputs[idx].lockingBytecode);
         require(tx.outputs[idx].tokenCategory == tx.inputs[idx].tokenCategory);
         require(tx.outputs[idx].nftCommitment == newCommit);
         require(tx.outputs[idx].value == tx.inputs[idx].value);
-        // S6: tokenAmount==0 pin dropped (consensus conservation enforces).
     }
 
-    // ── consume() — Oracle.update consumes slot, re-emits unchanged ────
     function consume() {
         int idx = this.activeInputIndex;
 
-        // Oracle at input[0]: split tokenCategory into 32 B category-id +
-        // 1 B capability. Verify capability is minting (0x02) AND the
-        // category hashes to the pinned oracleCatHash.
+        // ── Parent Oracle pin: input[0] is Oracle with minting capability,
+        //    and its category-id hashes to the pinned oracleCatHash literal.
         bytes catId, bytes capability = tx.inputs[0].tokenCategory.split(32);
         require(capability == 0x02);
-        require(hash160(catId) == oracleCatHash);
+        require(hash160(catId) == 0xFEEDFACEFEEDFACEFEEDFACEFEEDFACEFEEDFACE);
 
-        // Re-emit slot identically at matching output index.
+        // ── Pkh-monotone vs left neighbor (skip first slot at idx=1) ──
+        // slice(8,29) covers pkh + 1 template-invariant suffix byte.
+        // Across 13 templates the suffix byte is identical, so relative
+        // ordering by pkh is preserved.
+        if (idx > 1) {
+            int myPkhInt   = int(tx.inputs[idx].lockingBytecode.slice(8, 29));
+            int prevPkhInt = int(tx.inputs[idx - 1].lockingBytecode.slice(8, 29));
+            require(myPkhInt > prevPkhInt);
+        }
+
+        // ── Re-emit slot identically ──
         require(tx.outputs[idx].lockingBytecode == tx.inputs[idx].lockingBytecode);
         require(tx.outputs[idx].tokenCategory == tx.inputs[idx].tokenCategory);
         require(tx.outputs[idx].nftCommitment == tx.inputs[idx].nftCommitment);
         require(tx.outputs[idx].value == tx.inputs[idx].value);
-        // S6: tokenAmount==0 pin dropped (consensus conservation enforces).
     }
 }

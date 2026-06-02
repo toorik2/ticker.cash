@@ -154,7 +154,7 @@
 const { ElectrumWS, decodeOracleCommit, decodeSlotCommit, cashaddrEncodeP2PKH,
         bytesToHex, CONSTANTS } = window.TickerClient;
 
-const { ORACLE_ADDR, ORACLE_CATEGORY, SLOT_ADDRS, SLOT_CATEGORY,
+const { ORACLE_ADDR, ORACLE_CATEGORY, SLOT_ADDRS, SLOT_SCRIPTHASHES, SLOT_CATEGORY,
         CASHADDR_PREFIX, STALE_SEC, STRIDE_FLOOR_SEC, DEPLOYED_AT_SEC,
         EXPECTED_SATS_PER_CYCLE, SOURCES, FULCRUM_WSS_POOL } = CONSTANTS;
 
@@ -444,38 +444,30 @@ function onOracleChange(utxos){
 // decoded sourceId. Decode the per-address UTXO list, update rows, and
 // lazily subscribe to any newly-observed publisher P2PKH so balances
 // stay live.
-function onSlotChange(utxos){
+function onSlotChange(utxos, slot){
+  // v22: pkh no longer in commit — caller passes the slot index (position
+  // in SLOT_ADDRS), and pkh is looked up from PUBLISHER_PKHS at that index.
   state.fetchedAt = Math.floor(Date.now()/1000);
-  const decoded = [];
+  const pkhHex = CONSTANTS.PUBLISHER_PKHS[slot];
+  if (!pkhHex) { pushError('slot index out of range: ' + slot); return; }
+  const pkhBytes = hexToBytes(pkhHex);
   for (const u of utxos) {
     if (!u.token_data || u.token_data.category !== SLOT_CATEGORY) continue;
     if (!u.token_data.nft || !u.token_data.nft.commitment) continue;
     if (u.token_data.nft.capability !== 'mutable') continue;
-    const c = decodeSlotCommit(u.token_data.nft.commitment);
-    if (c) decoded.push(c);
-  }
-  const seen = new Set();
-  for (const d of decoded) {
-    // v17 commit no longer carries sourceId — look it up by pkh against the
-    // per-source publisher list shipped in CONSTANTS.PUBLISHER_PKHS.
-    const pkhHex = bytesToHex(d.pkh);
-    const slot = (CONSTANTS.PUBLISHER_PKHS || []).indexOf(pkhHex);
-    if (slot < 0) { pushError('unknown publisher pkh ' + pkhHex.slice(0, 12)); continue; }
-    if (seen.has(slot)) { pushError('dup slot ' + slot); continue; }
-    seen.add(slot);
+    const d = decodeSlotCommit(u.token_data.nft.commitment);
+    if (!d) continue;
     const sourceId = SOURCES[slot].id;
     let addr = state.publisherAddrs.get(pkhHex);
     if (!addr) {
-      addr = cashaddrEncodeP2PKH(CASHADDR_PREFIX, d.pkh);
+      addr = cashaddrEncodeP2PKH(CASHADDR_PREFIX, pkhBytes);
       state.publisherAddrs.set(pkhHex, addr);
     }
     state.slots.set(slot, {
       slot, sourceId, sourceName: SOURCES[slot].name,
       publisherPkh: pkhHex, publisherAddress: addr,
       lastAttestTs: d.timestamp, cycleSeq: d.cycleSeq,
-      // computed by aggregate(): cyclesBehind, walletBalanceSats, cyclesOfRunway, runwayDurationSec, status
     });
-    // Lazy subscribe to publisher balance — fires once per publisher.
     if (!state.subscribedPublishers.has(pkhHex)) {
       state.subscribedPublishers.add(pkhHex);
       const cb = (utxos) => onBalanceChange(pkhHex, utxos);
@@ -506,11 +498,14 @@ document.getElementById('fulcrum-host').textContent = new URL(FULCRUM_WSS_POOL[0
 
 client.subscribeAndFetch(ORACLE_ADDR, ['include_tokens'], onOracleChange)
   .catch(e => { pushError('oracle subscribe: ' + e.message); render(); });
-// v16: subscribe to each of the 13 per-source slot addresses; merge into
-// the same `state.slots` keyed by sourceId.
-for (const addr of SLOT_ADDRS) {
-  client.subscribeAndFetch(addr, ['include_tokens'], onSlotChange)
-    .catch(e => { pushError('slot ' + addr.slice(0, 16) + '… subscribe: ' + e.message); render(); });
+// v22: subscribe to each of the 13 per-source slot SCRIPTHASHES (Fulcrum 2.x
+// doesn't yet decode P2S cashaddrs — CHIP-2024-12 is too new). Slot index
+// is passed to the callback because v22 commits no longer carry pkh.
+for (let i = 0; i < SLOT_SCRIPTHASHES.length; i++) {
+  const sh = SLOT_SCRIPTHASHES[i];
+  const slotIdx = i;
+  client.subscribeAndFetchByScripthash(sh, ['include_tokens'], (utxos) => onSlotChange(utxos, slotIdx))
+    .catch(e => { pushError('slot[' + slotIdx + '] subscribe: ' + e.message); render(); });
 }
 
 // 1-second tick: keep the "age" columns moving between pushes.

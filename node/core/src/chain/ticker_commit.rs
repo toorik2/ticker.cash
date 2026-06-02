@@ -36,7 +36,6 @@ mod tests {
             seq: 1,
             last_ts: 0x6500_0000,
             median_usd: 0x1234_5678_9abc_def0,
-            active_count: 7, // ignored by ticker commit
         };
         let expected: [u8; 17] = [
             0x80, // version
@@ -45,20 +44,5 @@ mod tests {
             0xf0, 0xde, 0xbc, 0x9a, 0x78, 0x56, 0x34, 0x12, // median_usd LE
         ];
         assert_eq!(encode_ticker_commit(&s), expected);
-    }
-
-    #[test]
-    fn ignores_active_count() {
-        let s1 = OracleState {
-            seq: 5,
-            last_ts: 100,
-            median_usd: 200,
-            active_count: 7,
-        };
-        let s2 = OracleState {
-            active_count: 13,
-            ..s1
-        };
-        assert_eq!(encode_ticker_commit(&s1), encode_ticker_commit(&s2));
     }
 }

@@ -46,6 +46,13 @@ pub fn encode_p2sh32_cashaddr(locking_bytecode: &[u8; 35], prefix: AddressPrefix
     encode_cashaddr(0x0b, hash, prefix)
 }
 
+/// Encode a P2S (Pay-to-Script, CHIP-2024-12) bare-script locking bytecode as
+/// a CashAddr P2S address. The "hash" is the full script bytes (not hashed).
+/// Address type byte = 0x10 (P2S).
+pub fn encode_p2s_cashaddr(script: &[u8], prefix: AddressPrefix) -> String {
+    encode_cashaddr(0x10, script, prefix)
+}
+
 fn encode_cashaddr(version_byte: u8, hash: &[u8], prefix: AddressPrefix) -> String {
     let prefix_str = prefix.as_str();
 

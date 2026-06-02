@@ -23,20 +23,20 @@ pub const STRIDE_FLOOR_SEC: u32 = 60;
 // ─── Commit lengths ────────────────────────────────────────────────────────
 
 /// Length of an Oracle NFT commit, bytes.
-/// v20 layout: `seq(u32 LE) | last_ts(u32 LE) | median_usd(u64 LE) | active_count(u16 LE)` = 18 B.
-/// (v15..v19 prefixed `0x65` version byte at offset 0; v20 dropped as redundant —
-/// Oracle self-replicates via static concat with provable 18-B length-by-format.)
-pub const ORACLE_COMMIT_LEN: usize = 18;
+/// v22 layout: `seq(u32 LE) | last_ts(u32 LE) | median_usd(u64 LE)` = 16 B.
+/// (v20 dropped 0x65 version byte; v22 also drops activeCount — it was dead
+/// state since v15 because `oldActive*5/10 ≤ 6 < 7` always.)
+pub const ORACLE_COMMIT_LEN: usize = 16;
 
 /// Length of a Ticker NFT commit, bytes.
 /// Layout: `0x80 | seq(u32 LE) | last_ts(u32 LE) | median_usd(u64 LE)`.
 pub const TICKER_COMMIT_LEN: usize = 17;
 
 /// Length of a PublisherSlot NFT commit, bytes.
-/// v19 layout: `pkh(20 B) | price(u64 LE) | timestamp(u32 LE) | cycle_seq(u32 LE)` = 36 B.
-/// (v18 had a `0x75` version byte at offset 0; v19 dropped it as redundant —
-/// slot identity is enforced by commit length + token-category gates.)
-pub const SLOT_COMMIT_LEN: usize = 36;
+/// v22 layout: `price(u64 LE) | timestamp(u32 LE) | cycle_seq(u32 LE)` = 16 B.
+/// (v19 dropped 0x75 version byte; v22 also drops publisherPkh — pkh now
+/// lives in the slot's P2S locking bytecode as a per-source script literal.)
+pub const SLOT_COMMIT_LEN: usize = 16;
 
 // ─── Version bytes ─────────────────────────────────────────────────────────
 

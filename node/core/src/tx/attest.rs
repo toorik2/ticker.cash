@@ -37,10 +37,10 @@ pub struct SlotUtxo {
     pub txid_be: [u8; 32],
     pub vout: u32,
     pub satoshis: u64,
-    /// Raw 37-byte commitment of the slot UTXO being spent (the OLD commit,
+    /// Raw 16-byte commitment of the slot UTXO being spent (the OLD commit,
     /// before this attest rewrites it). Needed to construct the CashTokens
     /// `hashUtxos` field of the funder input sighash.
-    pub commitment_raw: [u8; 36],
+    pub commitment_raw: [u8; 16],
 }
 
 /// Funder UTXO (P2PKH) being spent.
@@ -67,7 +67,10 @@ pub struct AttestArgs<'a> {
     pub funder_utxos: &'a [FunderUtxo],
     /// CashTokens category as it appears on the wire (little-endian; reverse of display txid).
     pub slot_category_wire_le: [u8; 32],
-    /// Full PublisherSlot redeem script (built at startup from manifest+artifact).
+    /// v22: specialized P2S slot body bytes — IS the locking_bytecode under P2S.
+    /// Built at startup from `specialize_slot_body(pkh, cn_hash, oracle_cat_hash)`.
+    /// Used as the sighash `coveredScript` and as the slot output's locking_script.
+    /// Unlike v20/v21 P2SH-32 redeem, this is NOT pushed at the end of the unlock.
     pub slot_redeem_script: &'a [u8],
     /// `hash160(canonical_cn)` for this source — must match the cnHash baked
     /// into the slot's redeem. Used only for the publisher sig payload.
@@ -124,22 +127,20 @@ pub fn build_attest_tx(args: &AttestArgs) -> Result<Vec<u8>, AttestError> {
         &args.publisher_pubkey,
         args.timestamp,
         args.price,
-        args.slot_redeem_script,
     );
 
     // ─── 3. Build outputs ──────────────────────────────────────────────────
     let new_commit = encode_slot_commit(&SlotCommit {
-        pkh: args.publisher_pkh,
         price: args.price,
         timestamp: args.timestamp,
         cycle_seq: args.new_cycle_seq,
     });
 
-    // Slot output: re-emit at same locking-bytecode (P2SH-32 of the redeem we just used).
-    let slot_locking = crate::covenant::locking::p2sh32_locking_bytecode(args.slot_redeem_script);
+    // v22: Slot output is P2S — LB IS the slot's body bytes directly.
+    let slot_locking: Vec<u8> = args.slot_redeem_script.to_vec();
     let slot_output = Output {
         value: args.slot_utxo.satoshis,
-        locking_script: slot_locking.to_vec(),
+        locking_script: slot_locking.clone(),
         token: Some(TokenPrefix {
             category_le: args.slot_category_wire_le,
             capability: CAPABILITY_MUTABLE,
@@ -185,7 +186,7 @@ pub fn build_attest_tx(args: &AttestArgs) -> Result<Vec<u8>, AttestError> {
     let mut sources: Vec<SpentOutput> = Vec::with_capacity(1 + args.funder_utxos.len());
     sources.push(SpentOutput {
         value: args.slot_utxo.satoshis,
-        locking_script: slot_locking.to_vec(),
+        locking_script: slot_locking.clone(),
         token: Some(TokenPrefix {
             category_le: args.slot_category_wire_le,
             capability: CAPABILITY_MUTABLE,
@@ -286,30 +287,27 @@ fn sign_all_funders(
     Ok(())
 }
 
-/// Compose the v17 slot.attest unlock script bytes.
+/// Compose the v22 slot.attest unlock script bytes.
 ///
 /// Push order (last declared arg first, per cashscript convention):
 ///   cycleSeq → publisherSig → publisherPubkey → timestamp → price →
-///   fn-selector(0) → redeem-script
+///   fn-selector(0)
 ///
-/// v16→v17 dropped serverName (the covenant uses cnHash directly from its
-/// redeem). ECDSA-DER signatures (PUBSLOT-DER-SIG-LENGTH-FORK accepted-latent).
+/// v22 P2S: no redeem-script push at end (script body IS the output's LB).
 fn build_attest_unlock_script(
     cycle_seq: u32,
     publisher_sig: &[u8],
     publisher_pubkey: &[u8; 33],
     timestamp: u32,
     price: u64,
-    redeem_script: &[u8],
 ) -> Vec<u8> {
-    let mut s = Vec::with_capacity(redeem_script.len() + 128);
+    let mut s = Vec::with_capacity(128);
     push_data(&mut s, &cycle_seq.to_le_bytes());
     push_data(&mut s, publisher_sig);
     push_data(&mut s, publisher_pubkey);
     push_data(&mut s, &timestamp.to_le_bytes());
     push_data(&mut s, &price.to_le_bytes());
     push_int(&mut s, 0); // function selector for attest (function index 0)
-    push_data(&mut s, redeem_script);
     s
 }
 
@@ -331,7 +329,7 @@ mod tests {
                 txid_be: [0x11; 32],
                 vout: 7,
                 satoshis: 1000,
-                commitment_raw: [0u8; 36],
+                commitment_raw: [0u8; 16],
             },
             publisher_pkh: [0x42; 20],
             publisher_privkey: [0x01; 32],

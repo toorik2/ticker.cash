@@ -14,7 +14,7 @@ use std::time::{Duration, SystemTime};
 
 use ticker_core::chain::sources::SOURCES;
 use ticker_core::covenant::{
-    locking::p2sh32_locking_bytecode, redeem_oracle, redeem_publisher_slot, redeem_ticker,
+    locking::p2sh32_locking_bytecode, redeem_oracle, redeem_ticker, specialize_slot_body,
 };
 use ticker_core::cycle::orchestrator::{run_publisher, RunOpts};
 use ticker_core::cycle::state::CycleConfig;
@@ -211,13 +211,13 @@ fn build_publisher_cfg(
         .as_slice()
         .try_into()?;
 
-    let oracle_redeem = redeem_oracle(&ticker_lb, &slot_cat_le)?;
+    let oracle_redeem = redeem_oracle(&ticker_lb)?;
     let oracle_lb_derived = p2sh32_locking_bytecode(&oracle_redeem);
     if oracle_lb_derived != oracle_lb {
         return Err("oracle locking bytecode mismatch — wrong manifest?".into());
     }
 
-    // v16: this daemon's slot has its OWN redeem (per-source cnHash baked in).
+    // v22: this daemon's slot is P2S — LB IS the specialized body bytes.
     // Source id is `slot + 1` (slot 0 → source 1, etc.).
     let source = SOURCES
         .get(slot as usize)
@@ -225,26 +225,21 @@ fn build_publisher_cfg(
     let my_slot_entry = m
         .slot_for(source.id)
         .ok_or_else(|| format!("manifest missing slots[].sourceId={} entry", source.id))?;
-    let my_slot_lb_expected: [u8; 35] = hex::decode(&my_slot_entry.locking_bytecode_hex)?
-        .as_slice()
-        .try_into()?;
+    let my_slot_lb_expected: Vec<u8> = hex::decode(&my_slot_entry.locking_bytecode_hex)?;
     let my_cn_hash: [u8; 20] = hex::decode(&my_slot_entry.cn_hash_hex)?
         .as_slice()
         .try_into()?;
-    // Derive the redeem from this daemon's cnHash + hash160(oracle category),
-    // then assert it matches what the manifest claims. Catches manifest
-    // tampering or operator-keying-error at startup, fail-fast.
-    // v18: covenant takes 20-byte hash160(oracleCat) instead of full 32 B.
+    // v22: derive specialized P2S body from (pkh, cnHash, oracleCatHash) and
+    // assert it matches what the manifest claims. P2S: LB == body.
     let oracle_cat_hash = ticker_core::crypto::hash160(&oracle_cat_le);
-    let slot_redeem = redeem_publisher_slot(&my_cn_hash, &oracle_cat_hash)?;
-    let slot_lb_derived = p2sh32_locking_bytecode(&slot_redeem);
-    if slot_lb_derived != my_slot_lb_expected {
+    let slot_redeem = specialize_slot_body(&key.pkh, &my_cn_hash, &oracle_cat_hash)?;
+    if slot_redeem != my_slot_lb_expected {
         return Err(format!(
             "slot locking bytecode mismatch for sourceId={}: derived {} vs manifest {} \
-             — wrong manifest or wrong cnHash?",
+             — wrong manifest or wrong cnHash/pkh?",
             source.id,
-            hex::encode(slot_lb_derived),
-            hex::encode(my_slot_lb_expected),
+            hex::encode(&slot_redeem),
+            hex::encode(&my_slot_lb_expected),
         )
         .into());
     }
@@ -255,6 +250,7 @@ fn build_publisher_cfg(
     let publisher_scripthash_hex = scripthash_of(&pub_lock);
     let oracle_scripthash_hex = scripthash_of(&oracle_lb);
     let slot_scripthash_hex = scripthash_of(&my_slot_lb_expected);
+    let _ = ticker_redeem.len(); // silence unused-warning hint; used downstream
 
     // v16: pre-compute scripthashes for ALL 13 slots (each lives at its own
     // P2SH-32 in v16). Used by `get_slot_utxos` to aggregate the quorum.
@@ -267,9 +263,8 @@ fn build_publisher_cfg(
         })
         .collect::<Result<_, _>>()?;
 
-    // v17: pre-compute the pkh→cnHash table for all 13 slots. Used by
-    // Oracle.update builder to derive each slot input's redeem from the
-    // slot commit's pkh (v16 used commit sourceId; v17 dropped it).
+    // v17: pre-compute the pkh→cnHash table for all 13 slots (still useful
+    // for daemon-side identity bookkeeping even though not used in tx build).
     let all_pkh_to_cn_hash: Vec<([u8; 20], [u8; 20])> = m
         .slots
         .iter()
@@ -285,6 +280,30 @@ fn build_publisher_cfg(
             Ok::<_, Box<dyn std::error::Error>>((pkh, cn))
         })
         .collect::<Result<_, _>>()?;
+
+    // v22: pre-compute per-source pkhs (in source-id order, parallel to
+    // all_slot_scripthashes_hex) and per-source P2S locking bytecodes.
+    let all_slot_pkhs: Vec<[u8; 20]> = m
+        .slots
+        .iter()
+        .map(|s| {
+            let pkh: [u8; 20] = hex::decode(&s.publisher_pkh_hex)?
+                .as_slice()
+                .try_into()
+                .map_err(|_| "slot pkh hex not 20 B")?;
+            Ok::<_, Box<dyn std::error::Error>>(pkh)
+        })
+        .collect::<Result<_, _>>()?;
+    let all_slot_lockings: Vec<Vec<u8>> = m
+        .slots
+        .iter()
+        .map(|s| Ok::<_, Box<dyn std::error::Error>>(hex::decode(&s.locking_bytecode_hex)?))
+        .collect::<Result<_, _>>()?;
+    let all_pkh_to_locking: Vec<([u8; 20], Vec<u8>)> = all_slot_pkhs
+        .iter()
+        .zip(all_slot_lockings.iter())
+        .map(|(p, lb)| (*p, lb.clone()))
+        .collect();
 
     Ok(CycleConfig {
         slot,
@@ -302,6 +321,9 @@ fn build_publisher_cfg(
         slot_scripthash_hex,
         all_slot_scripthashes_hex,
         all_pkh_to_cn_hash,
+        all_slot_pkhs,
+        all_slot_lockings,
+        all_pkh_to_locking,
         publisher_scripthash_hex,
         oracle_category_be_hex: m.oracle.category.clone(),
         slot_category_be_hex: m.slot_category.clone(),

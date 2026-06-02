@@ -60,7 +60,7 @@ fn idle<E: Env>(env: &mut E, cfg: &CycleConfig) -> Result<CycleState, CycleError
     let slots = env.get_slot_utxos(cfg)?;
     let mine = slots
         .iter()
-        .find(|s| s.commit.pkh == cfg.my_pkh)
+        .find(|s| s.pkh == cfg.my_pkh)
         .ok_or_else(|| CycleError::MySlotNotFound { count: slots.len() })?;
 
     if new_seq < mine.commit.cycle_seq {
@@ -188,23 +188,24 @@ fn wait_for_quorum<E: Env>(
             .filter(|s| s.commit.cycle_seq == snap.new_seq)
             .collect();
         if at_seq.len() >= THR_FLOOR {
-            // Dedupe by pkh + sort by LE-numeric pkh ascending.
+            // v22: dedupe by pkh (carried as separate SlotInfo field) + sort
+            // by LE-numeric pkh ascending.
             let mut seen = std::collections::HashSet::new();
             let mut deduped: Vec<_> = at_seq
                 .into_iter()
-                .filter(|s| seen.insert(s.commit.pkh))
+                .filter(|s| seen.insert(s.pkh))
                 .collect();
             deduped.sort_by(|a, b| {
                 for i in (0..20).rev() {
-                    if a.commit.pkh[i] != b.commit.pkh[i] {
-                        return a.commit.pkh[i].cmp(&b.commit.pkh[i]);
+                    if a.pkh[i] != b.pkh[i] {
+                        return a.pkh[i].cmp(&b.pkh[i]);
                     }
                 }
                 std::cmp::Ordering::Equal
             });
             let cycle_slot_commits: Vec<_> = deduped.iter().map(|s| s.commit).collect();
             let cycle_slot_utxos: Vec<_> =
-                deduped.iter().map(|s| (s.txid_be, s.vout, s.satoshis)).collect();
+                deduped.iter().map(|s| (s.txid_be, s.vout, s.satoshis, s.pkh)).collect();
             return Ok(CycleState::QuorumReached {
                 snap,
                 cycle_slot_commits,
@@ -227,7 +228,7 @@ fn update_oracle<E: Env>(
     cfg: &CycleConfig,
     snap: CycleSnapshot,
     cycle_slot_commits: Vec<crate::chain::slot_commit::SlotCommit>,
-    cycle_slot_utxos: Vec<(crate::cycle::state::Txid, u32, u64)>,
+    cycle_slot_utxos: Vec<(crate::cycle::state::Txid, u32, u64, [u8; 20])>,
 ) -> Result<CycleState, CycleError> {
     let all_funder = env.get_funder_utxos(cfg)?;
     let funder_balance: u64 = all_funder.iter().map(|u| u.satoshis).sum();
@@ -251,13 +252,13 @@ fn update_oracle<E: Env>(
     let cycle_slot_utxos_for_builder: Vec<CycleSlotUtxo> = cycle_slot_commits
         .iter()
         .zip(cycle_slot_utxos.iter())
-        .map(|(commit, (txid_be, vout, sats))| {
+        .map(|(commit, (txid_be, vout, sats, pkh))| {
             let raw = crate::chain::slot_commit::encode_slot_commit(commit);
             CycleSlotUtxo {
                 txid_be: *txid_be,
                 vout: *vout,
                 satoshis: *sats,
-                pkh: commit.pkh,
+                pkh: *pkh,
                 price: commit.price,
                 timestamp: commit.timestamp,
                 commitment: raw,
@@ -281,7 +282,7 @@ fn update_oracle<E: Env>(
         slot_category_wire_le: cfg.slot_category_wire_le,
         oracle_redeem_script: &cfg.oracle_redeem_script,
         ticker_redeem_script: &cfg.ticker_redeem_script,
-        pkh_to_cn_hash: &cfg.all_pkh_to_cn_hash,
+        pkh_to_locking: &cfg.all_pkh_to_locking,
         new_seq: snap.new_seq,
     };
 
@@ -447,6 +448,9 @@ mod tests {
             slot_scripthash_hex: "11".repeat(32),
             all_slot_scripthashes_hex: vec!["11".repeat(32)],
             all_pkh_to_cn_hash: vec![([0x42; 20], [0x55; 20])],
+            all_slot_pkhs: vec![[0x42; 20]],
+            all_slot_lockings: vec![vec![0u8; 200]],
+            all_pkh_to_locking: vec![([0x42; 20], vec![0u8; 200])],
             publisher_scripthash_hex: "22".repeat(32),
             oracle_category_be_hex: "00".repeat(32),
             slot_category_be_hex: "00".repeat(32),
@@ -464,14 +468,12 @@ mod tests {
                 seq,
                 last_ts,
                 median_usd: 350_000_000,
-                active_count: 10,
             },
         }
     }
 
     fn slot_info(pkh: [u8; 20], cycle_seq: u32, ts: u32, price: u64) -> SlotInfo {
         let commit = SlotCommit {
-            pkh,
             price,
             timestamp: ts,
             cycle_seq,
@@ -481,6 +483,7 @@ mod tests {
             vout: 0,
             satoshis: 1000,
             commit,
+            pkh,
             commitment_raw: crate::chain::slot_commit::encode_slot_commit(&commit),
         }
     }

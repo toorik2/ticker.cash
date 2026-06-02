@@ -164,13 +164,22 @@ impl Env for RealEnv {
                     }
                 })?;
                 let Some(commit) = decode_slot_commit(&raw) else { continue };
-                let mut commitment_raw = [0u8; 36];
+                let mut commitment_raw = [0u8; 16];
                 commitment_raw.copy_from_slice(&raw);
+                // v22: pkh derived from the slot's address — look up by
+                // scripthash position in cfg.all_slot_scripthashes_hex.
+                let pkh = cfg
+                    .all_slot_scripthashes_hex
+                    .iter()
+                    .position(|h| h == sh)
+                    .map(|idx| cfg.all_slot_pkhs[idx])
+                    .unwrap_or([0u8; 20]);
                 out.push(SlotInfo {
                     txid_be: parse_txid_be(&u.tx_hash)?,
                     vout: u.tx_pos,
                     satoshis: u.value,
                     commit,
+                    pkh,
                     commitment_raw,
                 });
             }

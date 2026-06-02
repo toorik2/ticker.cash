@@ -168,14 +168,13 @@ fn validate_locking_bytecode_hex(
     value: &str,
 ) -> Result<String, ManifestError> {
     let lc = value.to_lowercase();
-    let ok = lc.len() == 70
-        && lc.starts_with("aa20")
-        && lc.ends_with("87")
-        && lc[4..68].chars().all(|c| c.is_ascii_hexdigit());
-    if !ok {
+    // v22: accepts P2SH-32 (`aa20<64-hex>87`, 70 chars) for Oracle/Ticker
+    //      AND P2S (bare-script LB, any length, all hex) for slots.
+    let is_hex = lc.chars().all(|c| c.is_ascii_hexdigit()) && lc.len() % 2 == 0;
+    if !is_hex || lc.is_empty() {
         return Err(ManifestError::InvalidField {
             field,
-            reason: format!("expected aa20<64-hex>87, got {value:?}"),
+            reason: format!("expected even-length hex string, got {value:?}"),
         });
     }
     Ok(lc)
@@ -411,12 +410,12 @@ mod tests {
     }
 
     #[test]
-    fn rejects_wrong_locking_bytecode_length() {
+    fn rejects_non_hex_locking_bytecode() {
         let s = good_manifest().replace(
             "aa20c757c5b79cfb72632175bf91e5d5941e0d2d59de745c9a2c622dcb7a4181eedc87",
-            "aa20BAD87",
+            "aa20NOTHEX87",
         );
-        let path = write_path(&s, "badlock-v16.json");
+        let path = write_path(&s, "badlock-v22.json");
         assert!(matches!(
             load_manifest(&path),
             Err(ManifestError::InvalidField { .. })
