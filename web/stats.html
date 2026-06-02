@@ -152,7 +152,7 @@
 //    plumbing lives in /ticker-client.js.
 
 const { ElectrumWS, decodeOracleCommit, decodeSlotCommit, cashaddrEncodeP2PKH,
-        bytesToHex, CONSTANTS } = window.TickerClient;
+        bytesToHex, hexToBytes, CONSTANTS } = window.TickerClient;
 
 const { ORACLE_ADDR, ORACLE_CATEGORY, SLOT_ADDRS, SLOT_SCRIPTHASHES, SLOT_CATEGORY,
         CASHADDR_PREFIX, STALE_SEC, STRIDE_FLOOR_SEC, DEPLOYED_AT_SEC,
