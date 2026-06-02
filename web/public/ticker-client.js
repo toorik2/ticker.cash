@@ -88,7 +88,14 @@
     STALE_SEC: 300,
     STRIDE_FLOOR_SEC: 60,
     DEPLOYED_AT_SEC: Math.floor(new Date('2026-06-02T18:09:00.000Z').getTime() / 1000),
-    EXPECTED_SATS_PER_CYCLE: 2000n + (20000n + 2n * 1500n) / 13n, // ~3769
+    // Per-publisher per-cycle expected cost in sats (used for runway display).
+    // Formula: own_attest_fee + share of (Oracle.update + 2*Ticker_dust)/13.
+    // Measured empirically from chipnet on 2026-06-02: attest 615 B, update
+    // 5041 B (13 P2S slot inputs). At 1 sat/B + 2*1500 ticker dust:
+    //   615 + (5041 + 3000) / 13 = 615 + 619 = 1234 sats/cycle/publisher.
+    // Stale v15 estimate (3769) wildly overstated cost; v22 has actually
+    // ~3.1× more runway than the dashboard displayed pre-fix.
+    EXPECTED_SATS_PER_CYCLE: 615n + (5041n + 2n * 1500n) / 13n, // ~1234 (v22 measured)
     SOURCES: [
       { id: 1,  name: 'kraken' },
       { id: 2,  name: 'coinbase' },
