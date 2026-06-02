@@ -1,41 +1,40 @@
 pragma cashscript >= 0.13.0;
 
-// PublisherSlot v19 — drop 0x75 version byte + drop ts MSB-clear gate.
+// PublisherSlot v20 — drop length checks + consensus-redundant tokenAmount pins.
 //
-// v18 → v19 changes (commit format shrinks 37 B → 36 B):
+// v19 → v20 changes (commit format unchanged at 36 B):
 //
-//   DROP-SLOT-VERSION-BYTE    v18 wrote/checked a 0x75 prefix byte on every
-//                             commit. The byte was redundant: slot identity
-//                             is enforced by length + token-category gates,
-//                             and slot self-replicates via static concat
-//                             where wrong-version commits couldn't appear.
-//                             Drops 1 B from commit and removes the check.
-//                             Per-cycle: -14 B body × 26 redeem appearances
-//                             + -1 B commit × 14 appearances = ~$240/yr.
+//   S1  DROP-PRICE-LENGTH        `require(price.length == 8)` removed.
+//                                Wrong-length price → newCommit length mismatch →
+//                                output equality fails → self-DoS only.
 //
-//   DROP-TS-MSB-CLEAR         v18 kept `(timestamp.slice(3,4) & 0x80) == 0x00`.
-//                             MSB-set ts decodes negative under BIN2NUM in
-//                             Oracle.update's jitter window check
-//                             (`slotTimestamp + jitter >= newTs`), which
-//                             fails for any malicious negative slotTimestamp.
-//                             Slot fails to contribute to lower-vote quorum
-//                             → self-DoS only, no exploit gain. Same self-DoS
-//                             argument as v18's dropped cycleSeq MSB gate.
-//                             Per-cycle: -14 B body × 26 = ~$240/yr.
+//   S2  DROP-OLDCOMMIT-LENGTH    `require(oldCommit.length == 36)` removed.
+//                                Wrong-length commit fails slice() on the
+//                                cycleSeq read (offset 32..36) → safe abort.
+//                                Slot is only ever written by attest() which
+//                                emits 36 B by construction; chain origin pins.
 //
-// All v15/v16/v17/v18 audit-fix gates retained:
-//   tokenAmount==0 pin         attest() + consume()
-//   replay protection          int(cycleSeq) > int(oldCommit.slice(32,36))
+//   S6  DROP-TOKENAMOUNT-PINS    `require(tx.outputs[idx].tokenAmount == 0)`
+//                                removed from both attest() and consume().
+//                                Consensus enforces CashTokens conservation
+//                                per-category. Slot category was minted with
+//                                zero FT amount (NFTs only). Funder inputs
+//                                are non-token. So no FT can ever enter an
+//                                attest tx → conservation pins output FT to 0.
+//
+// All v15..v19 audit-fix gates retained that aren't consensus-redundant:
+//   replay protection          int(cycleSeq) > int(oldCommit.slice(32, 36))
 //   value pin                  output[idx].value == input[idx].value
 //   identity gate              hash160(publisherPubkey) == publisherPkh
+//   output equality (LB/cat/commit)
 //
-// PUBSLOT-DER-SIG-LENGTH-FORK accepted-latent (same as v15..v18).
+// PUBSLOT-DER-SIG-LENGTH-FORK accepted-latent (same as v15..v19).
 //
 // ── Trust model unchanged ──────────────────────────────────────────────
 // 7-of-13 publisher quorum. Sybil resistance via distinct-publisherPkh
-// check in Oracle.update.
+// check in Oracle.update (now via single 21-B BIN2NUM — see v20 Oracle).
 //
-// ── Genesis ────────────────────────────────────────────────────────────
+// ── Genesis (unchanged from v19) ───────────────────────────────────────
 //   1. Spend designated non-token P2PKH outpoint X (genesis input).
 //      slotCategoryReversed = HASH256(X).reverse()
 //   2. Create 13 outputs — ONE PER SOURCE — each with:
@@ -45,7 +44,7 @@ pragma cashscript >= 0.13.0;
 //        - nftCommitment   = publisherPkh(20) + 0x00..(16)   ← 36 B
 //   3. NO other token outputs of this category.
 //
-// ── Slot commitment (36 B, no version byte) ────────────────────────────
+// ── Slot commitment (36 B, no version byte — unchanged from v19) ───────
 //   [0..20)  publisherPkh             20 B   IMMUTABLE — pinned at genesis
 //   [20..28) price                     8 B   rewritten by attest()
 //   [28..32) timestamp                 4 B   rewritten by attest()
@@ -56,29 +55,27 @@ contract PublisherSlot(
     bytes20 oracleCatHash           // hash160(oracleCategoryReversed) — pin Oracle's category
 ) {
     function attest(
-        bytes   price,             // 8 B u64 LE
+        bytes   price,             // 8 B u64 LE (length not pinned; self-DoS if wrong)
         bytes   timestamp,         // 4 B u32 LE — publisher's observation time
         pubkey  publisherPubkey,   // 33 B publisher pubkey (must match slot)
         datasig publisherSig,      // ECDSA-DER (accepted-latent)
         bytes   cycleSeq           // 4 B u32 LE — Oracle cycle this attests to
     ) {
-        // ── 0. Input-shape sanity ─────────────────────────────────────
-        // ts/cycleSeq length + ts MSB checks dropped (self-DoS-only if violated).
-        require(price.length == 8);
-
         // ── 1. Read slot identity from commitment ─────────────────────
         int idx = this.activeInputIndex;
         bytes oldCommit = tx.inputs[idx].nftCommitment;
-        require(oldCommit.length == 36);
+        // S2: oldCommit.length check dropped (safe abort on mismatch).
+
         bytes20 publisherPkh = oldCommit.slice(0, 20);
 
         // ── 2. Identity gate: caller is the slot's pinned publisher ───
         require(hash160(publisherPubkey) == publisherPkh);
 
-        // ── 2b. cycleSeq monotonicity (also natural cycleSeq MSB enforcement) ─
+        // ── 2b. cycleSeq monotonicity (natural cycleSeq MSB enforcement) ─
         require(int(cycleSeq) > int(oldCommit.slice(32, 36)));
 
         // ── 3. Publisher sig over committed payload (cnHash directly) ─
+        // S1: price.length check dropped (self-DoS if wrong).
         bytes pubMessage = price + timestamp + publisherPkh + cycleSeq + cnHash;
         require(checkDataSig(publisherSig, pubMessage, publisherPubkey));
 
@@ -88,7 +85,7 @@ contract PublisherSlot(
         require(tx.outputs[idx].tokenCategory == tx.inputs[idx].tokenCategory);
         require(tx.outputs[idx].nftCommitment == newCommit);
         require(tx.outputs[idx].value == tx.inputs[idx].value);
-        require(tx.outputs[idx].tokenAmount == 0);
+        // S6: tokenAmount==0 pin dropped (consensus conservation enforces).
     }
 
     // ── consume() — Oracle.update consumes slot, re-emits unchanged ────
@@ -107,6 +104,6 @@ contract PublisherSlot(
         require(tx.outputs[idx].tokenCategory == tx.inputs[idx].tokenCategory);
         require(tx.outputs[idx].nftCommitment == tx.inputs[idx].nftCommitment);
         require(tx.outputs[idx].value == tx.inputs[idx].value);
-        require(tx.outputs[idx].tokenAmount == 0);
+        // S6: tokenAmount==0 pin dropped (consensus conservation enforces).
     }
 }

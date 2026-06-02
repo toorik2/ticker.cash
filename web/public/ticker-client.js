@@ -2,7 +2,7 @@
 //
 // Exports (as window globals):
 //   TickerClient.ElectrumWS                — pool-aware, subscribe-aware WS client
-//   TickerClient.decodeOracleCommit(hex)   — 19-byte Oracle commit → object
+//   TickerClient.decodeOracleCommit(hex)   — 18-byte Oracle commit → object (v20)
 //   TickerClient.decodeSlotCommit(hex)     — 36-byte Slot commit → object (v19)
 //   TickerClient.cashaddrEncodeP2PKH(...)  — pkh20 → bchtest:q…
 //   TickerClient.CONSTANTS                  — addresses, categories, sources, fulcrum pool
@@ -26,26 +26,28 @@
       { url: 'wss://chipnet.imaginary.cash:50004', mode: 'subscribe' },
       { url: 'wss://chipnet.bch.ninja:50004',      mode: 'poll', pollMs: 12000 },
     ],
-    ORACLE_ADDR: 'bchtest:pd6cm83hxr9h2hwk4thd0y3g0zuhg3jjq0kqxqhtecuv36fsjd4dkhjuqfnx2',
-    ORACLE_CATEGORY: '54139bbd4f36c34521a720fd532934250fc06f326248d4f0b160f6d0c07f7977',
-    // v19: per-source slot addresses (new from re-genesis). Slot covenant drops
-    // 0x75 version byte + ts MSB-clear gate. Commit shrinks to 36 B (no version).
+    ORACLE_ADDR: 'bchtest:pdrd4e0tnxr7hfx6nwrylh9h4v5l6r0gwlw780h6fm6pledt88sfjlm4mekcw',
+    ORACLE_CATEGORY: '6ec7af2f0853d3cefb48935e169f972450ff830ebef33a3a2572e43dcab4d434',
+    // v20: per-source slot addresses (new from re-genesis). Covenant drops
+    // length checks + consensus-redundant tokenAmount pins + Oracle 0x65
+    // version byte; replaces F-OC7 tier-split with single 21-B BIN2NUM
+    // (BCH-2026 BigInt). Oracle commit shrinks 19 → 18 B.
     SLOT_ADDRS: [
-      'bchtest:pwzyq77khs6eu7l6smm9e8k5hvn9y3yrt3wkut4hutfyh03w93pzwah8wvd6f', // 1 kraken
-      'bchtest:pvp7a8sme2k59mfg3fzjmql3yytcjaavd3vur4wdxzu2cefr455az22j0mrz9', // 2 coinbase
-      'bchtest:p0ect7stwladzmqnyuc028lcltaq2lpplx2ukc4z3fdg5d9fa0psqch5z5z8d', // 3 gemini
-      'bchtest:pdedn3z09ccttscwg5mvkwsxl52ag09x6jjtd52yedhknlxcxekdg30txhjg4', // 4 binance_us
-      'bchtest:p0g0f54scaakt0m76yf9yuuqf26899hmjz25snkcgkzuhxpuvtfvzsvxn7q0e', // 5 bitstamp
-      'bchtest:p0ad60345rajglt9rctn7476lhhem0km0e4rml8sc7sugzq5k7hmsvm7q6rnv', // 6 cryptocom
-      'bchtest:p0jl7vrjscwwskmjg3ete9yyrury778drhzyx4g2etfqqhufgvesw7g0clvr6', // 7 bitfinex
-      'bchtest:pdl7e54kxdlgwjzq2ytlesaus7rc9mkc2xz3s4fjkh4jl87fkvd2yfjqj0w0f', // 8 exmo
-      'bchtest:pw0eqk87xgswr46v3c6676nhkd330qyz68n6698srduzjq87m056xekymnrgt', // 9 independentreserve
-      'bchtest:pwnx46hdlarxlfs7xagmr5ca0y09e5p5u8h5q08md457823weup5uvpep45fy', // 10 okx_usdc
-      'bchtest:p0fsws4p9pehtarlcahaprspqdpqawzjh3pac9pc3ct6x2ysjdmwylqndnduj', // 11 kucoin_usdc
-      'bchtest:pw5fjmkeukj5xjeyaws5v7fz5v26cflgjqlcrw3tyayte6nq66vfywattzevu', // 12 bybit
-      'bchtest:pvgg2ggw4mk33dxw30xttdhz3yk2acec2a55a36rv4neck9l9jfvungrgkx3k', // 13 htx
+      'bchtest:pvzzh5u4ftn92t8d7u2fm8wr6a3l5nklz9xss4e7je5r4rxvkxsgx7chdju8n', // 1 kraken
+      'bchtest:pdfhr2jyu22v6gnsnj2nu6nwdwraz0pt5ggy9k92cf6yksx76llkk86ghufer', // 2 coinbase
+      'bchtest:pvltturrmyrn7xjtg3wc0ae9j662dg46n2l6a4esvzn4yw0ne4htwwn9jgd64', // 3 gemini
+      'bchtest:pdknh9k6fkhgdwht2ux5cq3v66ywwtcsgnujp6rjzenfk3x5wtzqyw74r7nxl', // 4 binance_us
+      'bchtest:pv2pcc9a09h4c59yc57r3rdum9mqex380sxzgk0ukyuv0f66l9av2lc2z8qdg', // 5 bitstamp
+      'bchtest:pd7ft2fgmtyedt0mckymxksq9g4v7ul2q0crs6qk88ftpmge70nqw3jzjs68f', // 6 cryptocom
+      'bchtest:p056vcjlyz70w5wypwjvd5xh5283hpl0tfyxr7www0qrqj5wykht29ursv2hq', // 7 bitfinex
+      'bchtest:pvkdqupvgnqevlsnurvpvh9yy6hs8l0ex4xg4t2g7hxh2uv48rwpxqz0kcqk2', // 8 exmo
+      'bchtest:pdwq49wjk4f986qx709dgmcqksy35q406rkhpxa9t0heq0ld0jd5j7k696nuz', // 9 independentreserve
+      'bchtest:pvevutsygxxkupx4af0uv4jdj3nzwv8d0d4vgscw0ej3ag6jt0zl6rr3wcpr7', // 10 okx_usdc
+      'bchtest:pwzjrct7x89jvrf59k5l8akvw8xsjl4q376j25lcjxrtewhvclgtjrlxcw6p8', // 11 kucoin_usdc
+      'bchtest:pw5w8uyxja2ut4lt9r0n5kvuucnzhdxfs3w4qqn4a5jvwj97e5gscrpt3uhnw', // 12 bybit
+      'bchtest:pddtmvpfgma0satpfysnh9fxeaj5yyg8w2g5fd8q7dm9ru6fa547z4cpc2hsd', // 13 htx
     ],
-    SLOT_CATEGORY: '73c25696db55152704242ab2e7b0173e7ccf297095ab5fd340ad635f8067d587',
+    SLOT_CATEGORY: '573e119754a82c68ed01968bfd39365238c511c7a44bcabf43b387c8d709ed25',
     // v17: per-source publisher pkhs (in source-id order). Used by stats.html
     // to map a decoded slot commit's pkh to a slot index (since v17 commits
     // no longer carry sourceId).
@@ -67,7 +69,7 @@
     CASHADDR_PREFIX: 'bchtest',
     STALE_SEC: 300,
     STRIDE_FLOOR_SEC: 60,
-    DEPLOYED_AT_SEC: Math.floor(new Date('2026-06-02T10:54:00.000Z').getTime() / 1000),
+    DEPLOYED_AT_SEC: Math.floor(new Date('2026-06-02T12:23:55.000Z').getTime() / 1000),
     EXPECTED_SATS_PER_CYCLE: 2000n + (20000n + 2n * 1500n) / 13n, // ~3769
     SOURCES: [
       { id: 1,  name: 'kraken' },
@@ -133,17 +135,18 @@
 
   // ─── Commit decoders ─────────────────────────────────────────────────
   function decodeOracleCommit(hex) {
-    if (hex.length !== 38) return null; // 19 B
+    // v20: 18-byte commit, no version byte. Layout:
+    //   seq(4) + lastTs(4) + median(8) + activeCount(2)
+    if (hex.length !== 36) return null; // 18 B × 2 hex chars
     const b = hexToBytes(hex);
-    if (b[0] !== 0x65) return null; // v15 prefix (was 0x60 in v14)
     const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
-    const scaled = dv.getBigUint64(9, true);
+    const scaled = dv.getBigUint64(8, true);
     return {
-      seq: dv.getUint32(1, true),
-      lastTs: dv.getUint32(5, true),
+      seq: dv.getUint32(0, true),
+      lastTs: dv.getUint32(4, true),
       medianPrice: scaled,
       medianUsd: Number(scaled) / 1e8,
-      activeCount: dv.getUint16(17, true),
+      activeCount: dv.getUint16(16, true),
     };
   }
   function decodeSlotCommit(hex) {

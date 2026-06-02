@@ -22,7 +22,6 @@
 use std::fs;
 use std::time::Duration;
 
-use ticker_core::chain::consts::ORACLE_VERSION_BYTE;
 use ticker_core::chain::sources::{source_cn_hash, SOURCES};
 use ticker_core::covenant::{
     locking::p2sh32_locking_bytecode, redeem_oracle, redeem_publisher_slot, redeem_ticker,
@@ -211,12 +210,9 @@ pub fn deploy(
     }
 
     // ── 7. Build Oracle genesis tx ───────────────────────────────────────
-    let oracle_initial_commit: [u8; 19] = {
-        let mut c = [0u8; 19];
-        c[0] = ORACLE_VERSION_BYTE;
-        // seq (4), lastTs (4), medianUsd (8), activeCount (2) — all zeros
-        c
-    };
+    // v20: 18-byte commit (no version byte). seq (4), lastTs (4), medianUsd
+    // (8), activeCount (2) — all zeros at genesis.
+    let oracle_initial_commit: [u8; 18] = [0u8; 18];
     let oracle_tx = build_p2pkh_to_token_tx(
         &oracle_genesis,
         &master.private_key,

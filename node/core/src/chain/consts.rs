@@ -23,8 +23,10 @@ pub const STRIDE_FLOOR_SEC: u32 = 60;
 // ─── Commit lengths ────────────────────────────────────────────────────────
 
 /// Length of an Oracle NFT commit, bytes.
-/// Layout: `0x65 | seq(u32 LE) | last_ts(u32 LE) | median_usd(u64 LE) | active_count(u16 LE)`.
-pub const ORACLE_COMMIT_LEN: usize = 19;
+/// v20 layout: `seq(u32 LE) | last_ts(u32 LE) | median_usd(u64 LE) | active_count(u16 LE)` = 18 B.
+/// (v15..v19 prefixed `0x65` version byte at offset 0; v20 dropped as redundant —
+/// Oracle self-replicates via static concat with provable 18-B length-by-format.)
+pub const ORACLE_COMMIT_LEN: usize = 18;
 
 /// Length of a Ticker NFT commit, bytes.
 /// Layout: `0x80 | seq(u32 LE) | last_ts(u32 LE) | median_usd(u64 LE)`.
@@ -37,11 +39,6 @@ pub const TICKER_COMMIT_LEN: usize = 17;
 pub const SLOT_COMMIT_LEN: usize = 36;
 
 // ─── Version bytes ─────────────────────────────────────────────────────────
-
-/// Oracle NFT commit version byte. `0x65` is v15's tag (bumped from v14's
-/// `0x60` to mark the structural hardening pass: tokenAmount pins, pkh sort
-/// rewrite for BCH-2023 mainnet readiness, pricesBlob bounds).
-pub const ORACLE_VERSION_BYTE: u8 = 0x65;
 
 /// Ticker NFT commit version byte. Held stable at `0x80` across v14→v15
 /// (Ticker is consumer-facing; bumping it would churn every downstream

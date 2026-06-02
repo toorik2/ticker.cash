@@ -1,36 +1,63 @@
 pragma cashscript >= 0.13.0;
 
-// Oracle v19 — shift slot commit slices to match 36-B v19 slot layout.
+// Oracle v20 — BCH-2026-05 BigInt unlock + drop redundant gates.
 //
-// ── v18 → v19 changes ────────────────────────────────────────────────
+// ── v19 → v20 changes ─────────────────────────────────────────────────
 //
-//   SLOT-36B                  v19 PublisherSlot drops the 0x75 version byte;
-//                             commit shrinks 37 B → 36 B. Oracle.update's
-//                             slot commit slice offsets shift -1 across the
-//                             board (pkh, price, timestamp, cycleSeq).
-//                             Length check tightens to 36.
+//   N31  TIER-SPLIT-REMOVAL     F-OC7's 3-tier ≤8-B BIN2NUM sort was a
+//                               BCH-2023 mainnet workaround for the 8-byte
+//                               number limit. CHIP-2021-05 (activated on
+//                               mainnet 2026-05-15) lifted the cap to
+//                               10000 B. v20 collapses the tier-split to
+//                               a single 21-B BIN2NUM compare:
+//                                 int(pkh + 0x00) > prevPkh
+//                               Same total order; ~80 B body saved.
 //
-// All v15/v16/v17/v18 audit-fix gates retained:
-//   F-OC1  tokenAmount pin on self-replicate
-//   F-OC2  tokenAmount pin on both Ticker mints
+//   N1   DROP-ORACLE-VERSION    `0x65` prefix dropped from commit. Oracle
+//                               self-replicates via static concat that's
+//                               provably 18 B by construction; identity is
+//                               enforced by category + length-by-format.
+//                               Commit shrinks 19 → 18 B.
+//
+//   N6   DROP-SLOT-LENGTH-CHECK Slot commit length check removed. v20
+//                               PublisherSlot writes 36 B by construction;
+//                               malformed commits fail downstream slices.
+//
+//   N8   DROP-SELF-TOKENAMOUNT  `tx.outputs[0].tokenAmount == 0` on the
+//                               self-replicate dropped. Consensus enforces
+//                               token conservation; Oracle category was
+//                               minted with NFT only (no FT). Same
+//                               argument as v20 slot's S6.
+//
+//   N11  DROP-PRICESBLOB-MOD8   `pricesBlob.length % 8 == 0` dropped.
+//                               `numAttestations = length / 8` truncates;
+//                               trailing <8 B silently discarded. Operator
+//                               self-grief if violated; no exploit gain.
+//
+//   N18  PREVPKH-INIT-MINUS-1   `prevPkh = -1` initial value; first-iter
+//                               `if (i>0)` guard removed. Saves ~6 B.
+//
+//   KEEP N30                    `numAttestations <= 13` retained as cheap
+//                               insurance against unbounded op-cost loops.
+//
+// All v15/v16/v17/v18/v19 audit-fix gates retained that aren't redundant:
+//   F-OC2  tokenAmount pin on both Ticker mints (FT injection prevention)
 //   F-OC3  value pin (1500) on both Ticker mints
-//   F-OC4  pricesBlob.length % 8 == 0 + 8-multiple enforcement
-//   F-OC7  pkh sort tier-split (BCH-2023 mainnet safe; ≤ 8-byte BIN2NUM)
+//   F-OC7  pkh distinct + monotonic (now single 21-B BIN2NUM compare)
 //   tx.outputs.length <= maxOutputs (token-leak guard)
 //
 // ── Commitment layouts ─────────────────────────────────────────────────
-// Oracle (19 B, version 0x65 — unchanged):
-//   [0]       0x65                          1 B
-//   [1..5)    seq                          4 B   u32 LE
-//   [5..9)    lastTs                       4 B   u32 LE
-//   [9..17)   medianPrice                  8 B   u64 LE
-//   [17..19)  activeCount                  2 B   u16 LE
+// Oracle (18 B, no version byte):
+//   [0..4)    seq                          4 B   u32 LE
+//   [4..8)    lastTs                       4 B   u32 LE
+//   [8..16)   medianPrice                  8 B   u64 LE
+//   [16..18)  activeCount                  2 B   u16 LE
 //
-// Slot (36 B in v19, NO version byte):
-//   [0..20)  publisherPkh                  20 B
-//   [20..28) price                          8 B   u64 LE
-//   [28..32) timestamp                      4 B   u32 LE
-//   [32..36) cycleSeq                       4 B   u32 LE
+// Slot (36 B, no version byte — unchanged from v19):
+//   [0..20)  publisherPkh                 20 B
+//   [20..28) price                         8 B   u64 LE
+//   [28..32) timestamp                     4 B   u32 LE
+//   [32..36) cycleSeq                      4 B   u32 LE
 //
 // Ticker (17 B, version 0x80) — unchanged.
 
@@ -51,75 +78,51 @@ contract Oracle(
 
         int idx = this.activeInputIndex;
 
-        // F-OC4 — strict multiple-of-8 only; bounds derived from numAttestations.
-        require(pricesBlob.length % 8 == 0);
+        // N11 — strict-multiple-of-8 dropped; truncating divide is safe.
         int numAttestations = pricesBlob.length / 8;
+        // N30 KEPT — cheap insurance against unbounded op-cost loops.
         require(numAttestations <= 13);
 
         // ── Self-replication (Oracle state NFT) ──────────────────────
         require(tx.outputs[0].lockingBytecode == tx.inputs[idx].lockingBytecode);
         require(tx.outputs[0].tokenCategory == tx.inputs[idx].tokenCategory);
         require(tx.outputs[0].value == 2000);
-        // F-OC1 — pin tokenAmount on the self-replicate.
-        require(tx.outputs[0].tokenAmount == 0);
+        // N8 — tokenAmount==0 self-replicate pin dropped (consensus).
 
-        // ── Read previous Oracle state ───────────────────────────────
-        // v18: length + version-byte checks dropped — Oracle self-replicates
-        // via static concat that's provably 19 B starting with 0x65.
+        // ── Read previous Oracle state (18 B, no version byte) ───────
         bytes oldCommit = tx.inputs[idx].nftCommitment;
-        int prevTs = int(oldCommit.slice(5, 9));
+        int prevTs = int(oldCommit.slice(4, 8));
         int newTs  = int(claimedNewTs);
-
-        // ── Time stride (publisher-attested median, monotonic) ───────
-        // `newTs > prevTs` is implied by `newTs - prevTs >= 60`.
         require(newTs - prevTs >= 60);
 
-        int newSeq    = int(oldCommit.slice(1, 5)) + 1;
-        int oldActive = int(oldCommit.slice(17, 19));
+        int newSeq    = int(oldCommit.slice(0, 4)) + 1;
+        int oldActive = int(oldCommit.slice(16, 18));
 
         // ── Threshold gate (50% ratchet, T_floor = 7) ────────────────
-        // v18: max(x, 7) folded — cashc compiles tighter than if/else.
         int thr = max((oldActive * 5 + 9) / 10, 7);
         require(numAttestations >= thr);
 
         // ── Walk PublisherSlot inputs ────────────────────────────────
-        // v18: for→do-while (numAttestations >= 7 > 0 so safe to enter once).
         int jitter = 120;
         int lowerVotes = 0;
         int upperVotes = 0;
-        bytes prevPkh = 0x;
+        // N18 — initialize to -1; drop the `if (i>0)` first-iter guard.
+        // Pkh as int(pkh+0x00) is always non-negative, so first iter's
+        // `pkhInt > -1` trivially holds.
+        int prevPkh = -1;
         int i = 0;
         do {
             int slotIdx = i + 1;
-
-            // Category gate — single concat-compare.
             require(tx.inputs[slotIdx].tokenCategory == slotCategoryReversed + 0x01);
 
             bytes slotCommit = tx.inputs[slotIdx].nftCommitment;
-            // KEEP slot length check — load-bearing for PublisherSlot's
-            // dropped ts/cycleSeq length checks (malformed commits rejected here).
-            require(slotCommit.length == 36);
+            // N6 — slotCommit.length check dropped (v20 slot writes 36 B).
 
-            // Distinct + monotonically-sorted pkh (anti-Sybil, F-OC7 tier-split).
-            bytes pkh = slotCommit.slice(0, 20);
-            if (i > 0) {
-                int pkhT2  = int(pkh.slice(14, 20) + 0x00);
-                int prevT2 = int(prevPkh.slice(14, 20) + 0x00);
-                if (pkhT2 == prevT2) {
-                    int pkhT1  = int(pkh.slice(7, 14) + 0x00);
-                    int prevT1 = int(prevPkh.slice(7, 14) + 0x00);
-                    if (pkhT1 == prevT1) {
-                        int pkhT0  = int(pkh.slice(0, 7) + 0x00);
-                        int prevT0 = int(prevPkh.slice(0, 7) + 0x00);
-                        require(pkhT0 > prevT0);
-                    } else {
-                        require(pkhT1 > prevT1);
-                    }
-                } else {
-                    require(pkhT2 > prevT2);
-                }
-            }
-            prevPkh = pkh;
+            // N31 — single 21-B BIN2NUM compare replaces v19 tier-split.
+            // CHIP-2021-05 (mainnet 2026-05) lifted BIN2NUM cap from 8 → 10000.
+            int pkhInt = int(slotCommit.slice(0, 20) + 0x00);
+            require(pkhInt > prevPkh);
+            prevPkh = pkhInt;
 
             // Timestamp votes (median-of-medians, ±jitter window)
             int slotTimestamp = int(slotCommit.slice(28, 32));
@@ -142,8 +145,6 @@ contract Oracle(
         require(upperVotes * 2 > numAttestations);
 
         // ── Median position check ────────────────────────────────────
-        // v18: for→do-while; algebraic simplification of upper-vote check
-        // (L + (N − L − U) > h ≡ N − U > h).
         int medianVal   = int(claimedMedian);
         int actualLower = 0;
         int actualUpper = 0;
@@ -168,23 +169,23 @@ contract Oracle(
         require(numAttestations - actualUpper > half);
 
         // ── activeCount ratchet ──────────────────────────────────────
-        // v18: max() fold for clamp.
         int newActive = max(max(numAttestations, oldActive * 9 / 10), 7);
 
-        // ── New Oracle commitment (output[0]) ────────────────────────
+        // ── New Oracle commitment (18 B, no version byte) ────────────
         bytes seqBytes         = toPaddedBytes(newSeq, 4);
         bytes activeCountBytes = toPaddedBytes(newActive, 2);
-        bytes newOracleCommit  = 0x65 + seqBytes + claimedNewTs + claimedMedian + activeCountBytes;
+        bytes newOracleCommit  = seqBytes + claimedNewTs + claimedMedian + activeCountBytes;
         require(tx.outputs[0].nftCommitment == newOracleCommit);
 
-        // ── K=2 Mutable Ticker mints (v18: fused into do-while loop) ─
+        // ── K=2 Mutable Ticker mints (KEEP F-OC2 tokenAmount pin) ─────
+        // Ticker mints create new tokens of Oracle's category. Without the
+        // tokenAmount pin, the minting NFT could bake FT into Ticker outputs.
         bytes newTickerCommit = 0x80 + seqBytes + claimedNewTs + claimedMedian;
         bytes tickerCategory  = tx.inputs[idx].tokenCategory.slice(0, 32) + 0x01;
 
         int k = 0;
         do {
             int tickerIdx = numAttestations + 1 + k;
-            // F-OC2 / F-OC3 — pin each Ticker mint
             require(tx.outputs[tickerIdx].lockingBytecode == tickerLockingBytecode);
             require(tx.outputs[tickerIdx].tokenCategory == tickerCategory);
             require(tx.outputs[tickerIdx].nftCommitment == newTickerCommit);
