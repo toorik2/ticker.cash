@@ -158,3 +158,14 @@ pub struct CycleConfig {
     /// Quorum wait timeout. Default 25 s.
     pub quorum_wait: Duration,
 }
+
+impl Drop for CycleConfig {
+    fn drop(&mut self) {
+        // v23 F11 — wipe the publisher privkey when the cycle config is dropped.
+        // The struct holds the long-lived working copy of the operator key bytes
+        // (cloned from OperatorKey at startup), so without this the key bytes
+        // would linger in the daemon's heap until the OS reclaimed the pages.
+        use zeroize::Zeroize;
+        self.publisher_privkey.zeroize();
+    }
+}

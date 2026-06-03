@@ -323,6 +323,7 @@ dependencies = [
  "sha2",
  "thiserror",
  "webpki-roots 0.26.11",
+ "zeroize",
 ]
 
 [[package]]

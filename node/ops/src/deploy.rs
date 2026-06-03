@@ -153,9 +153,10 @@ pub fn deploy(
     println!("Slot   category (display BE): {slot_cat_be_hex}");
 
     // ── 5. Build Oracle redeem script + P2SH-32 LB ───────────────────────
-    // v22: Oracle has 1 ctor arg (tickerLockingBytecode); slot category is no
-    // longer a ctor arg because Oracle dropped the per-iter category check.
-    let oracle_redeem = redeem_oracle(&ticker_lb)?;
+    // v23: Oracle has 1 ctor arg (tickerLockingBytecode) + specialized body
+    // (slot category id + 0x01 cap inlined at fixed offset). F01 restoration
+    // closes V22-OC-22 quorum bypass.
+    let oracle_redeem = redeem_oracle(&ticker_lb, &slot_cat_le)?;
     let oracle_lb: [u8; 35] = p2sh32_locking_bytecode(&oracle_redeem);
     let oracle_addr = encode_p2sh32_cashaddr(&oracle_lb, prefix);
     let oracle_lb_hex = hex::encode(oracle_lb);

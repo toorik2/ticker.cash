@@ -4,7 +4,8 @@
     { "name": "recipientPubkey", "type": "pubkey" },
     { "name": "strikePrice", "type": "bytes8" },
     { "name": "oracleCategoryReversed", "type": "bytes32" },
-    { "name": "minLastTs", "type": "int" }
+    { "name": "minLastTs", "type": "int" },
+    { "name": "maxCycleSeq", "type": "int" }
   ],
   "abi": [
     {
@@ -14,22 +15,23 @@
       ]
     }
   ],
-  "bytecode": "OP_INPUTINDEX OP_0 OP_NUMEQUALVERIFY OP_1 OP_UTXOTOKENCATEGORY 20 OP_SPLIT OP_DROP OP_3 OP_ROLL OP_EQUALVERIFY OP_1 OP_UTXOTOKENCATEGORY 21 OP_SPLIT OP_DROP 20 OP_SPLIT OP_NIP OP_1 OP_EQUALVERIFY OP_1 OP_UTXOTOKENCOMMITMENT OP_DUP OP_SIZE OP_NIP 11 OP_NUMEQUALVERIFY OP_DUP OP_1 OP_SPLIT OP_DROP 80 OP_EQUALVERIFY OP_DUP OP_9 OP_SPLIT OP_DROP OP_5 OP_SPLIT OP_NIP OP_BIN2NUM OP_4 OP_ROLL OP_GREATERTHANOREQUAL OP_VERIFY 11 OP_SPLIT OP_DROP OP_9 OP_SPLIT OP_NIP OP_BIN2NUM OP_ROT OP_BIN2NUM OP_GREATERTHANOREQUAL OP_VERIFY OP_CHECKSIG",
-  "source": "pragma cashscript >= 0.13.0;\n\n// PriceGatedRelease — locks BCH; releases to the holder of recipientPubkey\n// once an atomically co-final Ticker NFT shows medianPrice >= strikePrice\n// (and the publisher-attested lastTs is at or above minLastTs).\n//\n// Tx shape:\n//   input[0]   this covenant (the funded UTXO)\n//   input[1]   Ticker NFT from the pinned Oracle category\n//   output[0]  payout — recipient builds any P2PKH / P2SH / token output\n//   output[1]  Ticker re-emit at the same index (Ticker.cash enforces this)\n//   output[2]  optional change\n//\n// Co-finality: input[1] being a Ticker from the pinned category makes this\n// tx a chain-descendant of the Oracle.update that minted (or relayed) the\n// Ticker. BCH consensus refuses to confirm this tx in any chain that\n// excludes the Oracle.update — the price gate is atomic, not advisory.\n//\n// Constructor args:\n//   recipientPubkey         — 33 B pubkey allowed to spend after the gate\n//   strikePrice             — 8 B u64 LE; release iff median >= strike\n//                             (sat-scaled USD per BCH × 1e8 — same scale\n//                             as the Oracle commit's medianPrice field)\n//   oracleCategoryReversed  — 32 B Oracle category (byte-reversed for the\n//                             little-endian tokenCategory comparison)\n//   minLastTs               — u32 UNIX ts floor; refuses stale Tickers\n\ncontract PriceGatedRelease(\n    pubkey  recipientPubkey,\n    bytes8  strikePrice,\n    bytes32 oracleCategoryReversed,\n    int     minLastTs\n) {\n    function release(sig recipientSig) {\n        require(this.activeInputIndex == 0);\n\n        // input[1]: Ticker from the pinned Oracle category, mutable cap 0x01\n        require(tx.inputs[1].tokenCategory.slice(0, 32) == oracleCategoryReversed);\n        require(tx.inputs[1].tokenCategory.slice(32, 33) == 0x01);\n\n        // Ticker commit shape (17 B, version 0x80)\n        bytes tickerCommit = tx.inputs[1].nftCommitment;\n        require(tickerCommit.length == 17);\n        require(tickerCommit.slice(0, 1) == 0x80);\n\n        // Freshness — publisher-attested wall-clock, not BIP-113-laggable\n        require(int(tickerCommit.slice(5, 9)) >= minLastTs);\n\n        // Price gate — both sides are u64 LE, sat-scaled USD/BCH × 1e8\n        require(int(tickerCommit.slice(9, 17)) >= int(strikePrice));\n\n        // Recipient holds the gate key\n        require(checkSig(recipientSig, recipientPubkey));\n    }\n}\n",
-  "fingerprint": "fb7704a7dc270a104252ac9965061190601c74fe7e537a21ca05b020492bd05d",
+  "bytecode": "OP_INPUTINDEX OP_0 OP_NUMEQUALVERIFY OP_1 OP_UTXOTOKENCATEGORY 20 OP_SPLIT OP_DROP OP_3 OP_ROLL OP_EQUALVERIFY OP_1 OP_UTXOTOKENCATEGORY 21 OP_SPLIT OP_DROP 20 OP_SPLIT OP_NIP OP_1 OP_EQUALVERIFY OP_1 OP_UTXOTOKENCOMMITMENT OP_DUP OP_SIZE OP_NIP 11 OP_NUMEQUALVERIFY OP_DUP OP_1 OP_SPLIT OP_DROP 80 OP_EQUALVERIFY OP_DUP OP_5 OP_SPLIT OP_DROP OP_1 OP_SPLIT OP_NIP OP_BIN2NUM OP_5 OP_ROLL OP_LESSTHANOREQUAL OP_VERIFY OP_DUP OP_9 OP_SPLIT OP_DROP OP_5 OP_SPLIT OP_NIP OP_BIN2NUM OP_4 OP_ROLL OP_GREATERTHANOREQUAL OP_VERIFY 11 OP_SPLIT OP_DROP OP_9 OP_SPLIT OP_NIP OP_BIN2NUM OP_ROT OP_BIN2NUM OP_GREATERTHANOREQUAL OP_VERIFY OP_CHECKSIG",
+  "source": "pragma cashscript >= 0.13.0;\n\n// PriceGatedRelease — locks BCH; releases to the holder of recipientPubkey\n// once an atomically co-final Ticker NFT shows medianPrice >= strikePrice\n// (and the publisher-attested lastTs is at or above minLastTs).\n//\n// Tx shape:\n//   input[0]   this covenant (the funded UTXO)\n//   input[1]   Ticker NFT from the pinned Oracle category\n//   output[0]  payout — recipient builds any P2PKH / P2SH / token output\n//   output[1]  Ticker re-emit at the same index (Ticker.cash enforces this)\n//   output[2]  optional change\n//\n// Co-finality: input[1] being a Ticker from the pinned category makes this\n// tx a chain-descendant of the Oracle.update that minted (or relayed) the\n// Ticker. BCH consensus refuses to confirm this tx in any chain that\n// excludes the Oracle.update — the price gate is atomic, not advisory.\n//\n// Constructor args:\n//   recipientPubkey         — 33 B pubkey allowed to spend after the gate\n//   strikePrice             — 8 B u64 LE; release iff median >= strike\n//                             (sat-scaled USD per BCH × 1e8 — same scale\n//                             as the Oracle commit's medianPrice field)\n//   oracleCategoryReversed  — 32 B Oracle category (byte-reversed for the\n//                             little-endian tokenCategory comparison)\n//   minLastTs               — u32 UNIX ts floor; refuses stale Tickers\n//   maxCycleSeq             — u32 cycle ceiling; refuses Tickers from cycles\n//                             past the deployer-pinned horizon. F02 fix\n//                             (W5-MEMPOOL R6c MEV-SANDWICH). Without this,\n//                             an attacker can hold a chain of pre-mined\n//                             Tickers and surface one of them at a moment\n//                             the strike just barely passes, even though\n//                             the chain has long since moved on. Pin to\n//                             roughly `current_cycle + N_cycles_of_grace`.\n\ncontract PriceGatedRelease(\n    pubkey  recipientPubkey,\n    bytes8  strikePrice,\n    bytes32 oracleCategoryReversed,\n    int     minLastTs,\n    int     maxCycleSeq\n) {\n    function release(sig recipientSig) {\n        require(this.activeInputIndex == 0);\n\n        // input[1]: Ticker from the pinned Oracle category, mutable cap 0x01\n        require(tx.inputs[1].tokenCategory.slice(0, 32) == oracleCategoryReversed);\n        require(tx.inputs[1].tokenCategory.slice(32, 33) == 0x01);\n\n        // Ticker commit shape (17 B, version 0x80)\n        bytes tickerCommit = tx.inputs[1].nftCommitment;\n        require(tickerCommit.length == 17);\n        require(tickerCommit.slice(0, 1) == 0x80);\n\n        // F02 — cycleSeq ceiling (MEV-sandwich gate). Refuses Tickers from\n        // cycles past the deploy-time pin. Cycle seq is at bytes [1..5] of\n        // the Ticker commit (after the 0x80 version byte).\n        require(int(tickerCommit.slice(1, 5)) <= maxCycleSeq);\n\n        // Freshness — publisher-attested wall-clock, not BIP-113-laggable\n        require(int(tickerCommit.slice(5, 9)) >= minLastTs);\n\n        // Price gate — both sides are u64 LE, sat-scaled USD/BCH × 1e8\n        require(int(tickerCommit.slice(9, 17)) >= int(strikePrice));\n\n        // Recipient holds the gate key\n        require(checkSig(recipientSig, recipientPubkey));\n    }\n}\n",
+  "fingerprint": "5f3585fa03d09e259eaf9a2f672f151c7150a6f48883f2cb9dfe07390d2bee69",
   "debug": {
-    "bytecode": "c0009d51ce01207f75537a8851ce01217f7501207f77518851cf76827701119d76517f7501808876597f75557f7781547aa26901117f75597f77817b81a269ac",
-    "sourceMap": "35:16:35:37;:41::42;:8::44:1;38:26:38:27:0;:16::42:1;:52::54:0;:16::55:1;;:59::81:0;;:8::83:1;39:26:39:27:0;:16::42:1;:53::55:0;:16::56:1;;:49::51:0;:16::56:1;;:60::64:0;:8::66:1;42:39:42:40:0;:29::55:1;43:16:43:28:0;:::35:1;;:39::41:0;:8::43:1;44:16:44:28:0;:38::39;:16::40:1;;:44::48:0;:8::50:1;47:20:47:32:0;:42::43;:20::44:1;;:39::40:0;:20::44:1;;:16::45;:49::58:0;;:16:::1;:8::60;50:42:50:44:0;:20::45:1;;:39::40:0;:20::45:1;;:16::46;:54::65:0;:50::66:1;:16;:8::68;53::53:57",
+    "bytecode": "c0009d51ce01207f75537a8851ce01217f7501207f77518851cf76827701119d76517f7501808876557f75517f7781557aa16976597f75557f7781547aa26901117f75597f77817b81a269ac",
+    "sourceMap": "44:16:44:37;:41::42;:8::44:1;47:26:47:27:0;:16::42:1;:52::54:0;:16::55:1;;:59::81:0;;:8::83:1;48:26:48:27:0;:16::42:1;:53::55:0;:16::56:1;;:49::51:0;:16::56:1;;:60::64:0;:8::66:1;51:39:51:40:0;:29::55:1;52:16:52:28:0;:::35:1;;:39::41:0;:8::43:1;53:16:53:28:0;:38::39;:16::40:1;;:44::48:0;:8::50:1;58:20:58:32:0;:42::43;:20::44:1;;:39::40:0;:20::44:1;;:16::45;:49::60:0;;:16:::1;:8::62;61:20:61:32:0;:42::43;:20::44:1;;:39::40:0;:20::44:1;;:16::45;:49::58:0;;:16:::1;:8::60;64:42:64:44:0;:20::45:1;;:39::40:0;:20::45:1;;:16::46;:54::65:0;:50::66:1;:16;:8::68;67::67:57",
     "logs": [],
     "requires": [
-      { "ip": 6, "line": 35 },
-      { "ip": 14, "line": 38 },
-      { "ip": 24, "line": 39 },
-      { "ip": 31, "line": 43 },
-      { "ip": 37, "line": 44 },
-      { "ip": 49, "line": 47 },
-      { "ip": 60, "line": 50 },
-      { "ip": 62, "line": 53 }
+      { "ip": 7, "line": 44 },
+      { "ip": 15, "line": 47 },
+      { "ip": 25, "line": 48 },
+      { "ip": 32, "line": 52 },
+      { "ip": 38, "line": 53 },
+      { "ip": 50, "line": 58 },
+      { "ip": 62, "line": 61 },
+      { "ip": 73, "line": 64 },
+      { "ip": 75, "line": 67 }
     ]
   },
   "compiler": {
@@ -40,5 +42,5 @@
       "enforceLocktimeGuard": true
     }
   },
-  "updatedAt": "2026-06-02T17:49:05.077Z"
+  "updatedAt": "2026-06-03T04:08:28.947Z"
 }

@@ -13,6 +13,7 @@
 use crate::crypto::{derive_pubkey, hash160, KeyError};
 use std::fs;
 use std::path::Path;
+use zeroize::Zeroize;
 
 /// Decoded operator key + derived public material.
 ///
@@ -37,10 +38,9 @@ impl std::fmt::Debug for OperatorKey {
 
 impl Drop for OperatorKey {
     fn drop(&mut self) {
-        // Volatile writes prevent the compiler from optimising away the wipe.
-        for i in 0..self.private_key.len() {
-            unsafe { std::ptr::write_volatile(&mut self.private_key[i], 0) };
-        }
+        // v23 F11 — Zeroize defeats dead-store elimination; pkh + pubkey are
+        // public material so we only wipe the private key.
+        self.private_key.zeroize();
     }
 }
 

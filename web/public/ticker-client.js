@@ -26,46 +26,46 @@
       { url: 'wss://chipnet.imaginary.cash:50004', mode: 'subscribe' },
       { url: 'wss://chipnet.bch.ninja:50004',      mode: 'poll', pollMs: 12000 },
     ],
-    ORACLE_ADDR: 'bchtest:pw5j9jpl3qazcl3rljm69dhpxfdq5jgq0lcm7x7n3laj7lj026rrkz8yqpcpm',
-    ORACLE_CATEGORY: '3f341d39cf06e78d2caaf39431471fcf529d20f80e334ce7843701c1e25c1f80',
-    // v22: P2S slot addresses (CHIP-2024-12). Each slot's LB IS its compiled
+    ORACLE_ADDR: 'bchtest:p0gf2c5mtatyz9cf5v6exafy363u7q7537ep6xvf0tmu7xxtjy87st9pt7k3n',
+    ORACLE_CATEGORY: '59fc5d4f6f3ce872792ec537c0efb9b8a04fafe359883c51f27851e35753016a',
+    // v22/v23: P2S slot addresses (CHIP-2024-12). Each slot's LB IS its compiled
     // body (per-source specialized with pkh + cnHash + oracleCatHash inlined
     // as script literals). Fulcrum 2.x doesn't decode P2S cashaddrs yet, so
     // the dashboard subscribes by SCRIPTHASH (see SLOT_SCRIPTHASHES below).
     // SLOT_ADDRS kept for display + cashaddr generation.
     SLOT_ADDRS: [
-      'bchtest:zpmqp8rrcpmv79yvutg8k43j5kz474q36wcgtsdu68q8596k0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpf0lzjvdyrgrrfq2wn50q2fdp9st39ulrcljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5wpfc5jfu22ah45mwlmwnnf27pjyes47g3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35qnynu57a7', // 1 kraken
-      'bchtest:zpmqp8rrcpmv79pn8ewxxg0evd3zxdjzrfjxvlef3ccuq5jk0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpf3v02l5fs4m2l6q43vhdxwpkq0xmgja65ljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5wpfc5jfu22ah45mwlmwnnf27pjyes47g3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35qtsaskw7w', // 2 coinbase
-      'bchtest:zpmqp8rrcpmv7980x60747qvp6jlvkmq0y305tq3ryltkxzk0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpfef5vkal8e23ca7hnpkccwtrjdmjcwggcljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5wpfc5jfu22ah45mwlmwnnf27pjyes47g3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35qfumgy04z', // 3 gemini
-      'bchtest:zpmqp8rrcpmv79xgchpgtlgn8ytvek6nxv0x3lg9rc6pwf6k0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpfvyqfyt0j5txnqk4wf2vtnpeatlera2sxljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5wpfc5jfu22ah45mwlmwnnf27pjyes47g3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35q80j99g2z', // 4 binance_us
-      'bchtest:zpmqp8rrcpmv799k8ya3s8hfhj062e9duh9rmcajw9l3tkzk0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpfej3c72vs37x6zezg2eya7shjjjhafyx2ljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5wpfc5jfu22ah45mwlmwnnf27pjyes47g3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35ql7hehgrw', // 5 bitstamp
-      'bchtest:zpmqp8rrcpmv79qsdgl4xyga5h94f9mrqa2zue93lylcc6zk0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpgzrgkhr077em3xr58eu33sypupzwlwm2cljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5wpfc5jfu22ah45mwlmwnnf27pjyes47g3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35qztlswdxs', // 6 cryptocom
-      'bchtest:zpmqp8rrcpmv7982c30se4thsxqutf9ukxxpeezc7zmee02k0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpg3vls4w7za2ms53dx0a2c75xx7dhyluf2ljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5wpfc5jfu22ah45mwlmwnnf27pjyes47g3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35q3qaj7l4j', // 7 bitfinex
-      'bchtest:zpmqp8rrcpmv798jg0476ylt7vqvkk7mj2lew5rtzcrangzk0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpfxgd4x67sfe32ml2eqganm2pafn8m0j0xljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5wpfc5jfu22ah45mwlmwnnf27pjyes47g3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35qzgqsjc4n', // 8 exmo
-      'bchtest:zpmqp8rrcpmv79xq2ydxj4lw7u895m46zx5ue73jeputdazk0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpfjnva4v4965v4c08jv6w6txeffayg4ul7ljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5wpfc5jfu22ah45mwlmwnnf27pjyes47g3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35q48zneja2', // 9 independentreserve
-      'bchtest:zpmqp8rrcpmv79yfk8slu6j6jxd7ywnpwryyanaeuqxaq0zk0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpf7u4u8nvruhxjgzxvn5u8ssaj9dqlwxq6ljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5wpfc5jfu22ah45mwlmwnnf27pjyes47g3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35qpfdp2myz', // 10 okx_usdc
-      'bchtest:zpmqp8rrcpmv79yuhdkccqtgj9ydnfxw092lckzyruj3vg6k0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpfe5gvgk0wg9elzjc9dlnrwm26hyxmwh32ljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5wpfc5jfu22ah45mwlmwnnf27pjyes47g3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35qcf2lzkx9', // 11 kucoin_usdc
-      'bchtest:zpmqp8rrcpmv79yswz5fy75dfhenatjangy9fp3eacmh222k0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpg2a4rhktlkv5lwredurwhunfqs4qjky2vljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5wpfc5jfu22ah45mwlmwnnf27pjyes47g3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35qnhljyepe', // 12 bybit
-      'bchtest:zpmqp8rrcpmv79pz45sxmugt44natxhppzgsrycc3v9wd42k0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpgatkg4r344qnqqd2hzre6v5vvyyulftqqljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5wpfc5jfu22ah45mwlmwnnf27pjyes47g3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35q7f9hq6ak', // 13 htx
+      'bchtest:zpmqp8rrcpmv79yvutg8k43j5kz474q36wcgtsdu68q8596k0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpf0lzjvdyrgrrfq2wn50q2fdp9st39ulrcljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5exuc05r2ea93vl6lg95ddxm93th2nyav3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35qk3uvh2pf', // 1 kraken
+      'bchtest:zpmqp8rrcpmv79pn8ewxxg0evd3zxdjzrfjxvlef3ccuq5jk0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpf3v02l5fs4m2l6q43vhdxwpkq0xmgja65ljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5exuc05r2ea93vl6lg95ddxm93th2nyav3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35qw9jq46ze', // 2 coinbase
+      'bchtest:zpmqp8rrcpmv7980x60747qvp6jlvkmq0y305tq3ryltkxzk0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpfef5vkal8e23ca7hnpkccwtrjdmjcwggcljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5exuc05r2ea93vl6lg95ddxm93th2nyav3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35qvf5c8mf4', // 3 gemini
+      'bchtest:zpmqp8rrcpmv79xgchpgtlgn8ytvek6nxv0x3lg9rc6pwf6k0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpfvyqfyt0j5txnqk4wf2vtnpeatlera2sxljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5exuc05r2ea93vl6lg95ddxm93th2nyav3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35qz6a4xuk4', // 4 binance_us
+      'bchtest:zpmqp8rrcpmv799k8ya3s8hfhj062e9duh9rmcajw9l3tkzk0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpfej3c72vs37x6zezg2eya7shjjjhafyx2ljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5exuc05r2ea93vl6lg95ddxm93th2nyav3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35q6tcf5ule', // 5 bitstamp
+      'bchtest:zpmqp8rrcpmv79qsdgl4xyga5h94f9mrqa2zue93lylcc6zk0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpgzrgkhr077em3xr58eu33sypupzwlwm2cljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5exuc05r2ea93vl6lg95ddxm93th2nyav3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35q87sqde68', // 6 cryptocom
+      'bchtest:zpmqp8rrcpmv7982c30se4thsxqutf9ukxxpeezc7zmee02k0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpg3vls4w7za2ms53dx0a2c75xx7dhyluf2ljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5exuc05r2ea93vl6lg95ddxm93th2nyav3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35q54jzatf9', // 7 bitfinex
+      'bchtest:zpmqp8rrcpmv798jg0476ylt7vqvkk7mj2lew5rtzcrangzk0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpfxgd4x67sfe32ml2eqganm2pafn8m0j0xljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5exuc05r2ea93vl6lg95ddxm93th2nyav3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35q8a0q3vfy', // 8 exmo
+      'bchtest:zpmqp8rrcpmv79xq2ydxj4lw7u895m46zx5ue73jeputdazk0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpfjnva4v4965v4c08jv6w6txeffayg4ul7ljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5exuc05r2ea93vl6lg95ddxm93th2nyav3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35qsjdr6xpa', // 9 independentreserve
+      'bchtest:zpmqp8rrcpmv79yfk8slu6j6jxd7ywnpwryyanaeuqxaq0zk0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpf7u4u8nvruhxjgzxvn5u8ssaj9dqlwxq6ljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5exuc05r2ea93vl6lg95ddxm93th2nyav3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35qyuz3f0c4', // 10 okx_usdc
+      'bchtest:zpmqp8rrcpmv79yuhdkccqtgj9ydnfxw092lckzyruj3vg6k0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpfe5gvgk0wg9elzjc9dlnrwm26hyxmwh32ljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5exuc05r2ea93vl6lg95ddxm93th2nyav3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35qau90pz6j', // 11 kucoin_usdc
+      'bchtest:zpmqp8rrcpmv79yswz5fy75dfhenatjangy9fp3eacmh222k0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpg2a4rhktlkv5lwredurwhunfqs4qjky2vljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5exuc05r2ea93vl6lg95ddxm93th2nyav3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35qkzsz8daw', // 12 bybit
+      'bchtest:zpmqp8rrcpmv79pz45sxmugt44natxhppzgsrycc3v9wd42k0x5h3zzc0xqhkcrlw4w87aup5p54x72409l8cljh09lpgatkg4r344qnqqd2hzre6v5vvyyulftqqljk0f79v74mwf78u5m60euv65nec7y8352j088gs7xj3pmvclxxn3mkw5vacqqvuqfq0afg32g5exuc05r2ea93vl6lg95ddxm93th2nyav3pm9rgrrwmrsz8tlw4v87aup0zxvwqga0a64slmhs9h2q6tddpmv67x83pmdz7xw3pmdy7x03pmvclxxn35qmu28rwpp', // 13 htx
     ],
-    // v22: scripthashes for Fulcrum subscription (P2S addresses not yet
+    // v22/v23: scripthashes for Fulcrum subscription (P2S addresses not yet
     // decoded by Fulcrum 2.x). Each is sha256(slot_LB) reversed-bytes hex.
     SLOT_SCRIPTHASHES: [
-      '308556302d5ec33a19bb9936639d9957894e93c45fc005ae5439c9d197d4c51d', // 1 kraken
-      'ab5e65ea632c09475ee7fb82ed503eb1f5d92b4702d2f9fd951cc73a594f535d', // 2 coinbase
-      '4f9171ef60641b1849bf8390ca204a3960d3ce213af89381bddf54d4326f7f58', // 3 gemini
-      '381ef3dace49ea14aa96edebc4f93f8e36ba5257dcde08256045c98613b5e180', // 4 binance_us
-      '869f2104a4a7a7220be11206a4c7b3fd9700961aad4e06a2414c1510742db178', // 5 bitstamp
-      '8d6ee5d6badb23b2670381a89bcd7416c31f47ce79e365f30b2ac022e99a6852', // 6 cryptocom
-      '0a115a9e2d7cac148d01b56fabf19814e104d31cc3cca1179fa52504e8b77d43', // 7 bitfinex
-      '6b99293784c41b6c5477df04cb214d5855a416f9966b408a771d5c861b61691f', // 8 exmo
-      '52095bab93aa9df7a381cda42e06043bce437fe0e64d62e4ddd3063caad36515', // 9 independentreserve
-      'c61b004d514befaf8b6d017f74c690ec8b70f7abc137e8a23028279a059d58b1', // 10 okx_usdc
-      'c331783b3e021feeb1644689844a6e6be361d711464825038caabad45994ff82', // 11 kucoin_usdc
-      '88f59868c03699baf69276fef8fe8c944e0c0702c75983f4b7f4850bd754c8a6', // 12 bybit
-      '8ee4c472e41499276db3ecbf44ac44a32c2052c5f852a662f88a6e6a75bc0c55', // 13 htx
+      '3305151af8abf383b2b30df0c24ef8ef906d4438d7617ed19072a254d8494263', // 1 kraken
+      'c26a217af56e2a8b868c2868f40db05979df086ec4bbb9ccba614a94f25d71c9', // 2 coinbase
+      '1809b48903f9fde101d976a3da37c26e26448958cd501d0d26b753239cced1ec', // 3 gemini
+      '4e191f3043997a8c7ca8f73a052a09465ae8ca5838ed810b37798b763f72b35c', // 4 binance_us
+      'f2e454fec0cfc332c6c8e56126afb023be4c58d67b1665a66e9c1048e284a52d', // 5 bitstamp
+      '1d37663ef0ea6320e32b287480117e2e1430a855a11fd0c97446fa70112aa37f', // 6 cryptocom
+      '8c382d8670beeb7eac66dbfa16c500aeec363b62814a8fd468d475375b4701e7', // 7 bitfinex
+      '90bb349ded00f3c0cdae97f8c84de059fc22e47da1745d0eee8e5fb500d4d118', // 8 exmo
+      '7d5ead6e337496683b0d8ad5e2b2d3201a4e65bd8bd592f919ff6e8dc38f757f', // 9 independentreserve
+      '3056ebce28862bfae629ff393e0446f611f7729e699087111735843918c79a9c', // 10 okx_usdc
+      'a878de27a476a962c0485cf70c9b4c078b7d82faea08fe64142924ff8b3efa8a', // 11 kucoin_usdc
+      'e02ecaa37bd7068fe7e62482512f45b304c1deab8037f8050dc0427d120a2b99', // 12 bybit
+      '7aa0b7d970c54007f75dacfba792b404f64efd700637ff55b6d9d48708da509e', // 13 htx
     ],
-    SLOT_CATEGORY: 'f701fd8bf84c35c8adeb3ba268f065736805dac9c148571340176f78797a7929',
+    SLOT_CATEGORY: '6de0906ddcb196bfc3908c7312f104d44542cc9e67678303c051e275679913eb',
     // v17: per-source publisher pkhs (in source-id order). Used by stats.html
     // to map a decoded slot commit's pkh to a slot index (since v17 commits
     // no longer carry sourceId).
@@ -87,7 +87,7 @@
     CASHADDR_PREFIX: 'bchtest',
     STALE_SEC: 300,
     STRIDE_FLOOR_SEC: 60,
-    DEPLOYED_AT_SEC: Math.floor(new Date('2026-06-02T18:09:00.000Z').getTime() / 1000),
+    DEPLOYED_AT_SEC: Math.floor(new Date('2026-06-03T04:32:01.000Z').getTime() / 1000),
     // Per-publisher per-cycle expected cost in sats (used for runway display).
     // This is a FALLBACK constant — the dashboard calls
     // `measureExpectedSatsPerCycle(client)` on init to derive the live value
@@ -163,6 +163,14 @@
   function decodeOracleCommit(hex) {
     // v22: 16-byte commit, no version, no activeCount. Layout:
     //   seq(4) + lastTs(4) + median(8)
+    //
+    // F15 (v23): activeCount was removed from the Oracle commit in v22 (T2).
+    // Previously this function returned synthetic 13 — a silent lie that
+    // hid federation-degradation signal from consumers. v23 returns null
+    // explicitly so callers can distinguish "no signal available" from
+    // "everyone's healthy." Consumers needing federation health MUST read
+    // the on-chain quorum count from the most recent Oracle.update tx
+    // (count of slot inputs spent).
     if (hex.length !== 32) return null; // 16 B × 2 hex chars
     const b = hexToBytes(hex);
     const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
@@ -172,7 +180,7 @@
       lastTs: dv.getUint32(4, true),
       medianPrice: scaled,
       medianUsd: Number(scaled) / 1e8,
-      activeCount: 13,  // v22: activeCount dropped; consumers see synthetic constant
+      activeCount: null,  // F15: explicit null (was synthetic 13 in v22)
     };
   }
   function decodeSlotCommit(hex) {

@@ -13,6 +13,7 @@
 use crate::crypto::{derive_pubkey, hash160, sha256, KeyError};
 use std::fs;
 use std::path::Path;
+use zeroize::Zeroize;
 
 pub const MASTER_LABEL: &str = "master";
 pub const PUBLISHER_LABEL: &str = "publisher";
@@ -27,13 +28,24 @@ pub enum SeedError {
     WrongLength { path: String, got_bytes: usize },
     #[error("seed at {0} contains non-hex characters")]
     NonHex(String),
+    #[error(
+        "seed file at {path} has insecure permissions {mode:#o} \
+         (group/other access). Fix with: chmod 600 {path}"
+    )]
+    InsecurePermissions { path: String, mode: u32 },
     #[error("derive: {0}")]
     Crypto(#[from] KeyError),
 }
 
 /// Load 32-byte seed from a hex-encoded file (e.g. `.ticker/seed.hex`).
+///
+/// v23 F13 — refuses to read a seed file with group- or world- permission bits
+/// set. Matches the policy already applied to publisher keys; closes a class
+/// where the coordinator's seed.hex could leak via a misconfigured umask while
+/// the operator-side key check passed.
 pub fn load_seed(path: impl AsRef<Path>) -> Result<[u8; 32], SeedError> {
     let p = path.as_ref();
+    check_secure_permissions(p)?;
     let raw = match fs::read_to_string(p) {
         Ok(s) => s,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -56,12 +68,44 @@ pub fn load_seed(path: impl AsRef<Path>) -> Result<[u8; 32], SeedError> {
     Ok(out)
 }
 
+/// Refuse to load a seed file that's group- or world-readable on Unix.
+/// No-op on other platforms (Windows / WASI use different permission models).
+#[cfg(unix)]
+fn check_secure_permissions(p: &Path) -> Result<(), SeedError> {
+    use std::os::unix::fs::PermissionsExt;
+    let meta = match fs::metadata(p) {
+        Ok(m) => m,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e.into()),
+    };
+    let mode = meta.permissions().mode() & 0o777;
+    if mode & 0o077 != 0 {
+        return Err(SeedError::InsecurePermissions {
+            path: p.display().to_string(),
+            mode,
+        });
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn check_secure_permissions(_p: &Path) -> Result<(), SeedError> {
+    Ok(())
+}
+
 /// Wallet derived from a seed + label.
 #[derive(Debug, Clone)]
 pub struct DerivedWallet {
     pub private_key: [u8; 32],
     pub public_key: [u8; 33],
     pub pkh: [u8; 20],
+}
+
+impl Drop for DerivedWallet {
+    fn drop(&mut self) {
+        // v23 F11 — wipe private key on drop. Public key + pkh are public.
+        self.private_key.zeroize();
+    }
 }
 
 /// `derive_wallet(seed, label)` — `private_key = sha256(seed || utf8(label))`.
@@ -114,5 +158,24 @@ mod tests {
         let w2 = derive_wallet(&seed, "master").unwrap();
         assert_eq!(w1.private_key, w2.private_key);
         assert_ne!(w1.private_key, [0u8; 32]);
+    }
+
+    /// v23 F13 — world-readable seed.hex is refused. Mirrors the existing
+    /// operator-key permission gate so seed and key files share one policy.
+    #[cfg(unix)]
+    #[test]
+    fn rejects_world_readable_seed() {
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+        let hex64 = "0404040404040404040404040404040404040404040404040404040404040404";
+        let path = std::env::temp_dir().join("ticker-seed-test-insecure.hex");
+        let mut f = std::fs::File::create(&path).unwrap();
+        f.write_all(hex64.as_bytes()).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(matches!(
+            load_seed(&path),
+            Err(SeedError::InsecurePermissions { .. })
+        ));
+        let _ = std::fs::remove_file(&path);
     }
 }

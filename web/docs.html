@@ -123,6 +123,22 @@
       </ul>
       <p>No admin keys. No upgrade path. Changing the publisher set requires a fresh PublisherSlot covenant, new genesis, and a slot fleet migration. The new address coexists with the old.</p>
       <div class="callout"><b>Collapsed-trust note.</b> All 13 publisher slots currently run under a single operator on shared infrastructure. The 7-of-13 quorum is structurally enforced by the covenant, but its security only realises its full value once the federation is split across independent operators — manifest distribution, per-operator key custody, joint genesis ceremony.</div>
+
+      <h3>Threat tiering &amp; v23 remediation posture</h3>
+      <p>The 2026 Latent Labs red-team engagement against the v22 deployment surfaced 15 findings. v23 closes them under a tiered policy:</p>
+      <ul>
+        <li><b>Class-1 — any-party adversarial.</b> A non-federation attacker can force a result. MUST be closed in the covenant. v23 closes <b>F01</b> (<code>V22-OC-22</code> Oracle quorum bypass via unpinned slot tokenCategory). Postmortem at <code>docs/incidents/v22-oc-22-quorum-bypass.md</code>.</li>
+        <li><b>Class-2 — in-federation misbehavior.</b> A ≤ 6-of-13 publisher subset misbehaves. Absorbed by the 7-of-13 threshold itself; the covenant's median already excludes outliers up to <code>k = 6</code>. Findings <b>F03, F04, F05, F06, F07, F09</b> fall here and are accepted-latent for as long as the federation runs under a single operator.</li>
+        <li><b>Class-3 — consumer-side.</b> A downstream covenant ingests a Ticker and a sandwich attacker controls block order. v23 closes <b>F02</b> (<code>R6c MEV-sandwich</code>) by adding a deploy-time <code>maxCycleSeq</code> ceiling to the reference <code>PriceGatedRelease</code> consumer; downstream covenants that ingest Tickers should adopt the same pattern.</li>
+        <li><b>Class-4 — ops / process hygiene.</b> v23 closes <b>F11</b> (zeroize-on-drop for in-memory privkey buffers), <b>F13</b> (refuse to load <code>seed.hex</code> if group- or world-readable), <b>F14</b> (reject scientific-notation in CEX price strings — was silently truncated to a 1000× wrong price), <b>F15</b> (web client returns explicit <code>activeCount: null</code> instead of synthetic 13).</li>
+      </ul>
+      <p><b>Known-deferred gates (tracked, not closed in v23):</b></p>
+      <ul>
+        <li><b>F08</b> doc-drift CI — separate operations workstream. Tracked.</li>
+        <li><b>F10</b> publishers-per-cycle <code>K=2 → K=4</code> mint count — deferred. Per-cycle covenant body cost is unchanged, but two additional Ticker dust outputs land on chain each cycle (~$1,100/yr at chipnet prices). Revisit when the consumer-side ergonomics case is concrete.</li>
+        <li><b>F12</b> systemd unit hardening — separate operations workstream. Tracked.</li>
+      </ul>
+      <p>The threshold-absorbed posture only holds while the protocol stays correct for any-party adversaries. Class-2 absorption is a <i>choice</i> conditioned on the federation's social structure; the moment we split across independent operators, the same Class-2 findings get re-evaluated under the new model.</p>
     </section>
 
     <section class="chapter" id="flow">

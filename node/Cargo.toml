@@ -25,6 +25,9 @@ hex              = { version = "0.4",  default-features = false, features = ["st
 # CLI + errors
 pico-args        = "0.5"
 thiserror        = "2"
+# secret-wiping (v23 F11 — Zeroize-on-drop for in-memory privkey buffers,
+# defeats compiler dead-store elimination)
+zeroize          = { version = "1", default-features = false }
 
 # Workspace crates
 ticker-core      = { path = "core" }

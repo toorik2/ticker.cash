@@ -211,7 +211,7 @@ fn build_publisher_cfg(
         .as_slice()
         .try_into()?;
 
-    let oracle_redeem = redeem_oracle(&ticker_lb)?;
+    let oracle_redeem = redeem_oracle(&ticker_lb, &slot_cat_le)?;
     let oracle_lb_derived = p2sh32_locking_bytecode(&oracle_redeem);
     if oracle_lb_derived != oracle_lb {
         return Err("oracle locking bytecode mismatch — wrong manifest?".into());

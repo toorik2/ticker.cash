@@ -24,12 +24,21 @@ pragma cashscript >= 0.13.0;
 //   oracleCategoryReversed  — 32 B Oracle category (byte-reversed for the
 //                             little-endian tokenCategory comparison)
 //   minLastTs               — u32 UNIX ts floor; refuses stale Tickers
+//   maxCycleSeq             — u32 cycle ceiling; refuses Tickers from cycles
+//                             past the deployer-pinned horizon. F02 fix
+//                             (W5-MEMPOOL R6c MEV-SANDWICH). Without this,
+//                             an attacker can hold a chain of pre-mined
+//                             Tickers and surface one of them at a moment
+//                             the strike just barely passes, even though
+//                             the chain has long since moved on. Pin to
+//                             roughly `current_cycle + N_cycles_of_grace`.
 
 contract PriceGatedRelease(
     pubkey  recipientPubkey,
     bytes8  strikePrice,
     bytes32 oracleCategoryReversed,
-    int     minLastTs
+    int     minLastTs,
+    int     maxCycleSeq
 ) {
     function release(sig recipientSig) {
         require(this.activeInputIndex == 0);
@@ -42,6 +51,11 @@ contract PriceGatedRelease(
         bytes tickerCommit = tx.inputs[1].nftCommitment;
         require(tickerCommit.length == 17);
         require(tickerCommit.slice(0, 1) == 0x80);
+
+        // F02 — cycleSeq ceiling (MEV-sandwich gate). Refuses Tickers from
+        // cycles past the deploy-time pin. Cycle seq is at bytes [1..5] of
+        // the Ticker commit (after the 0x80 version byte).
+        require(int(tickerCommit.slice(1, 5)) <= maxCycleSeq);
 
         // Freshness — publisher-attested wall-clock, not BIP-113-laggable
         require(int(tickerCommit.slice(5, 9)) >= minLastTs);

@@ -45,18 +45,56 @@ pub const SLOT_PKH_OFFSET: usize = 8;
 pub const SLOT_CN_HASH_OFFSET: usize = 57;
 pub const SLOT_ORACLE_CAT_HASH_OFFSET: usize = 124;
 
-/// Build the v22 Oracle covenant's redeem script (P2SH-32 — Oracle is over P2S cap).
+/// v23 Oracle template literal offset — placeholder for `slotCatWithCap` (F01).
+/// Verified at cashc-emit time: 33-byte literal (32-B slot category id LE +
+/// 1-B mutable capability suffix). The placeholder bytes are 0xBABEFACE × 8
+/// followed by 0x01 — appears exactly once in the compiled body.
+pub const ORACLE_SLOT_CAT_WITH_CAP_OFFSET: usize = 82;
+
+/// Build the v23 Oracle covenant's redeem script (P2SH-32 — Oracle still over
+/// P2S cap). The body is specialized per-deployment with the slot category +
+/// mutable capability suffix inlined (F01 fix for V22-OC-22 quorum bypass).
 ///
 /// Args:
 ///   * `ticker_locking_bytecode` — 35 B P2SH-32 locking script of the Ticker covenant.
+///   * `slot_category_reversed`  — 32 B PublisherSlot category in LE wire order.
 pub fn redeem_oracle(
     ticker_locking_bytecode: &[u8; 35],
+    slot_category_reversed: &[u8; 32],
 ) -> Result<Vec<u8>, RedeemScriptError> {
-    let bytecode = oracle_bytecode()?;
-    let mut s = Vec::with_capacity(bytecode.len() + 40);
+    let body = specialize_oracle_body(slot_category_reversed)?;
+    let mut s = Vec::with_capacity(body.len() + 40);
     push_data(&mut s, ticker_locking_bytecode);
-    s.extend_from_slice(bytecode);
+    s.extend_from_slice(&body);
     Ok(s)
+}
+
+/// Build the v23 Oracle SPECIALIZED body — substitutes the `slotCatWithCap`
+/// placeholder with the actual slot category id + mutable capability suffix.
+/// The Oracle is a single-instance covenant (only one Oracle per deployment),
+/// so the slot category is a deploy-time constant.
+pub fn specialize_oracle_body(
+    slot_category_reversed: &[u8; 32],
+) -> Result<Vec<u8>, RedeemScriptError> {
+    let template = oracle_bytecode()?;
+    let mut body = template.to_vec();
+    // Placeholder: 0xBABEFACE × 8 + 0x01 capability suffix (33 bytes).
+    let placeholder: [u8; 33] = [
+        0xBA, 0xBE, 0xFA, 0xCE, 0xBA, 0xBE, 0xFA, 0xCE,
+        0xBA, 0xBE, 0xFA, 0xCE, 0xBA, 0xBE, 0xFA, 0xCE,
+        0xBA, 0xBE, 0xFA, 0xCE, 0xBA, 0xBE, 0xFA, 0xCE,
+        0xBA, 0xBE, 0xFA, 0xCE, 0xBA, 0xBE, 0xFA, 0xCE,
+        0x01,
+    ];
+    if body[ORACLE_SLOT_CAT_WITH_CAP_OFFSET..ORACLE_SLOT_CAT_WITH_CAP_OFFSET + 33] != placeholder {
+        return Err(RedeemScriptError::PlaceholderMissing {
+            offset: ORACLE_SLOT_CAT_WITH_CAP_OFFSET,
+        });
+    }
+    body[ORACLE_SLOT_CAT_WITH_CAP_OFFSET..ORACLE_SLOT_CAT_WITH_CAP_OFFSET + 32]
+        .copy_from_slice(slot_category_reversed);
+    body[ORACLE_SLOT_CAT_WITH_CAP_OFFSET + 32] = 0x01; // mutable capability suffix
+    Ok(body)
 }
 
 /// Build the v22 PublisherSlot SPECIALIZED body for ONE source (P2S).
@@ -199,12 +237,103 @@ mod tests {
     }
 
     #[test]
-    fn oracle_redeem_v22_has_single_ctor_push() {
+    fn oracle_redeem_v23_has_single_ctor_push() {
         let ticker_lb = [0x33u8; 35];
-        let redeem = redeem_oracle(&ticker_lb).unwrap();
-        let body = oracle_bytecode().unwrap();
-        // push(35) byte + 35 bytes + body
-        assert_eq!(redeem.len(), 1 + 35 + body.len());
+        let slot_cat = [0xaau8; 32];
+        let redeem = redeem_oracle(&ticker_lb, &slot_cat).unwrap();
+        let template = oracle_bytecode().unwrap();
+        // push(35) byte + 35 bytes ctor + body (specialized; same length as template)
+        assert_eq!(redeem.len(), 1 + 35 + template.len());
         assert_eq!(redeem[0], 0x23); // push 35 (0x23 = OP_PUSHBYTES_35)
+    }
+
+    #[test]
+    fn oracle_specialize_substitutes_slot_cat() {
+        let slot_cat = [0xaau8; 32];
+        let body = specialize_oracle_body(&slot_cat).unwrap();
+        assert_eq!(
+            &body[ORACLE_SLOT_CAT_WITH_CAP_OFFSET..ORACLE_SLOT_CAT_WITH_CAP_OFFSET + 32],
+            &slot_cat
+        );
+        assert_eq!(body[ORACLE_SLOT_CAT_WITH_CAP_OFFSET + 32], 0x01);
+    }
+
+    #[test]
+    fn oracle_specialize_per_deployment_bodies_differ() {
+        let a = [0xaau8; 32];
+        let b = [0xbbu8; 32];
+        assert_ne!(
+            specialize_oracle_body(&a).unwrap(),
+            specialize_oracle_body(&b).unwrap()
+        );
+    }
+
+    /// F01 permanent regression — the slot category placeholder MUST appear
+    /// exactly once in the compiled template. If a future cashc release
+    /// inlines the literal somewhere extra (e.g. an optimizer dedup boundary
+    /// shift), specialize_oracle_body would substitute only the first
+    /// occurrence and leave the second as live BABEFACE bytes — which a
+    /// crafted slot would then trivially pass. Fingerprinting "exactly one"
+    /// makes any such drift trip CI loudly before deployment.
+    #[test]
+    fn oracle_template_placeholder_appears_exactly_once() {
+        let template = oracle_bytecode().unwrap();
+        let placeholder: [u8; 33] = [
+            0xBA, 0xBE, 0xFA, 0xCE, 0xBA, 0xBE, 0xFA, 0xCE,
+            0xBA, 0xBE, 0xFA, 0xCE, 0xBA, 0xBE, 0xFA, 0xCE,
+            0xBA, 0xBE, 0xFA, 0xCE, 0xBA, 0xBE, 0xFA, 0xCE,
+            0xBA, 0xBE, 0xFA, 0xCE, 0xBA, 0xBE, 0xFA, 0xCE,
+            0x01,
+        ];
+        let positions: Vec<usize> = template
+            .windows(33)
+            .enumerate()
+            .filter_map(|(i, w)| if w == placeholder { Some(i) } else { None })
+            .collect();
+        assert_eq!(
+            positions,
+            vec![ORACLE_SLOT_CAT_WITH_CAP_OFFSET],
+            "F01 invariant: placeholder must appear at exactly one offset"
+        );
+    }
+
+    /// F01 permanent regression — after specialization, the BABEFACE marker
+    /// bytes must be entirely gone. Catches accidental partial substitution
+    /// or stray template literal copies.
+    #[test]
+    fn oracle_specialized_body_contains_no_babeface_marker() {
+        let slot_cat = [0xaau8; 32];
+        let body = specialize_oracle_body(&slot_cat).unwrap();
+        // The 4-byte BABEFACE quad is distinctive enough that no real category
+        // is realistically going to contain it. If any survives substitution,
+        // we know there's a second placeholder occurrence we missed.
+        let marker = [0xBAu8, 0xBE, 0xFA, 0xCE];
+        let surviving: Vec<usize> = body
+            .windows(4)
+            .enumerate()
+            .filter_map(|(i, w)| if w == marker { Some(i) } else { None })
+            .collect();
+        assert!(
+            surviving.is_empty(),
+            "F01 invariant: BABEFACE marker bytes must not survive specialization (found at {surviving:?})"
+        );
+    }
+
+    /// v23 Oracle body fingerprint — pinned sha256d of the compiled template.
+    /// Any cashc upgrade, source edit, or build-system drift that changes the
+    /// emitted bytecode trips this. Forces a human to re-verify the F01 slot
+    /// category check site (and re-run the F01 PoC) before re-pinning.
+    #[test]
+    fn oracle_v23_template_fingerprint() {
+        use sha2::{Digest, Sha256};
+        let template = oracle_bytecode().unwrap();
+        assert_eq!(template.len(), 460, "v23 Oracle body length is 460 B");
+        let h1 = Sha256::digest(template);
+        let h2 = Sha256::digest(h1);
+        assert_eq!(
+            hex::encode(h2),
+            "dcbbe7d1e042f00a71d14070b752512adc331a9e863d5d29c648b8048c2476c0",
+            "v23 Oracle body fingerprint changed — re-verify F01 slot category pin"
+        );
     }
 }

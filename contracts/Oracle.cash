@@ -1,27 +1,36 @@
 pragma cashscript >= 0.13.0;
 
-// Oracle v22 — composes v21+ wins: drop oldActive (T2), drop pkh-sort
-//              (Agent 3), drop slot category check (Agent 3).
+// Oracle v23 — F01 hot-patch: restore slot-category pin (closes V22-OC-22).
 //
-// ── v20 → v22 ────────────────────────────────────────────────────────
+// ── v22 → v23 ────────────────────────────────────────────────────────
 //
-//   T2     DROP-OLDACTIVE       The `activeCount` field has been dead state
-//                               since v15 — `oldActive*5/10 ≤ 6 < 7`, so
-//                               `thr = max(…, 7) = 7` unconditionally. Drop
-//                               the field + the threshold/ratchet math.
-//                               Oracle commit shrinks 18 → 16 B.
+//   F01 RESTORE-SLOT-CAT-PIN    v22 dropped the per-iter slot tokenCategory
+//                               check (`A3-CAT`) on the rationale that "slot
+//                               LB is unique per genesis ⇒ no rogue slot
+//                               UTXOs ⇒ check is defensive only". WRONG.
+//                               The attacker doesn't need slot UTXOs — they
+//                               mint NFTs of THEIR OWN category and feed
+//                               them as fake slot inputs. Oracle.update's
+//                               slot-walk never checks token category, only
+//                               reads commit bytes. PoC at
+//                               recon/W11-v22-oc-22-poc/ confirmed REACHABLE.
+//                               Quorum bypass; attacker publishes arbitrary
+//                               median.
 //
-//   A3-SORT  DROP-SLOT-WALK-SORT  v22 slot.consume() verifies pkh-monotone
-//                                 vs left neighbor (via cross-input LB
-//                                 introspection). Oracle drops the
-//                                 corresponding sort gate from its loop.
+//                               Fix: inline `bytes slotCatWithCap = 0x<33B>;`
+//                               where the 32-byte category-id + 1-byte
+//                               mutable-cap suffix is substituted by the
+//                               build pipeline at deploy time. Per-iter
+//                               `require(tx.inputs[slotIdx].tokenCategory ==
+//                               slotCatWithCap);` inside the slot-walk loop.
+//                               Cost: ~37 B body (+$58/yr at mainnet
+//                               1 sat/B × $305 BCH). Threshold-absorbed
+//                               trust model preserved.
 //
-//   A3-CAT   DROP-PER-ITER-CAT   Oracle's per-iter `tokenCategory ==
-//                                slotCategoryReversed + 0x01` is defensive
-//                                only — slot LB is unique per genesis
-//                                (template + pkh literal); no rogue slot
-//                                UTXOs can ever exist. Drop the check AND
-//                                the ctor arg. Ctor reduces to 1 arg.
+// ── v22 wins retained ────────────────────────────────────────────────
+//
+//   T2     activeCount dropped (dead since v15 — thr=max(…,7)=7 always)
+//   A3-SORT  slot.consume() does pkh-monotone vs left neighbor; Oracle drops loop sort
 //
 // All v15..v20 audit-fix gates retained that aren't redundant:
 //   F-OC2  tokenAmount pin on both Ticker mints (FT injection prevention)
@@ -77,15 +86,22 @@ contract Oracle(
         // T2 — threshold collapses to constant 7 (activeCount dropped).
         require(numAttestations >= 7);
 
+        // F01 — pin slot inputs to slot category (closes V22-OC-22 quorum
+        // bypass). slotCatWithCap = slot_category_reversed (32 B LE wire) ||
+        // 0x01 (mutable capability). Build pipeline substitutes this 33-byte
+        // literal at deploy time from the slot genesis outpoint.
+        bytes slotCatWithCap = 0xBABEFACEBABEFACEBABEFACEBABEFACEBABEFACEBABEFACEBABEFACEBABEFACE01;
+
         // ── Walk PublisherSlot inputs ────────────────────────────────
-        // A3-SORT  pkh-monotonicity is now enforced by slot.consume()
-        // A3-CAT   per-iter slotCategory check dropped (defensive only)
+        // F01      per-iter slot category gate
+        // A3-SORT  pkh-monotonicity is enforced by slot.consume()
         int jitter = 120;
         int lowerVotes = 0;
         int upperVotes = 0;
         int i = 0;
         do {
             int slotIdx = i + 1;
+            require(tx.inputs[slotIdx].tokenCategory == slotCatWithCap);
             bytes slotCommit = tx.inputs[slotIdx].nftCommitment;
 
             // Timestamp votes (median-of-medians, ±jitter window)
