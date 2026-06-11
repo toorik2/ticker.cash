@@ -55,13 +55,19 @@ pub const SLOT_ORACLE_CAT_HASH_OFFSET: usize = 125;
 /// it returns to v23's offset 82.)
 pub const ORACLE_SLOT_CAT_WITH_CAP_OFFSET: usize = 82;
 
-/// BCH consensus stack-element cap (MAX_SCRIPT_ELEMENT_SIZE). A P2SH(-20/-32)
-/// redeem script is pushed as a single stack item when spent, so the full
-/// redeem (body + any ctor-arg pushes) must be ≤ this. The Oracle + Ticker are
-/// P2SH-32; exceeding this makes every spend fail "stack item exceeds 520
-/// bytes" — the v24-first-cut Oracle failure (537 B redeem). The slot is P2S
-/// (no redeem push) and is bounded instead by `P2S_STANDARDNESS_CAP`.
-pub const P2SH_REDEEM_CAP: usize = 520;
+/// Relay-standardness cap on the unlocking bytecode (langref §326:
+/// `unlocking_bytecode ≤ 10,000 B`). A P2SH(-20/-32) redeem script is revealed
+/// inside the unlocking bytecode when spent, so the redeem must comfortably fit
+/// here. The Oracle + Ticker are P2SH-32 and sit far under (≈497 B / 45 B).
+///
+/// NOTE: the old `MAX_SCRIPT_ELEMENT_SIZE = 520 B` stack-item limit (which would
+/// have capped the redeem push) was raised to 10,000 B by the BCH May-2025
+/// VM-limits CHIP (langref §175). Chipnet (2025-11) and mainnet (2026-05) are
+/// both past activation, so 520 no longer applies on any live network. (An
+/// earlier cut of this code mis-asserted 520 after libauth defaulted to the
+/// BCH-2023 VM in a trace — see the v24 post-fix note.) The slot is P2S (no
+/// redeem reveal) and is bounded instead by `P2S_STANDARDNESS_CAP` (still 201).
+pub const P2SH_REDEEM_CAP: usize = 10_000;
 
 /// v24-minimal PublisherSlot template length (verified at cashc-emit time).
 /// 167 B — back under the 201-B P2S standardness cap with 34 B headroom (and
@@ -368,12 +374,11 @@ mod tests {
         );
     }
 
-    /// Guard against the v24-first-cut Oracle failure: the P2SH-32 Oracle
-    /// redeem (body + the 36-byte tickerLockingBytecode push) is pushed as one
-    /// stack item when spent and must be ≤ 520 B (consensus
-    /// MAX_SCRIPT_ELEMENT_SIZE). cargo + a slot-only standardness check cannot
-    /// see this; this assertion makes any Oracle growth that crosses it a build
-    /// failure. Pairs with the deploy-time pre-flight in `ops/src/deploy.rs`.
+    /// Sanity guard: the P2SH-32 Oracle redeem (body + the 36-byte
+    /// tickerLockingBytecode push) is revealed in the unlocking bytecode when
+    /// spent, which has a 10,000 B relay-standardness cap. The Oracle sits far
+    /// under (~497 B), so this is a generous guard, not the binding constraint —
+    /// the slot's 201 B P2S cap is what actually binds the covenant family.
     #[test]
     fn oracle_redeem_fits_p2sh_element_cap() {
         let ticker_lb = [0u8; 35];
@@ -381,9 +386,7 @@ mod tests {
         let redeem = redeem_oracle(&ticker_lb, &slot_cat).unwrap();
         assert!(
             redeem.len() <= P2SH_REDEEM_CAP,
-            "Oracle redeem is {} B, over the {} B P2SH element cap — every \
-             Oracle.update would fail 'stack item exceeds 520 bytes'. Shrink \
-             the Oracle covenant.",
+            "Oracle redeem is {} B, over the {} B unlocking-bytecode relay cap.",
             redeem.len(),
             P2SH_REDEEM_CAP,
         );

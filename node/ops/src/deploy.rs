@@ -233,18 +233,16 @@ pub fn deploy(
             .into());
         }
     }
-    // P2SH-32 redeem pre-flight: the Oracle + Ticker redeem scripts are pushed
-    // as a single stack item when spent, capped at 520 B (consensus
-    // MAX_SCRIPT_ELEMENT_SIZE). Over the cap, every Oracle.update / Ticker
-    // spend fails "stack item exceeds 520 bytes" — the v24-first-cut Oracle
-    // failure (537 B redeem). cargo + the slot standardness gate cannot see
-    // this; catch it before genesis rather than after a dead deploy.
+    // P2SH-32 redeem pre-flight: the Oracle + Ticker redeem scripts are revealed
+    // in the unlocking bytecode when spent, capped at 10,000 B by relay
+    // standardness (BCH-2025+ raised the old 520 B stack-element limit). Both
+    // sit far under; this is a generous guard. (The binding covenant-family
+    // constraint is the slot's 201 B P2S cap, checked above.)
     for (name, redeem) in [("Oracle", &oracle_redeem), ("Ticker", &ticker_redeem)] {
         if redeem.len() > P2SH_REDEEM_CAP {
             return Err(format!(
-                "P2SH-32 pre-flight: {} redeem is {} B, over the {} B stack-element cap \
-                 — every spend would fail 'stack item exceeds 520 bytes'. \
-                 Shrink the {} covenant.",
+                "P2SH-32 pre-flight: {} redeem is {} B, over the {} B unlocking-bytecode \
+                 relay cap. Shrink the {} covenant.",
                 name,
                 redeem.len(),
                 P2SH_REDEEM_CAP,

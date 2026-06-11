@@ -1,25 +1,27 @@
 pragma cashscript >= 0.13.0;
 
 // Oracle v24-minimal — P01 (R03a) u40 commit widening (closes F-OC12
-//   Y2038 PERMANENTLY), kept under the 520-byte P2SH-32 redeem-script cap.
+//   Y2038 PERMANENTLY); the v24-first-cut hardening additions dropped.
 //
-// ── The 520-byte wall (why this is "minimal") ────────────────────────
-// The Oracle is P2SH-32: when spent, its full redeem script is pushed as a
-// single stack item, capped at 520 B by consensus (MAX_SCRIPT_ELEMENT_SIZE).
-// redeem = push(tickerLockingBytecode)[36 B] + this body. So this body must
-// stay ≤ ~484 B. v24's first cut added P02 length/tokenAmount pins + P01
-// Strategy-A caps + F05 restore, reaching a 501-B body → 537-B redeem →
-// every Oracle.update failed "stack item exceeds 520 bytes" (caught by a
-// libauth VM trace; invisible to cargo + the slot-only standardness gate).
-// Those additions are dropped here: they were redundant given the same
-// closed-category + vote-pinning invariants documented in PublisherSlot.cash
-// and docs/design/minimal-slot-principle.md.
+// ── Why "minimal": two real bugs in the v24 first cut ────────────────
+// (1) A byte-order bug in the P01 Strategy-A caps BRICKED Oracle.update. The
+//     cap was written `require(newTs < int(0x7000000000));`, intending the
+//     numeric ceiling 0x7000000000 (~2^38.8). But a cashscript byte literal is
+//     laid out left-to-right, and int()=OP_BIN2NUM reads it LITTLE-ENDIAN, so
+//     0x7000000000 = bytes[70,00,00,00,00] = decimal 112. The gate therefore
+//     compiled to `require(newTs < 112)`, which fails for every real timestamp
+//     — every Oracle.update reverted OP_VERIFY. (A libauth trace first
+//     mis-pointed at a 520-B stack-item limit; that was libauth defaulting to
+//     the BCH-2023 VM. BCH-2025+ raised the stack-element limit 520→10,000, so
+//     the redeem size was never the issue.)
+// (2) The same additions were redundant anyway, under the closed-category +
+//     vote-pinning invariants documented in PublisherSlot.cash and
+//     docs/design/minimal-slot-principle.md. So they are DROPPED, not "fixed":
 //
-//   KEPT: P01 u40 WIDTH (18-B Oracle commit / 18-B slot / 19-B Ticker) — this
-//   is the actual F-OC12 Y2038 close (a u32 ts cannot represent wall time
-//   after 2038; 5 bytes pushes the horizon to year ~36812). Enforced by the
-//   claimedNewTs.length == 5 + claimedMedian.length == 8 gates below, which
-//   pin the commit to exactly 18 B.
+//   KEPT: P01 u40 WIDTH (18-B Oracle commit / 18-B slot / 19-B Ticker) — the
+//   actual F-OC12 Y2038 close (a u32 ts cannot represent wall time after 2038;
+//   5 bytes pushes the horizon to year ~36812). Enforced by claimedNewTs.length
+//   == 5 + claimedMedian.length == 8 below, which pin the commit to exactly 18 B.
 //
 //   DROPPED as redundant (closed-category / self-pinning / vote-pinning):
 //   * out[0].tokenAmount == 0  — Oracle is a one-of-a-kind minting NFT; no
@@ -30,10 +32,11 @@ pragma cashscript >= 0.13.0;
 //     category means only the 13 legit slots can be inputs.
 //   * newTs > prevTs           — implied by `newTs - prevTs >= 60` for the
 //     positive bounded values the vote gate admits.
-//   * newTs/newSeq < cap       — newTs is vote-pinned to honest-majority real
-//     time (a builder can't set it near 2^39 without losing the vote
-//     majority); newSeq grows 1/cycle (~1M years to reach 2^39). Both are
-//     threshold-absorbed, not load-bearing.
+//   * newTs/newSeq < cap       — the buggy gates above. Even correctly encoded
+//     they're redundant: newTs is vote-pinned to honest-majority real time
+//     (a builder can't push it near 2^39 without losing the vote majority);
+//     cycleSeq is self-bounded by the slot's monotonic check + Oracle's
+//     `slotCommit cycleSeq == newSeq` + newSeq = oldSeq + 1. Threshold-absorbed.
 //
 // ── v23 wins retained ────────────────────────────────────────────────
 //   F01    per-iter slot category pin (V22-OC-22 closure) UNCHANGED

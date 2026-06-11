@@ -40,6 +40,26 @@ Two permanent guards now prevent a repeat:
   the compiled slot body ≤ 201 B (with a 16 B headroom warning).
 - `deploy.rs` pre-flight — refuses to build genesis if any slot body > 201 B.
 
+### Then the Oracle.update reverted — a different, self-inflicted bug
+
+After the slot fix, every `Oracle.update` reverted `OP_VERIFY`. A libauth VM
+trace first pointed at a 520-byte stack-item limit on the Oracle's P2SH-32
+redeem — a **red herring**: libauth had defaulted to the BCH-2023 VM, and BCH's
+May-2025 VM-limits CHIP raised the stack-element limit 520→10,000 (langref
+§175). The redeem (537 B then, 497 B now) was never too big.
+
+The real cause was a **byte-order bug in our own P01 cap literal**:
+`require(newTs < int(0x7000000000));`. A CashScript byte literal is laid out
+left-to-right (`[70,00,00,00,00]`) and `int()` = `OP_BIN2NUM` reads it
+**little-endian**, so `int(0x7000000000)` is decimal **112**, not the intended
+~2³⁹ ceiling. The gate compiled to `require(newTs < 112)` and reverted for every
+real timestamp. Lesson: a numeric ceiling written as a byte literal must be in
+little-endian wire order (the intended value here would be `int(0x0000000070)`).
+We dropped the caps rather than fixing them — they were redundant anyway
+(vote-pinning + the closed-category invariant below; see Oracle.cash). The two
+"P2SH redeem ≤ 520 B" guards added during the red-herring phase were corrected
+to the real 10,000 B relay cap.
+
 ## The closed-category invariant (why the dropped gates were redundant)
 
 The slot genesis (`node/ops/src/deploy.rs`) mints exactly **13 mutable slot
