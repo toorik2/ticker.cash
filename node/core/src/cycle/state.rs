@@ -5,6 +5,7 @@
 //! from on-chain truth — see [`super::env::Env`] + the warm-start logic in the
 //! orchestrator.
 
+use crate::chain::consts::SLOT_COMMIT_LEN;
 use crate::chain::oracle_commit::OracleState;
 use crate::chain::slot_commit::SlotCommit;
 use serde::{Deserialize, Serialize};
@@ -21,16 +22,16 @@ pub struct CycleSnapshot {
     pub oracle_vout: u32,
     pub oracle_satoshis: u64,
     pub oracle_commit: OracleState,
-    /// `oracle_commit.seq + 1` — the value our slot rewrite must adopt.
-    pub new_seq: u32,
+    /// `oracle_commit.seq + 1` — the value our slot rewrite must adopt. v24 P01: u40.
+    pub new_seq: u64,
     /// Our PublisherSlot UTXO.
     pub mine_slot_txid_be: Txid,
     pub mine_slot_vout: u32,
     pub mine_slot_satoshis: u64,
     pub mine_slot_commit: SlotCommit,
-    /// Raw 16-byte slot commitment as it sits on chain RIGHT NOW (before
+    /// Raw 18-byte slot commitment as it sits on chain RIGHT NOW (before
     /// this cycle's attest rewrites it). Needed by the CashTokens sighash.
-    pub mine_slot_commitment_raw: [u8; 16],
+    pub mine_slot_commitment_raw: [u8; SLOT_COMMIT_LEN],
 }
 
 impl CycleSnapshot {
@@ -67,7 +68,7 @@ pub enum CycleState {
     },
     /// Phase 4 done — cycle resets to `Idle` for the next iteration.
     Updated {
-        new_seq: u32,
+        new_seq: u64,
         update_txid: Option<Txid>,
     },
 }
@@ -91,7 +92,7 @@ impl CycleState {
 pub struct PublisherState {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "lastCycleSeq")]
-    pub last_cycle_seq: Option<u32>,
+    pub last_cycle_seq: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "lastAttestTxid")]
     pub last_attest_txid: Option<String>,

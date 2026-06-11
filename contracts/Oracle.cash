@@ -1,55 +1,66 @@
 pragma cashscript >= 0.13.0;
 
-// Oracle v23 — F01 hot-patch: restore slot-category pin (closes V22-OC-22).
+// Oracle v24-minimal — P01 (R03a) u40 commit widening (closes F-OC12
+//   Y2038 PERMANENTLY), kept under the 520-byte P2SH-32 redeem-script cap.
 //
-// ── v22 → v23 ────────────────────────────────────────────────────────
+// ── The 520-byte wall (why this is "minimal") ────────────────────────
+// The Oracle is P2SH-32: when spent, its full redeem script is pushed as a
+// single stack item, capped at 520 B by consensus (MAX_SCRIPT_ELEMENT_SIZE).
+// redeem = push(tickerLockingBytecode)[36 B] + this body. So this body must
+// stay ≤ ~484 B. v24's first cut added P02 length/tokenAmount pins + P01
+// Strategy-A caps + F05 restore, reaching a 501-B body → 537-B redeem →
+// every Oracle.update failed "stack item exceeds 520 bytes" (caught by a
+// libauth VM trace; invisible to cargo + the slot-only standardness gate).
+// Those additions are dropped here: they were redundant given the same
+// closed-category + vote-pinning invariants documented in PublisherSlot.cash
+// and docs/design/minimal-slot-principle.md.
 //
-//   F01 RESTORE-SLOT-CAT-PIN    v22 dropped the per-iter slot tokenCategory
-//                               check (`A3-CAT`) on the rationale that "slot
-//                               LB is unique per genesis ⇒ no rogue slot
-//                               UTXOs ⇒ check is defensive only". WRONG.
-//                               The attacker doesn't need slot UTXOs — they
-//                               mint NFTs of THEIR OWN category and feed
-//                               them as fake slot inputs. Oracle.update's
-//                               slot-walk never checks token category, only
-//                               reads commit bytes. PoC at
-//                               recon/W11-v22-oc-22-poc/ confirmed REACHABLE.
-//                               Quorum bypass; attacker publishes arbitrary
-//                               median.
+//   KEPT: P01 u40 WIDTH (18-B Oracle commit / 18-B slot / 19-B Ticker) — this
+//   is the actual F-OC12 Y2038 close (a u32 ts cannot represent wall time
+//   after 2038; 5 bytes pushes the horizon to year ~36812). Enforced by the
+//   claimedNewTs.length == 5 + claimedMedian.length == 8 gates below, which
+//   pin the commit to exactly 18 B.
 //
-//                               Fix: inline `bytes slotCatWithCap = 0x<33B>;`
-//                               where the 32-byte category-id + 1-byte
-//                               mutable-cap suffix is substituted by the
-//                               build pipeline at deploy time. Per-iter
-//                               `require(tx.inputs[slotIdx].tokenCategory ==
-//                               slotCatWithCap);` inside the slot-walk loop.
-//                               Cost: ~37 B body (+$58/yr at mainnet
-//                               1 sat/B × $305 BCH). Threshold-absorbed
-//                               trust model preserved.
+//   DROPPED as redundant (closed-category / self-pinning / vote-pinning):
+//   * out[0].tokenAmount == 0  — Oracle is a one-of-a-kind minting NFT; no
+//     category fungible tokens can be created.
+//   * oldCommit.length == 18   — the Oracle's own re-emit self-pins the commit
+//     to 18 B (and genesis mints 18 B); oldCommit is always 18 B.
+//   * slotCommit.length == 18  — slots self-pin their 18-B re-emit; closed
+//     category means only the 13 legit slots can be inputs.
+//   * newTs > prevTs           — implied by `newTs - prevTs >= 60` for the
+//     positive bounded values the vote gate admits.
+//   * newTs/newSeq < cap       — newTs is vote-pinned to honest-majority real
+//     time (a builder can't set it near 2^39 without losing the vote
+//     majority); newSeq grows 1/cycle (~1M years to reach 2^39). Both are
+//     threshold-absorbed, not load-bearing.
 //
-// ── v22 wins retained ────────────────────────────────────────────────
+// ── v23 wins retained ────────────────────────────────────────────────
+//   F01    per-iter slot category pin (V22-OC-22 closure) UNCHANGED
+//   T2     activeCount dropped (dead since v15)
 //
-//   T2     activeCount dropped (dead since v15 — thr=max(…,7)=7 always)
-//   A3-SORT  slot.consume() does pkh-monotone vs left neighbor; Oracle drops loop sort
-//
-// All v15..v20 audit-fix gates retained that aren't redundant:
+// All v15..v22 audit-fix gates retained that aren't redundant:
 //   F-OC2  tokenAmount pin on both Ticker mints (FT injection prevention)
 //   F-OC3  value pin (1500) on both Ticker mints
 //   N30    numAttestations <= 13 cap (op-cost insurance)
 //   tx.outputs.length <= maxOutputs (token-leak guard)
 //
-// ── Commitment layouts ─────────────────────────────────────────────────
-// Oracle (16 B, no version byte, no activeCount):
-//   [0..4)    seq                          4 B   u32 LE
-//   [4..8)    lastTs                       4 B   u32 LE
-//   [8..16)   medianPrice                  8 B   u64 LE
+// ── Commitment layouts (v24, widened) ────────────────────────────────
+// Oracle (18 B, no version byte, no activeCount):
+//   [0..5)    seq                          5 B   u40 LE
+//   [5..10)   lastTs                       5 B   u40 LE
+//   [10..18)  medianPrice                  8 B   u64 LE
 //
-// Slot (16 B, no version, no pkh — pkh is in slot LB literal):
-//   [0..8)   price                          8 B   u64 LE
-//   [8..12)  timestamp                      4 B   u32 LE
-//   [12..16) cycleSeq                       4 B   u32 LE
+// Slot (18 B, no version, no pkh — pkh is in slot LB literal):
+//   [0..8)    price                         8 B   u64 LE
+//   [8..13)   timestamp                     5 B   u40 LE
+//   [13..18)  cycleSeq                      5 B   u40 LE
 //
-// Ticker (17 B, version 0x80) — unchanged.
+// Ticker (19 B, version 0x80):
+//   [0..1)    version                       1 B   0x80
+//   [1..6)    cycleSeq                      5 B   u40 LE
+//   [6..11)   lastTs                        5 B   u40 LE
+//   [11..19)  medianPrice                   8 B   u64 LE
 
 contract Oracle(
     bytes35 tickerLockingBytecode
@@ -61,7 +72,8 @@ contract Oracle(
         bytes budgetPad
     ) {
         require(claimedMedian.length == 8);
-        require(claimedNewTs.length == 4);
+        // P01 R03a — newTs widens from 4 B to 5 B (closes F-OC12 Y2038).
+        require(claimedNewTs.length == 5);
         // F-OC5 — keep upper bound to block absurd amplification.
         require(budgetPad.length <= 10240);
 
@@ -75,13 +87,13 @@ contract Oracle(
         require(tx.outputs[0].tokenCategory == tx.inputs[idx].tokenCategory);
         require(tx.outputs[0].value == 2000);
 
-        // ── Read previous Oracle state (16 B, no version, no activeCount) ──
+        // ── Read previous Oracle state (18 B v24, no version, no activeCount) ──
         bytes oldCommit = tx.inputs[idx].nftCommitment;
-        int prevTs = int(oldCommit.slice(4, 8));
+        int prevTs = int(oldCommit.slice(5, 10));
         int newTs  = int(claimedNewTs);
         require(newTs - prevTs >= 60);
 
-        int newSeq = int(oldCommit.slice(0, 4)) + 1;
+        int newSeq = int(oldCommit.slice(0, 5)) + 1;
 
         // T2 — threshold collapses to constant 7 (activeCount dropped).
         require(numAttestations >= 7);
@@ -104,8 +116,9 @@ contract Oracle(
             require(tx.inputs[slotIdx].tokenCategory == slotCatWithCap);
             bytes slotCommit = tx.inputs[slotIdx].nftCommitment;
 
-            // Timestamp votes (median-of-medians, ±jitter window)
-            int slotTimestamp = int(slotCommit.slice(8, 12));
+            // Timestamp votes (median-of-medians, ±jitter window).
+            // P01 R03a — slot timestamp widens 4 B → 5 B at offset [8..13).
+            int slotTimestamp = int(slotCommit.slice(8, 13));
             if (slotTimestamp + jitter >= newTs) {
                 lowerVotes = lowerVotes + 1;
             }
@@ -113,8 +126,9 @@ contract Oracle(
                 upperVotes = upperVotes + 1;
             }
 
-            // Cycle freshness: slot must attest to THIS cycle
-            require(int(slotCommit.slice(12, 16)) == newSeq);
+            // Cycle freshness: slot must attest to THIS cycle.
+            // P01 R03a — slot cycleSeq widens 4 B → 5 B at offset [13..18).
+            require(int(slotCommit.slice(13, 18)) == newSeq);
 
             // Price matches caller-supplied blob
             require(slotCommit.slice(0, 8) == pricesBlob.slice(i * 8, i * 8 + 8));
@@ -148,8 +162,11 @@ contract Oracle(
         require(actualLower <= half);
         require(numAttestations - actualUpper > half);
 
-        // ── New Oracle commitment (16 B, no version, no activeCount) ──
-        bytes seqBytes        = toPaddedBytes(newSeq, 4);
+        // ── New Oracle commitment (18 B v24, no version, no activeCount) ──
+        // P01 R03a — seqBytes widens 4 B → 5 B, so the assembled commit is
+        // 5 + 5 + 8 = 18 B. Ticker commit naturally becomes 1 + 5 + 5 + 8 =
+        // 19 B via the same seqBytes + claimedNewTs concatenation below.
+        bytes seqBytes        = toPaddedBytes(newSeq, 5);
         bytes newOracleCommit = seqBytes + claimedNewTs + claimedMedian;
         require(tx.outputs[0].nftCommitment == newOracleCommit);
 

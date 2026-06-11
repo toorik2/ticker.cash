@@ -19,5 +19,35 @@ Slice=ticker.slice
 StandardOutput=journal
 StandardError=journal
 
+# v24 P07 — F12 hardening, adapted for systemctl --user mode.
+#
+# Excluded vs the ship-list 14-directive set:
+#   - DynamicUser=yes — user-mode units already run as the invoking user;
+#     spawning ephemeral UIDs needs system-mode systemd.
+#   - CapabilityBoundingSet= / AmbientCapabilities= — manipulating the
+#     bounding set requires CAP_SETPCAP, which user-mode systemd does
+#     not hold (user processes already start with no caps in any case,
+#     so these directives are defense-in-depth-only when omitted).
+#   - ProtectHome=yes — would hide %h/.local/bin/ticker-node (the
+#     ExecStart binary); ProtectHome=read-only keeps the binary
+#     reachable while still blocking writes outside ReadWritePaths.
+#
+# Effect: systemd-analyze security score drops from 9.x UNSAFE to MEDIUM.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+LimitCORE=0
+PrivateTmp=yes
+LockPersonality=yes
+UMask=0077
+ReadWritePaths=%h/.ticker-slot-%i
+# ProtectKernelTunables / ProtectKernelModules / RestrictNamespaces drop
+# specific caps from the bounding set, which requires CAP_SETPCAP that
+# user-mode systemd does not hold. They fail with status 218/CAPABILITIES
+# at start. Skipped here; if the deployment ever moves to system-mode
+# (DynamicUser=yes), re-add them and the bounding-set directives.
+
 [Install]
 WantedBy=default.target

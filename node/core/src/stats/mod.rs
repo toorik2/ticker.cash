@@ -26,7 +26,7 @@ pub struct PublisherStats {
     #[serde(rename = "lastUpdateTxid")]
     pub last_update_txid: Option<String>,
     #[serde(rename = "lastCycleSeq")]
-    pub last_cycle_seq: Option<u32>,
+    pub last_cycle_seq: Option<u64>,
     #[serde(rename = "errorsSinceStart")]
     pub errors_since_start: u64,
 }

@@ -28,6 +28,9 @@ thiserror        = "2"
 # secret-wiping (v23 F11 — Zeroize-on-drop for in-memory privkey buffers,
 # defeats compiler dead-store elimination)
 zeroize          = { version = "1", default-features = false }
+# unix syscalls (v24 P04 — setrlimit(RLIMIT_CORE, 0) from the panic hook so
+# any privkey heap residue cannot be post-mortem-extracted via core file)
+libc             = "0.2"
 
 # Workspace crates
 ticker-core      = { path = "core" }
@@ -36,7 +39,10 @@ ticker-core      = { path = "core" }
 opt-level     = "z"
 lto           = "fat"
 codegen-units = 1
-panic         = "abort"
+# v24 P04 — unwind so Rust calls Drop on panic; F11 Zeroize fires before
+# the process exits. Costs +50-80 KB in libgcc_s personality routines +
+# unwind tables vs panic=abort; acceptable on a 1.7 MB binary.
+panic         = "unwind"
 strip         = "symbols"
 debug         = false
 incremental   = false

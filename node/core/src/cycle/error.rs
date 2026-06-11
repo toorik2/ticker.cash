@@ -24,9 +24,9 @@ pub enum CycleError {
     #[error("my slot not found in {count} mutable slot UTXOs")]
     MySlotNotFound { count: usize },
     #[error("slot already at cycleSeq {at}, can't progress to {new}")]
-    SlotAheadOfNew { at: u32, new: u32 },
+    SlotAheadOfNew { at: u64, new: u64 },
     #[error("stride floor: waiting {wait_sec} s")]
-    StrideFloor { wait_sec: u32 },
+    StrideFloor { wait_sec: u64 },
     #[error("price fetch failed for source {source_id}: {reason}")]
     PriceFetchFailed { source_id: u16, reason: String },
     #[error("insufficient funder balance {have} < need {need}")]

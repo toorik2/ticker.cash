@@ -19,6 +19,7 @@
 
 use crate::chain::consts::{
     CAPABILITY_MUTABLE, DUST_THRESHOLD, FEE_EPSILON_SATS, MAX_ATTEST_FEE_HINT, SAT_PER_BYTE,
+    SLOT_COMMIT_LEN,
 };
 use crate::chain::digest::publisher_sig_digest;
 use crate::chain::slot_commit::{encode_slot_commit, SlotCommit};
@@ -40,7 +41,7 @@ pub struct SlotUtxo {
     /// Raw 16-byte commitment of the slot UTXO being spent (the OLD commit,
     /// before this attest rewrites it). Needed to construct the CashTokens
     /// `hashUtxos` field of the funder input sighash.
-    pub commitment_raw: [u8; 16],
+    pub commitment_raw: [u8; SLOT_COMMIT_LEN],
 }
 
 /// Funder UTXO (P2PKH) being spent.
@@ -77,9 +78,10 @@ pub struct AttestArgs<'a> {
     pub cn_hash20: [u8; 20],
     /// USD price scaled by 1e8 (matching the covenant's price scale).
     pub price: u64,
-    /// Publisher's wall-clock at fetch time, unix seconds.
-    pub timestamp: u32,
-    pub new_cycle_seq: u32,
+    /// Publisher's wall-clock at fetch time, unix seconds (u40 in wire form).
+    pub timestamp: u64,
+    /// Cycle sequence this attest is voting in (u40 in wire form).
+    pub new_cycle_seq: u64,
 }
 
 /// Errors building an attest tx.
@@ -287,25 +289,27 @@ fn sign_all_funders(
     Ok(())
 }
 
-/// Compose the v22 slot.attest unlock script bytes.
+/// Compose the v24 slot.attest unlock script bytes.
 ///
 /// Push order (last declared arg first, per cashscript convention):
 ///   cycleSeq → publisherSig → publisherPubkey → timestamp → price →
 ///   fn-selector(0)
 ///
 /// v22 P2S: no redeem-script push at end (script body IS the output's LB).
+/// v24 P01: cycleSeq + timestamp are pushed as 5-byte u40 LE.
 fn build_attest_unlock_script(
-    cycle_seq: u32,
+    cycle_seq: u64,
     publisher_sig: &[u8],
     publisher_pubkey: &[u8; 33],
-    timestamp: u32,
+    timestamp: u64,
     price: u64,
 ) -> Vec<u8> {
+    use crate::chain::u40_to_le;
     let mut s = Vec::with_capacity(128);
-    push_data(&mut s, &cycle_seq.to_le_bytes());
+    push_data(&mut s, &u40_to_le(cycle_seq));
     push_data(&mut s, publisher_sig);
     push_data(&mut s, publisher_pubkey);
-    push_data(&mut s, &timestamp.to_le_bytes());
+    push_data(&mut s, &u40_to_le(timestamp));
     push_data(&mut s, &price.to_le_bytes());
     push_int(&mut s, 0); // function selector for attest (function index 0)
     s
@@ -329,7 +333,7 @@ mod tests {
                 txid_be: [0x11; 32],
                 vout: 7,
                 satoshis: 1000,
-                commitment_raw: [0u8; 16],
+                commitment_raw: [0u8; SLOT_COMMIT_LEN],
             },
             publisher_pkh: [0x42; 20],
             publisher_privkey: [0x01; 32],

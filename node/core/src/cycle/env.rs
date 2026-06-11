@@ -6,6 +6,7 @@
 
 use std::time::Duration;
 
+use crate::chain::consts::SLOT_COMMIT_LEN;
 use crate::chain::oracle_commit::OracleState;
 use crate::chain::slot_commit::SlotCommit;
 use crate::cycle::error::CycleError;
@@ -30,8 +31,8 @@ pub struct SlotInfo {
     /// v22: publisher pkh, derived from the scripthash→pkh manifest mapping
     /// (pkh is no longer in the slot commit; it lives in the specialized P2S LB).
     pub pkh: [u8; 20],
-    /// Raw 16-byte commitment (v22) — copied verbatim into Oracle.update outputs.
-    pub commitment_raw: [u8; 16],
+    /// Raw 18-byte commitment (v24) — copied verbatim into Oracle.update outputs.
+    pub commitment_raw: [u8; SLOT_COMMIT_LEN],
 }
 
 /// P2PKH funder UTXO returned by Fulcrum.
@@ -47,7 +48,8 @@ pub struct FunderInfo {
 #[derive(Debug, Clone)]
 pub struct PriceObservation {
     pub price: u64,
-    pub timestamp: u32,
+    /// v24 P01: u40 wire form (kept as u64 in Rust).
+    pub timestamp: u64,
     pub server_name: String,
 }
 
@@ -57,7 +59,8 @@ pub struct PriceObservation {
 /// and assert state transitions without any real network or filesystem I/O.
 pub trait Env {
     // ─── clock ──────────────────────────────────────────────────────────
-    fn now_unix_sec(&self) -> u32;
+    /// v24 P01: u40 wall-clock (kept as u64 in Rust).
+    fn now_unix_sec(&self) -> u64;
     fn sleep(&self, d: Duration);
 
     // ─── chain reads ────────────────────────────────────────────────────

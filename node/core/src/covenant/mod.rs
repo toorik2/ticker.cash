@@ -23,6 +23,6 @@ pub use artifacts::{
 pub use locking::{p2sh32_locking_bytecode, P2SH32_LEN};
 pub use redeem::{
     redeem_oracle, redeem_ticker, specialize_oracle_body, specialize_slot_body,
-    RedeemScriptError, ORACLE_SLOT_CAT_WITH_CAP_OFFSET,
+    RedeemScriptError, ORACLE_SLOT_CAT_WITH_CAP_OFFSET, P2SH_REDEEM_CAP, P2S_STANDARDNESS_CAP,
     SLOT_PKH_OFFSET, SLOT_CN_HASH_OFFSET, SLOT_ORACLE_CAT_HASH_OFFSET,
 };

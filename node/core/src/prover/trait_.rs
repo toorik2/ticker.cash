@@ -7,8 +7,8 @@ use crate::chain::sources::Source;
 pub struct PriceProof {
     /// USD price scaled by 1e8 (matching the covenant's price scale).
     pub price: u64,
-    /// Publisher wall-clock at fetch time, unix seconds (u32).
-    pub timestamp: u32,
+    /// Publisher wall-clock at fetch time, unix seconds (u40 wire form; u64 in Rust).
+    pub timestamp: u64,
     /// Canonical CN (server name) — committed to in the publisher's signed digest
     /// via `hash160(server_name)`.
     pub server_name: String,

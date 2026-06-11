@@ -1,6 +1,10 @@
 pragma cashscript >= 0.13.0;
 
-// Ticker v18 — drop redundant version byte + length checks + output cap.
+// Ticker v24 — commit widens to 19 B via the Oracle's emission. Body
+// itself is unchanged (pure self-replicate); commits are 1 B version
+// (0x80) + 5 B cycleSeq + 5 B lastTs + 8 B medianPrice = 19 B. The
+// width-change is purely an Oracle-emission property — Ticker.consume
+// just preserves whatever 19-B blob was minted.
 //
 // Each Oracle.update cycle mints K (= 2) Ticker NFTs with MUTABLE capability
 // (0x01). A consumer's tx spends a Ticker at input[idx] and is required to
@@ -54,5 +58,14 @@ contract Ticker() {
         require(tx.outputs[idx].nftCommitment == tx.inputs[idx].nftCommitment);
         require(tx.outputs[idx].value == tx.inputs[idx].value);
         require(tx.outputs[idx].tokenAmount == 0);
+
+        // v24 P03 — restore output-count cap dropped at v18 (F06 / W9 #1).
+        // Bounds consumer-side token-leak surface. Mirrors Oracle.cash + the
+        // pre-v18 Ticker. +15 B for the count cap; +5 B for the change-output
+        // tokenless pin if present.
+        require(tx.outputs.length <= idx + 2);
+        if (tx.outputs.length == idx + 2) {
+            require(tx.outputs[idx + 1].tokenCategory == 0x);
+        }
     }
 }

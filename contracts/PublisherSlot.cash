@@ -1,54 +1,71 @@
 pragma cashscript >= 0.13.0;
 
-// PublisherSlot v22 — fully specialized P2S slot (C4 + NamespaceSlot + slot
-//                     does pkh-sort).
+// PublisherSlot v24-minimal — P2S per-source slot, shrunk back under the
+//                             201-byte standardness cap.
 //
-// ── v20 → v22 ────────────────────────────────────────────────────────
+// ── v24 → v24-minimal (the 201-B fix) ────────────────────────────────
 //
-//   A22 COMPOSE      cnHash + oracleCatHash + publisherPkh all inlined as
-//                    script literals. ZERO constructor args. Each of 13
-//                    publishers compiles to its own template (13 distinct
-//                    P2S fingerprints). Commit shrinks 36 → 16 B (pkh moves
-//                    out of commit, into the script body).
+// v24's first cut added P01 (u40 caps) + P02 (length + tokenAmount pins) to
+// the slot body, pushing it to 233 B — 32 B over BCH's 201-B P2S
+// `locking_bytecode` standardness cap (language-reference §326). The slot
+// genesis tx was rejected REJECT_NONSTANDARD. This version removes those
+// additions from the slot, where each body byte is paid ~26×/cycle (a slot
+// body is emitted into an output 26 times per cycle: 13 attests + 13
+// Oracle.update re-emits), and relies on the closed-category invariant that
+// makes them redundant anyway.
 //
-//   AGENT3 SORT      consume() verifies pkh-monotonicity vs left neighbor
-//                    (reads tx.inputs[idx-1].lockingBytecode at the same
-//                    template-invariant offset). Oracle drops its slot-walk
-//                    pkh-sort gate in return.
+//   THE CLOSED-CATEGORY INVARIANT (load-bearing):
+//   Genesis mints exactly 13 mutable slot NFTs and NO minting NFT of the
+//   slot category; the genesis outpoint is consumed once. So the slot
+//   category is permanently closed at 13 tokens. Combined with Oracle's F01
+//   per-iter category pin, every slot input to Oracle.update is one of the
+//   13 legit slots. Each has a distinct, immutable pkh (re-emit pins the LB).
+//   A UTXO can't be double-spent. Therefore N distinct slot inputs = N
+//   distinct publishers — automatically.
 //
-//   AGENT3 CAT-DROP  consume()'s parent-Oracle check (hash160(catId) ==
-//                    oracleCatHash literal + minting capability) is the only
-//                    identity gate; Oracle's per-iter `slotCategory + 0x01`
-//                    check is defensive only and is dropped from Oracle.
-//                    Trust intact: slot LB is unique per genesis (template +
-//                    pkh literal); no rogue slot UTXOs can exist.
+//   WHAT WAS DROPPED, AND WHY IT'S REDUNDANT (not relocated — gone):
+//   * pkh-monotone sort (consume) — only ever mattered against duplicate-pkh
+//     tokens of the legit category, which can't exist (closed + immutable
+//     pkh). It never gave independent security: V22-OC-22 proved that without
+//     the category pin an attacker just forges distinct ascending pkhs and
+//     passes the sort. With F01 restored (v23), the sort is pure redundancy.
+//   * cycleSeq cap — the monotonic check `cycleSeq > old` already rejects a
+//     sign-mag-negative value (negative is not > a positive prior). Oracle
+//     increments + caps newSeq and requires each slot `cycleSeq == newSeq`,
+//     so a slot's cycleSeq is bounded with no slot-side cap.
+//   * timestamp cap — a sign-mag timestamp only skews the Oracle's vote
+//     count, which is threshold-absorbed (a single bad vote can't flip a
+//     majority); the Oracle's OUTPUT newTs stays capped (Oracle.cash).
+//   * tokenAmount pins — closed category ⇒ no category fungible tokens can
+//     ever be created ⇒ tokenAmount is always 0.
+//   * oldCommit.length pin — Oracle pins `slotCommit.length == 18`; and an
+//     out-of-bounds slice fails closed. Legit slots self-pin their re-emit to
+//     exactly 18 B.
 //
-// ── Slot commit (16 B, no version byte, no pkh) ──────────────────────
-//   [0..8)   price        u64 LE
-//   [8..12)  timestamp    u32 LE
-//   [12..16) cycleSeq     u32 LE
+//   This is the standing "minimal-slot" principle: the slot holds only the
+//   Class-1 trust-critical core; everything a P2SH-32 Oracle can soundly
+//   carry lives there instead, because Oracle bytes are paid ~1×/cycle.
 //
-// ── Trust model unchanged from v20 ───────────────────────────────────
+// ── Slot commit (v24 — 18 B, no version byte, no pkh) ────────────────
+//   [0..8)   price        8 B u64 LE
+//   [8..13)  timestamp    5 B u40 LE
+//   [13..18) cycleSeq     5 B u40 LE
+//
+// ── Trust model (unchanged) ──────────────────────────────────────────
 //   1. Identity: hash160(publisherPubkey) == publisherPkh (LITERAL)
-//   2. Replay:   cycleSeq > oldCommit.slice(12,16)
+//   2. Replay:   cycleSeq > oldCommit.slice(13,18)
 //   3. Sig:      checkDataSig over (price+ts+pkh+seq+cnHash[LITERAL])
 //   4. Output:   LB/cat/commit/value pinned at same index
-//   5. Sybil:    pkh-monotonic via consume()'s cross-input introspection
-//                of tx.inputs[idx-1].lockingBytecode (skip first slot at idx=1)
+//   5. Parent:   consume() pins input[0] = minting Oracle of pinned category
+//   Distinctness ("Sybil"): closed category + distinct immutable pkhs +
+//   no-double-spend (see invariant above) — no per-slot sort needed.
 //
-// ── Genesis ──────────────────────────────────────────────────────────
+// ── Genesis / per-template offsets ───────────────────────────────────
 // Per source, mint 1 slot UTXO whose LB is this exact compiled body (P2S).
-// 13 sources = 13 distinct P2S fingerprints. The build pipeline produces
-// 13 artifacts from this template, each with publisherPkh + cnHash
-// substituted for the source's actual values.
-//
-// ── Per-template offset invariant ────────────────────────────────────
-// cashc emits the body deterministically — only the 3 literal byte ranges
-// differ across the 13 templates. The publisherPkh literal sits at body
-// bytes [8..28); the byte at offset 28 is template-invariant. The slot
-// pkh-sort in consume() uses slice(8, 29) — 21 bytes covering pkh + one
-// invariant suffix byte. Relative ordering by pkh is preserved because the
-// shared suffix is identical across all 13 templates.
+// 13 sources = 13 distinct P2S fingerprints. The build pipeline substitutes
+// publisherPkh + cnHash + oracleCatHash literals per source. The Rust
+// `specialize_slot_body` re-derives the literal offsets from the recompiled
+// artifact and a cargo test asserts the body stays ≤ 201 B.
 
 contract PublisherSlot() {
     function attest(
@@ -65,8 +82,9 @@ contract PublisherSlot() {
         bytes20 publisherPkh = 0xDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF;
         require(hash160(publisherPubkey) == publisherPkh);
 
-        // ── 2. cycleSeq monotonicity (commit shrank; offset 12..16) ──
-        require(int(cycleSeq) > int(oldCommit.slice(12, 16)));
+        // ── 2. cycleSeq monotonicity (offset 13..18, u40). Also rejects a
+        //    sign-mag-negative cycleSeq: negative is not > the positive prior. ──
+        require(int(cycleSeq) > int(oldCommit.slice(13, 18)));
 
         // ── 3. Publisher sig — cnHash is also a SCRIPT LITERAL ──
         bytes pubMessage =
@@ -74,7 +92,7 @@ contract PublisherSlot() {
             0xCAFEBABECAFEBABECAFEBABECAFEBABECAFEBABE;     // cnHash literal
         require(checkDataSig(publisherSig, pubMessage, publisherPubkey));
 
-        // ── 4. Re-emit slot (newCommit shrinks to 16 B) ──
+        // ── 4. Re-emit slot (newCommit = 8 + 5 + 5 = 18 B) ──
         bytes newCommit = price + timestamp + cycleSeq;
         require(tx.outputs[idx].lockingBytecode == tx.inputs[idx].lockingBytecode);
         require(tx.outputs[idx].tokenCategory == tx.inputs[idx].tokenCategory);
@@ -85,21 +103,14 @@ contract PublisherSlot() {
     function consume() {
         int idx = this.activeInputIndex;
 
-        // ── Parent Oracle pin: input[0] is Oracle with minting capability,
-        //    and its category-id hashes to the pinned oracleCatHash literal.
+        // ── Parent Oracle pin: input[0] is the Oracle with minting
+        //    capability, and its category-id hashes to the pinned
+        //    oracleCatHash literal. This is what binds a slot consume to a
+        //    real Oracle.update (and, with Oracle's F01 category pin, what
+        //    keeps the quorum to the 13 closed-category slots). ──
         bytes catId, bytes capability = tx.inputs[0].tokenCategory.split(32);
         require(capability == 0x02);
         require(hash160(catId) == 0xFEEDFACEFEEDFACEFEEDFACEFEEDFACEFEEDFACE);
-
-        // ── Pkh-monotone vs left neighbor (skip first slot at idx=1) ──
-        // slice(8,29) covers pkh + 1 template-invariant suffix byte.
-        // Across 13 templates the suffix byte is identical, so relative
-        // ordering by pkh is preserved.
-        if (idx > 1) {
-            int myPkhInt   = int(tx.inputs[idx].lockingBytecode.slice(8, 29));
-            int prevPkhInt = int(tx.inputs[idx - 1].lockingBytecode.slice(8, 29));
-            require(myPkhInt > prevPkhInt);
-        }
 
         // ── Re-emit slot identically ──
         require(tx.outputs[idx].lockingBytecode == tx.inputs[idx].lockingBytecode);

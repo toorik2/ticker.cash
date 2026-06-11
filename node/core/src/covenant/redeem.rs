@@ -39,17 +39,47 @@ pub enum RedeemScriptError {
     PlaceholderMissing { offset: usize },
 }
 
-/// v22 slot template literal offsets, verified at cashc-emit time.
+/// v24-minimal slot template literal offsets, verified at cashc-emit time.
 /// Each placeholder is 20 bytes (a `bytes20` literal in cashscript source).
+/// (v24-minimal dropped the slot-side length/cap/tokenAmount/sort gates to fit
+/// the 201-B P2S cap; offsets land back near the v22/v23 positions.)
 pub const SLOT_PKH_OFFSET: usize = 8;
-pub const SLOT_CN_HASH_OFFSET: usize = 57;
-pub const SLOT_ORACLE_CAT_HASH_OFFSET: usize = 124;
+pub const SLOT_CN_HASH_OFFSET: usize = 58;
+pub const SLOT_ORACLE_CAT_HASH_OFFSET: usize = 125;
 
-/// v23 Oracle template literal offset — placeholder for `slotCatWithCap` (F01).
+/// v24 Oracle template literal offset — placeholder for `slotCatWithCap` (F01).
 /// Verified at cashc-emit time: 33-byte literal (32-B slot category id LE +
 /// 1-B mutable capability suffix). The placeholder bytes are 0xBABEFACE × 8
 /// followed by 0x01 — appears exactly once in the compiled body.
+/// (v24-minimal dropped the P02/Strategy-A gates that had shifted this to 116;
+/// it returns to v23's offset 82.)
 pub const ORACLE_SLOT_CAT_WITH_CAP_OFFSET: usize = 82;
+
+/// BCH consensus stack-element cap (MAX_SCRIPT_ELEMENT_SIZE). A P2SH(-20/-32)
+/// redeem script is pushed as a single stack item when spent, so the full
+/// redeem (body + any ctor-arg pushes) must be ≤ this. The Oracle + Ticker are
+/// P2SH-32; exceeding this makes every spend fail "stack item exceeds 520
+/// bytes" — the v24-first-cut Oracle failure (537 B redeem). The slot is P2S
+/// (no redeem push) and is bounded instead by `P2S_STANDARDNESS_CAP`.
+pub const P2SH_REDEEM_CAP: usize = 520;
+
+/// v24-minimal PublisherSlot template length (verified at cashc-emit time).
+/// 167 B — back under the 201-B P2S standardness cap with 34 B headroom (and
+/// smaller than the live v23's 196 B, since the redundant pkh-monotone sort is
+/// gone). The `slot_template_fits_standardness_cap` test below is the hard
+/// guard that keeps any future edit from silently re-crossing the wall.
+pub const SLOT_TEMPLATE_LEN: usize = 167;
+
+/// BCH P2S `locking_bytecode` standardness cap (relay policy). A P2S body over
+/// this is rejected REJECT_NONSTANDARD — exactly the v24-first-cut failure.
+pub const P2S_STANDARDNESS_CAP: usize = 201;
+
+/// v24 P06 — PublisherSlot template sha256d fingerprint (lower-hex). Trips on
+/// any cashc-emitted byte drift. Update only after a re-verification that
+/// the three slot literals (pkh / cnHash / oracleCatHash) still appear at
+/// their pinned offsets.
+pub const SLOT_TEMPLATE_SHA256D_HEX: &str =
+    "15813c61a8b05c98bfbe1f30607e8f9dc5557e3aba022a08577ecdfa09666ba9";
 
 /// Build the v23 Oracle covenant's redeem script (P2SH-32 — Oracle still over
 /// P2S cap). The body is specialized per-deployment with the slot category +
@@ -168,17 +198,18 @@ mod tests {
     use super::*;
     use crate::chain::sources::{source_cn_hash, SOURCES};
 
-    /// Ticker pin — fingerprint v22 Ticker (24 B body, unchanged from v18/v19/v20)
+    /// Ticker pin — fingerprint v24 Ticker (45 B body, +21 B vs v22 via P03
+    /// output-count cap restoration).
     #[test]
-    fn ticker_redeem_matches_v22_bytecode() {
+    fn ticker_redeem_matches_v24_bytecode() {
         let redeem = redeem_ticker().unwrap();
-        // Body is the redeem (zero ctor); P2SH-32 LB wraps it via aa20...87
-        // Ticker body unchanged from v18: same fingerprint.
-        let v22_body_hex = "777eb832fc504fc203dc4651bf78bc35db62787d45430ea3139b0ae16dd9f3d3";
-        // body's hash256 = v22_body_hex (sha256d of redeem)
+        // Body is the redeem (zero ctor); P2SH-32 LB wraps it via aa20...87.
+        // Ticker grew at v24 — break from the v18→v23 byte-identical streak.
+        // P2SH-32 uses HASH256 (double-sha256) of the redeem; not single sha256.
+        let v24_body_sha256 = "7f9ec3bca52f9549e85d954b499ddac0366c14b1a8815bbe849ca25570f681fa";
         use crate::covenant::locking::p2sh32_locking_bytecode;
         let lb = p2sh32_locking_bytecode(&redeem);
-        assert_eq!(hex::encode(&lb[2..34]), v22_body_hex);
+        assert_eq!(hex::encode(&lb[2..34]), v24_body_sha256);
     }
 
     /// v22 PublisherSlot template has zero ctor args; specialized body is the LB.
@@ -319,7 +350,7 @@ mod tests {
         );
     }
 
-    /// v23 Oracle body fingerprint — pinned sha256d of the compiled template.
+    /// v24 Oracle body fingerprint — pinned sha256d of the compiled template.
     /// Any cashc upgrade, source edit, or build-system drift that changes the
     /// emitted bytecode trips this. Forces a human to re-verify the F01 slot
     /// category check site (and re-run the F01 PoC) before re-pinning.
@@ -327,13 +358,161 @@ mod tests {
     fn oracle_v23_template_fingerprint() {
         use sha2::{Digest, Sha256};
         let template = oracle_bytecode().unwrap();
-        assert_eq!(template.len(), 460, "v23 Oracle body length is 460 B");
+        assert_eq!(template.len(), 461, "v24-minimal Oracle body length is 461 B");
         let h1 = Sha256::digest(template);
         let h2 = Sha256::digest(h1);
         assert_eq!(
             hex::encode(h2),
-            "dcbbe7d1e042f00a71d14070b752512adc331a9e863d5d29c648b8048c2476c0",
-            "v23 Oracle body fingerprint changed — re-verify F01 slot category pin"
+            "c281ecc785e3049b2fb94c5d925529e1f1adf39fc87a01dc3a53ed8e8a4ceec7",
+            "v24-minimal Oracle body fingerprint changed — re-verify F01 slot category pin"
         );
+    }
+
+    /// Guard against the v24-first-cut Oracle failure: the P2SH-32 Oracle
+    /// redeem (body + the 36-byte tickerLockingBytecode push) is pushed as one
+    /// stack item when spent and must be ≤ 520 B (consensus
+    /// MAX_SCRIPT_ELEMENT_SIZE). cargo + a slot-only standardness check cannot
+    /// see this; this assertion makes any Oracle growth that crosses it a build
+    /// failure. Pairs with the deploy-time pre-flight in `ops/src/deploy.rs`.
+    #[test]
+    fn oracle_redeem_fits_p2sh_element_cap() {
+        let ticker_lb = [0u8; 35];
+        let slot_cat = [0u8; 32];
+        let redeem = redeem_oracle(&ticker_lb, &slot_cat).unwrap();
+        assert!(
+            redeem.len() <= P2SH_REDEEM_CAP,
+            "Oracle redeem is {} B, over the {} B P2SH element cap — every \
+             Oracle.update would fail 'stack item exceeds 520 bytes'. Shrink \
+             the Oracle covenant.",
+            redeem.len(),
+            P2SH_REDEEM_CAP,
+        );
+    }
+
+    /// The Ticker is also P2SH-32 — guard its redeem too.
+    #[test]
+    fn ticker_redeem_fits_p2sh_element_cap() {
+        let redeem = redeem_ticker().unwrap();
+        assert!(redeem.len() <= P2SH_REDEEM_CAP, "Ticker redeem {} B over cap", redeem.len());
+    }
+
+    /// v24 P06 — slot template placeholders appear exactly once each.
+    /// Mirrors `oracle_template_placeholder_appears_exactly_once` for the
+    /// three v22 slot literals (pkh, cnHash, oracleCatHash). Closes the
+    /// W11-22.8 asymmetric-build-pipeline gap: the Oracle pipeline was
+    /// already pinned by F01; this brings the slot pipeline to the same
+    /// invariant level.
+    #[test]
+    fn slot_template_placeholder_appears_exactly_once() {
+        let template = publisher_slot_bytecode().unwrap();
+        let pkh_p: [u8; 20] = [
+            0xDE, 0xAD, 0xBE, 0xEF, 0xDE, 0xAD, 0xBE, 0xEF,
+            0xDE, 0xAD, 0xBE, 0xEF, 0xDE, 0xAD, 0xBE, 0xEF,
+            0xDE, 0xAD, 0xBE, 0xEF,
+        ];
+        let cn_p: [u8; 20] = [
+            0xCA, 0xFE, 0xBA, 0xBE, 0xCA, 0xFE, 0xBA, 0xBE,
+            0xCA, 0xFE, 0xBA, 0xBE, 0xCA, 0xFE, 0xBA, 0xBE,
+            0xCA, 0xFE, 0xBA, 0xBE,
+        ];
+        let oc_p: [u8; 20] = [
+            0xFE, 0xED, 0xFA, 0xCE, 0xFE, 0xED, 0xFA, 0xCE,
+            0xFE, 0xED, 0xFA, 0xCE, 0xFE, 0xED, 0xFA, 0xCE,
+            0xFE, 0xED, 0xFA, 0xCE,
+        ];
+        for (p, off, label) in [
+            (&pkh_p[..], SLOT_PKH_OFFSET, "pkh"),
+            (&cn_p[..], SLOT_CN_HASH_OFFSET, "cnHash"),
+            (&oc_p[..], SLOT_ORACLE_CAT_HASH_OFFSET, "oracleCatHash"),
+        ] {
+            let positions: Vec<usize> = template
+                .windows(20)
+                .enumerate()
+                .filter_map(|(i, w)| if w == p { Some(i) } else { None })
+                .collect();
+            assert_eq!(
+                positions,
+                vec![off],
+                "P06 invariant: slot {label} placeholder must appear at exactly one offset"
+            );
+        }
+    }
+
+    /// v24 P06 — after substitution, none of the three sentinel quads
+    /// (DEADBEEF / CAFEBABE / FEEDFACE) survives anywhere in the body.
+    /// Catches accidental partial substitution or stray template copies.
+    #[test]
+    fn slot_specialized_body_contains_no_sentinel_marker() {
+        let pkh = [0x42u8; 20];
+        let cn = [0x11u8; 20];
+        let oc = [0xeeu8; 20];
+        let body = specialize_slot_body(&pkh, &cn, &oc).unwrap();
+        for (marker, label) in [
+            ([0xDEu8, 0xAD, 0xBE, 0xEF], "DEADBEEF (pkh)"),
+            ([0xCAu8, 0xFE, 0xBA, 0xBE], "CAFEBABE (cnHash)"),
+            ([0xFEu8, 0xED, 0xFA, 0xCE], "FEEDFACE (oracleCatHash)"),
+        ] {
+            let surviving: Vec<usize> = body
+                .windows(4)
+                .enumerate()
+                .filter_map(|(i, w)| if w == marker { Some(i) } else { None })
+                .collect();
+            assert!(
+                surviving.is_empty(),
+                "P06 invariant: {label} marker must not survive specialization (found at {surviving:?})"
+            );
+        }
+    }
+
+    /// v24 P06 — pinned sha256d of the compiled PublisherSlot template. Any
+    /// cashc upgrade, source edit, or build-system drift trips this. Forces
+    /// a human to re-verify the three slot literal offsets before re-pinning.
+    /// Mirrors `oracle_v23_template_fingerprint` exactly.
+    #[test]
+    fn slot_v23_template_fingerprint() {
+        use sha2::{Digest, Sha256};
+        let template = publisher_slot_bytecode().unwrap();
+        assert_eq!(
+            template.len(),
+            SLOT_TEMPLATE_LEN,
+            "v24 slot template length is {SLOT_TEMPLATE_LEN} B"
+        );
+        let h1 = Sha256::digest(template);
+        let h2 = Sha256::digest(h1);
+        assert_eq!(
+            hex::encode(h2),
+            SLOT_TEMPLATE_SHA256D_HEX,
+            "v24 slot template fingerprint changed — re-verify W11-22.8 invariants \
+             (pkh + cnHash + oracleCatHash literal offsets)"
+        );
+    }
+
+    /// THE guard against repeating the v24-first-cut failure. The slot is
+    /// deployed as P2S, so its body IS the output locking_bytecode, capped at
+    /// 201 B by relay policy (a body over the cap is rejected
+    /// REJECT_NONSTANDARD by the real node — invisible to cargo + mem-cash,
+    /// which only see script-VM semantics). cashc + cargo CANNOT see the cap;
+    /// this assertion makes any edit that crosses it a build failure. Pairs
+    /// with the deploy-time pre-flight in `ops/src/deploy.rs`.
+    #[test]
+    fn slot_template_fits_standardness_cap() {
+        let template = publisher_slot_bytecode().unwrap();
+        assert!(
+            template.len() <= P2S_STANDARDNESS_CAP,
+            "PublisherSlot P2S body is {} B, over the {} B standardness cap — \
+             relocate gates to the P2SH-32 Oracle (no size cap) or the node will \
+             reject the slot genesis REJECT_NONSTANDARD",
+            template.len(),
+            P2S_STANDARDNESS_CAP,
+        );
+        // Soft target: keep ≥16 B of headroom so a small future gate fits.
+        if template.len() > P2S_STANDARDNESS_CAP - 16 {
+            eprintln!(
+                "WARN: PublisherSlot body {} B has < 16 B headroom under the {} B cap; \
+                 next feature likely needs the P2SH-32 escape hatch",
+                template.len(),
+                P2S_STANDARDNESS_CAP,
+            );
+        }
     }
 }

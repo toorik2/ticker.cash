@@ -22,11 +22,12 @@
 
 use crate::chain::consts::{
     BUDGET_PAD_LEN, CAPABILITY_MINTING, CAPABILITY_MUTABLE, DUST_THRESHOLD, FEE_EPSILON_SATS,
-    MAX_UPDATE_FEE_HINT, ORACLE_DUST, SAT_PER_BYTE, STRIDE_FLOOR_SEC, THR_FLOOR, TICKER_DUST,
-    TICKER_HEAD_COUNT,
+    MAX_UPDATE_FEE_HINT, ORACLE_DUST, SAT_PER_BYTE, SLOT_COMMIT_LEN, STRIDE_FLOOR_SEC, THR_FLOOR,
+    TICKER_DUST, TICKER_HEAD_COUNT, U40_CAP,
 };
 use crate::chain::oracle_commit::{encode_oracle_commit, OracleState};
 use crate::chain::ticker_commit::encode_ticker_commit;
+use crate::chain::u40_to_le;
 use crate::covenant::locking::p2sh32_locking_bytecode;
 use crate::covenant::redeem::RedeemScriptError;
 use crate::crypto::{double_sha256, sign_ecdsa, KeyError};
@@ -50,10 +51,10 @@ pub struct CycleSlotUtxo {
     pub pkh: [u8; 20],
     /// Last attested price (u64 LE) — contributes to median computation.
     pub price: u64,
-    /// Last attested timestamp (u32 LE) — contributes to median timestamp.
-    pub timestamp: u32,
-    /// Raw 16-byte slot commit, copied into the output verbatim (covenant invariant).
-    pub commitment: [u8; 16],
+    /// Last attested timestamp (u40 LE) — contributes to median timestamp. v24 P01.
+    pub timestamp: u64,
+    /// Raw 18-byte slot commit, copied into the output verbatim (covenant invariant).
+    pub commitment: [u8; SLOT_COMMIT_LEN],
 }
 
 /// Oracle UTXO being spent (minting NFT).
@@ -86,7 +87,8 @@ pub struct UpdateArgs<'a> {
     /// once at startup. The builder uses these directly as slot output LBs and
     /// as the sighash `coveredScript` for slot input verification.
     pub pkh_to_locking: &'a [([u8; 20], Vec<u8>)],
-    pub new_seq: u32,
+    /// Cycle sequence to mint (u40 in wire form). v24 P01.
+    pub new_seq: u64,
 }
 
 /// Errors building an Oracle.update tx.
@@ -97,7 +99,9 @@ pub enum UpdateError {
     #[error("slot inputs not unique by pkh (duplicate at index {0})")]
     DuplicatePkh(usize),
     #[error("new timestamp {new} does not pass stride floor ({stride} s) above prev {prev}")]
-    StrideFloor { new: u32, prev: u32, stride: u32 },
+    StrideFloor { new: u64, prev: u64, stride: u64 },
+    #[error("v24 P01 cap: {field} {value} exceeds U40_CAP ({cap})")]
+    U40CapExceeded { field: &'static str, value: u64, cap: u64 },
     #[error("insufficient funder balance: have {have}, need {need}")]
     InsufficientFunds { have: u64, need: u64 },
     #[error("crypto: {0}")]
@@ -141,7 +145,7 @@ pub fn build_oracle_update_tx(args: &UpdateArgs) -> Result<Vec<u8>, UpdateError>
     }
 
     // ─── 2. Compute median ts + median price ───────────────────────────────
-    let mut ts_values: Vec<u32> = slots.iter().map(|s| s.timestamp).collect();
+    let mut ts_values: Vec<u64> = slots.iter().map(|s| s.timestamp).collect();
     ts_values.sort_unstable();
     let claimed_new_ts = ts_values[ts_values.len() / 2];
     if claimed_new_ts <= args.oracle_utxo.prev_state.last_ts
@@ -151,6 +155,23 @@ pub fn build_oracle_update_tx(args: &UpdateArgs) -> Result<Vec<u8>, UpdateError>
             new: claimed_new_ts,
             prev: args.oracle_utxo.prev_state.last_ts,
             stride: STRIDE_FLOOR_SEC,
+        });
+    }
+    // v24 P01 — fail-fast at the daemon if newSeq or newTs would exceed the
+    // covenant's U40_CAP. The covenant rejects values >= U40_CAP; refusing
+    // pre-broadcast keeps a doomed tx out of the mempool.
+    if args.new_seq >= U40_CAP {
+        return Err(UpdateError::U40CapExceeded {
+            field: "new_seq",
+            value: args.new_seq,
+            cap: U40_CAP,
+        });
+    }
+    if claimed_new_ts >= U40_CAP {
+        return Err(UpdateError::U40CapExceeded {
+            field: "claimed_new_ts",
+            value: claimed_new_ts,
+            cap: U40_CAP,
         });
     }
     let mut price_values: Vec<u64> = slots.iter().map(|s| s.price).collect();
@@ -442,14 +463,15 @@ fn sign_all_funders(
 /// claimedMedian → pricesBlob → (no selector — single fn) → redeem script.
 fn build_update_unlock_script(
     budget_pad: &[u8],
-    claimed_new_ts: u32,
+    claimed_new_ts: u64,
     claimed_median: u64,
     prices_blob: &[u8],
     redeem_script: &[u8],
 ) -> Vec<u8> {
     let mut s = Vec::with_capacity(redeem_script.len() + budget_pad.len() + prices_blob.len() + 64);
     push_data(&mut s, budget_pad);
-    push_data(&mut s, &claimed_new_ts.to_le_bytes());
+    // v24 P01 — claimedNewTs is 5 B u40 LE (was 4 B u32).
+    push_data(&mut s, &u40_to_le(claimed_new_ts));
     push_data(&mut s, &claimed_median.to_le_bytes());
     push_data(&mut s, prices_blob);
     push_data(&mut s, redeem_script);
@@ -467,9 +489,9 @@ fn build_consume_unlock_script() -> Vec<u8> {
 mod tests {
     use super::*;
 
-    fn slot(pkh_byte: u8, ts: u32, price: u64) -> CycleSlotUtxo {
-        // v22: 16-byte commit (no version byte, no pkh — pkh in LB).
-        let commitment = [0u8; 16];
+    fn slot(pkh_byte: u8, ts: u64, price: u64) -> CycleSlotUtxo {
+        // v24: 18-byte commit (no version byte, no pkh — pkh in LB).
+        let commitment = [0u8; SLOT_COMMIT_LEN];
         CycleSlotUtxo {
             txid_be: [0; 32],
             vout: 0,
@@ -614,7 +636,7 @@ mod tests {
     #[test]
     fn happy_path_13_slots_includes_budget_pad() {
         let slots: Vec<CycleSlotUtxo> = (0..13)
-            .map(|i| slot(i as u8, 1_780_000_100 + (i as u32), 100_000_000 + i as u64))
+            .map(|i| slot(i as u8, 1_780_000_100 + (i as u64), 100_000_000 + i as u64))
             .collect();
         let funders = funders(1, 100_000);
         let redeem = vec![0u8; 500];

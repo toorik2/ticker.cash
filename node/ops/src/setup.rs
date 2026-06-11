@@ -129,6 +129,12 @@ pub fn setup_all(
         // its own slot via manifest.slot_for(source_id)).
         let manifest_path = slot_dir.join("manifest.json");
         fs::write(&manifest_path, &manifest_text)?;
+        // v24 P07 — manifest at 0o600 so the P07 F13 perm gate in the
+        // daemon accepts it. Without this, freshly-written manifests
+        // landed at umask-default 0o644 and tripped the new check.
+        let mut mperms = fs::metadata(&manifest_path)?.permissions();
+        mperms.set_mode(0o600);
+        fs::set_permissions(&manifest_path, mperms)?;
 
         // Publisher key — every slot has one (slot N → publisher-N).
         let pub_w = derive_wallet(&seed, &format!("publisher-{slot}"))?;

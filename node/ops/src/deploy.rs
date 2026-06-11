@@ -25,6 +25,7 @@ use std::time::Duration;
 use ticker_core::chain::sources::{source_cn_hash, SOURCES};
 use ticker_core::covenant::{
     locking::p2sh32_locking_bytecode, redeem_oracle, redeem_ticker, specialize_slot_body,
+    P2SH_REDEEM_CAP, P2S_STANDARDNESS_CAP,
 };
 use ticker_core::crypto::{double_sha256, sign_ecdsa};
 use ticker_core::electrum::{types::Utxo, ElectrumClient};
@@ -211,10 +212,54 @@ pub fn deploy(
         .into());
     }
 
+    // ── Pre-flight standardness gate (v24-minimal) ───────────────────────
+    // The slot is P2S: its body IS the output locking_bytecode, capped at
+    // P2S_STANDARDNESS_CAP (201 B) by relay policy. A body over the cap is
+    // rejected REJECT_NONSTANDARD by the node — exactly the v24-first-cut
+    // failure, which cargo + mem-cash could not see (they model script-VM
+    // semantics, not relay policy). Refuse to build genesis rather than
+    // broadcast a tx the network will reject. The cargo test
+    // `slot_template_fits_standardness_cap` is the build-time twin of this gate.
+    for pd in &per_slot {
+        if pd.lb.len() > P2S_STANDARDNESS_CAP {
+            return Err(format!(
+                "standardness pre-flight: slot {} P2S body is {} B, over the {} B cap \
+                 — the node would reject the slot genesis REJECT_NONSTANDARD. \
+                 Relocate gates to the P2SH-32 Oracle or shrink the slot covenant.",
+                pd.source_id,
+                pd.lb.len(),
+                P2S_STANDARDNESS_CAP,
+            )
+            .into());
+        }
+    }
+    // P2SH-32 redeem pre-flight: the Oracle + Ticker redeem scripts are pushed
+    // as a single stack item when spent, capped at 520 B (consensus
+    // MAX_SCRIPT_ELEMENT_SIZE). Over the cap, every Oracle.update / Ticker
+    // spend fails "stack item exceeds 520 bytes" — the v24-first-cut Oracle
+    // failure (537 B redeem). cargo + the slot standardness gate cannot see
+    // this; catch it before genesis rather than after a dead deploy.
+    for (name, redeem) in [("Oracle", &oracle_redeem), ("Ticker", &ticker_redeem)] {
+        if redeem.len() > P2SH_REDEEM_CAP {
+            return Err(format!(
+                "P2SH-32 pre-flight: {} redeem is {} B, over the {} B stack-element cap \
+                 — every spend would fail 'stack item exceeds 520 bytes'. \
+                 Shrink the {} covenant.",
+                name,
+                redeem.len(),
+                P2SH_REDEEM_CAP,
+                name,
+            )
+            .into());
+        }
+    }
+
     // ── 7. Build Oracle genesis tx ───────────────────────────────────────
-    // v22: 16-byte commit (no version, no activeCount).
-    // seq (4) + lastTs (4) + medianUsd (8) — all zeros at genesis.
-    let oracle_initial_commit: [u8; 16] = [0u8; 16];
+    // v24: 18-byte commit (no version, no activeCount).
+    // seq (5 u40) + lastTs (5 u40) + medianUsd (8) — all zeros at genesis.
+    // MUST be 18 B: the Oracle covenant pins `oldCommit.length == 18`, so a
+    // 16-byte genesis commit would brick the first Oracle.update.
+    let oracle_initial_commit: [u8; 18] = [0u8; 18];
     let oracle_tx = build_p2pkh_to_token_tx(
         &oracle_genesis,
         &master.private_key,
@@ -324,11 +369,12 @@ pub fn deploy(
     Ok(())
 }
 
-/// Build the 16-byte v22 initial slot commit: price(8) + ts(4) + cycleSeq(4).
-/// v22: pkh moved out of commit into the slot's P2S body literal — initial
-/// commit is all zeros.
-fn build_initial_slot_commit(_source_id: u16, _pkh: &[u8; 20]) -> [u8; 16] {
-    [0u8; 16]
+/// Build the 18-byte v24 initial slot commit: price(8) + ts(5 u40) + cycleSeq(5 u40).
+/// pkh lives in the slot's P2S body literal — initial commit is all zeros.
+/// MUST be 18 B: the first attest reads `oldCommit.slice(13,18)` for the
+/// monotonic cycleSeq check (a shorter commit would fail the slice).
+fn build_initial_slot_commit(_source_id: u16, _pkh: &[u8; 20]) -> [u8; 18] {
+    [0u8; 18]
 }
 
 /// Build + sign a tx that spends ONE P2PKH UTXO (at input[0]) and emits

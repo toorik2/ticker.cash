@@ -95,10 +95,10 @@ fn parse_txid_be(hex_str: &str) -> Result<Txid, CycleError> {
 }
 
 impl Env for RealEnv {
-    fn now_unix_sec(&self) -> u32 {
+    fn now_unix_sec(&self) -> u64 {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs() as u32)
+            .map(|d| d.as_secs())
             .unwrap_or(0)
     }
 
@@ -164,7 +164,7 @@ impl Env for RealEnv {
                     }
                 })?;
                 let Some(commit) = decode_slot_commit(&raw) else { continue };
-                let mut commitment_raw = [0u8; 16];
+                let mut commitment_raw = [0u8; ticker_core::chain::SLOT_COMMIT_LEN];
                 commitment_raw.copy_from_slice(&raw);
                 // v22: pkh derived from the slot's address — look up by
                 // scripthash position in cfg.all_slot_scripthashes_hex.

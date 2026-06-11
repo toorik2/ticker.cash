@@ -55,7 +55,7 @@ impl PriceProver for HttpsPlainProver {
                 reason: "scaled price rounded to 0".to_string(),
             });
         }
-        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as u32;
+        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
         Ok(PriceProof {
             price,
             timestamp,

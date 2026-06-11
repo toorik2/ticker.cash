@@ -1,0 +1,42 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  cargo-test:
+    name: cargo test (workspace) + covenant fingerprint pins
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: node
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            node/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('node/Cargo.lock') }}
+
+      - name: cargo build --workspace --release
+        run: cargo build --workspace --release
+
+      - name: cargo test --workspace --release
+        run: cargo test --workspace --release
+
+      # v24 P06 — covenant build-pipeline TCB pins. Either Oracle or slot
+      # template emit drift trips loudly; merge is blocked until a human
+      # re-verifies the template literal offsets and re-pins the consts.
+      - name: P06 covenant fingerprint pins (Oracle + PublisherSlot)
+        run: |
+          cargo test --release oracle_v23_template_fingerprint
+          cargo test --release slot_v23_template_fingerprint

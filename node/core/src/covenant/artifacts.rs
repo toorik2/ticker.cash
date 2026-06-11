@@ -7,6 +7,12 @@
 //!
 //! Parsing happens at runtime (once, on first access) via a thread-safe `OnceLock`.
 //! The JSON files themselves are embedded at compile time via `include_str!()`.
+//!
+//! **v24 P06 — cashc-version-pin: 0.13.0.** Any cashc upgrade requires
+//! re-running both `cargo test oracle_v23_template_fingerprint` and
+//! `cargo test slot_v23_template_fingerprint` ; both tests trip loudly on
+//! emit drift so the operator notices before the regenerated artifact
+//! lands in a release build.
 
 use serde_json::Value;
 use std::sync::OnceLock;

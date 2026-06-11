@@ -18,25 +18,33 @@ pub const TICKER_HEAD_COUNT: usize = 2;
 
 /// Stride floor between Oracle.update transactions, seconds.
 /// `Oracle.cash:84-85`: `require(newTs - prevTs >= 60)`.
-pub const STRIDE_FLOOR_SEC: u32 = 60;
+pub const STRIDE_FLOOR_SEC: u64 = 60;
 
 // ─── Commit lengths ────────────────────────────────────────────────────────
 
 /// Length of an Oracle NFT commit, bytes.
-/// v22 layout: `seq(u32 LE) | last_ts(u32 LE) | median_usd(u64 LE)` = 16 B.
-/// (v20 dropped 0x65 version byte; v22 also drops activeCount — it was dead
-/// state since v15 because `oldActive*5/10 ≤ 6 < 7` always.)
-pub const ORACLE_COMMIT_LEN: usize = 16;
+/// v24 layout: `seq(u40 LE) | last_ts(u40 LE) | median_usd(u64 LE)` = 18 B.
+/// (v24 P01 widened seq + last_ts from u32 to u40 to close F-OC12 Y2038
+/// PERMANENTLY.)
+pub const ORACLE_COMMIT_LEN: usize = 18;
 
 /// Length of a Ticker NFT commit, bytes.
-/// Layout: `0x80 | seq(u32 LE) | last_ts(u32 LE) | median_usd(u64 LE)`.
-pub const TICKER_COMMIT_LEN: usize = 17;
+/// v24 layout: `0x80 | seq(u40 LE) | last_ts(u40 LE) | median_usd(u64 LE)` = 19 B.
+pub const TICKER_COMMIT_LEN: usize = 19;
 
 /// Length of a PublisherSlot NFT commit, bytes.
-/// v22 layout: `price(u64 LE) | timestamp(u32 LE) | cycle_seq(u32 LE)` = 16 B.
-/// (v19 dropped 0x75 version byte; v22 also drops publisherPkh — pkh now
-/// lives in the slot's P2S locking bytecode as a per-source script literal.)
-pub const SLOT_COMMIT_LEN: usize = 16;
+/// v24 layout: `price(u64 LE) | timestamp(u40 LE) | cycle_seq(u40 LE)` = 18 B.
+/// (v24 P01 widened timestamp + cycle_seq from u32 to u40 to mirror Oracle
+/// commit widening + close F03/F04 sign-mag classes via the cap below.)
+pub const SLOT_COMMIT_LEN: usize = 18;
+
+/// v24 P01 Strategy-A cap. Bounds all u40 fields (Oracle/Slot/Ticker seq
+/// + timestamp) strictly below the 5-byte sign-bit threshold so OP_BIN2NUM
+/// decodes always land non-negative. Covenant rejects values >= this; the
+/// daemon refuses to broadcast values >= this as a fail-fast gate.
+/// 0x7000000000 = 480_692_838_400 (year ~17,221 in unix-ts terms; trillions
+/// of cycles in seq terms — orders of magnitude beyond any operational use).
+pub const U40_CAP: u64 = 0x7000000000;
 
 // ─── Version bytes ─────────────────────────────────────────────────────────
 

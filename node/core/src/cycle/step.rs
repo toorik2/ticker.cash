@@ -327,7 +327,8 @@ fn map_update_error(e: UpdateError) -> CycleError {
         UpdateError::InsufficientFunds { have, need } => {
             CycleError::InsufficientFunds { have, need }
         }
-        UpdateError::Crypto(_)
+        UpdateError::U40CapExceeded { .. }
+        | UpdateError::Crypto(_)
         | UpdateError::UnknownSlotPkh { .. }
         | UpdateError::Redeem(_) => CycleError::Internal(e.to_string()),
     }
@@ -351,7 +352,7 @@ mod tests {
 
     /// Test env — records all calls + plays back canned responses.
     struct MockEnv {
-        now: RefCell<u32>,
+        now: RefCell<u64>,
         oracle: RefCell<Option<OracleInfo>>,
         slots: RefCell<Vec<SlotInfo>>,
         funder: RefCell<Vec<FunderInfo>>,
@@ -381,13 +382,13 @@ mod tests {
     }
 
     impl Env for MockEnv {
-        fn now_unix_sec(&self) -> u32 {
+        fn now_unix_sec(&self) -> u64 {
             *self.now.borrow()
         }
         fn sleep(&self, d: std::time::Duration) {
             self.sleep_log.borrow_mut().push(d);
             // Virtual time — skip ahead so quorum-wait loops don't spin forever.
-            *self.now.borrow_mut() += d.as_secs() as u32;
+            *self.now.borrow_mut() += d.as_secs();
         }
         fn get_oracle_utxo(
             &mut self,
@@ -459,7 +460,7 @@ mod tests {
         }
     }
 
-    fn oracle_info(seq: u32, last_ts: u32) -> OracleInfo {
+    fn oracle_info(seq: u64, last_ts: u64) -> OracleInfo {
         OracleInfo {
             txid_be: [0xaa; 32],
             vout: 0,
@@ -472,7 +473,7 @@ mod tests {
         }
     }
 
-    fn slot_info(pkh: [u8; 20], cycle_seq: u32, ts: u32, price: u64) -> SlotInfo {
+    fn slot_info(pkh: [u8; 20], cycle_seq: u64, ts: u64, price: u64) -> SlotInfo {
         let commit = SlotCommit {
             price,
             timestamp: ts,

@@ -331,6 +331,7 @@ name = "ticker-node"
 version = "0.1.0"
 dependencies = [
  "hex",
+ "libc",
  "pico-args",
  "serde",
  "serde_json",

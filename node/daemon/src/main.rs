@@ -19,7 +19,7 @@ use ticker_core::covenant::{
 use ticker_core::cycle::orchestrator::{run_publisher, RunOpts};
 use ticker_core::cycle::state::CycleConfig;
 use ticker_core::electrum::ElectrumClient;
-use ticker_core::identity::{load_manifest, resolve_identity, Manifest, OperatorKey};
+use ticker_core::identity::{load_manifest_hash_pinned, resolve_identity, Manifest, OperatorKey};
 use ticker_core::log_error;
 use ticker_core::log_info;
 use ticker_core::stats::run_stats;
@@ -47,10 +47,35 @@ const POLL_INTERVAL_SEC: u64 = 3;
 const QUORUM_WAIT_SEC: u64 = 25;
 
 fn main() {
-    if let Err(e) = real_main() {
-        eprintln!("ticker-node fatal: {e}");
-        std::process::exit(1);
-    }
+    // v24 P04 — install panic hook BEFORE any allocation so a panic during
+    // setup can still suppress its core dump. Then funnel all exit paths
+    // through a single std::process::exit AFTER real_main has dropped its
+    // locals (Drop bypasses on process::exit, so the call site has to come
+    // after the Drop region we care about).
+    install_panic_hook();
+    let code = match real_main() {
+        Ok(()) => 0,
+        Err(e) => {
+            eprintln!("ticker-node fatal: {e}");
+            1
+        }
+    };
+    std::process::exit(code);
+}
+
+/// v24 P04 — disable core dumps from the panic hook so any privkey heap
+/// residue cannot be post-mortem-extracted via core file. Layers with
+/// systemd `LimitCORE=0` (P07): two independent gates, both apply.
+fn install_panic_hook() {
+    let prev = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        eprintln!("ticker-node panic: {info}");
+        unsafe {
+            let lim = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+            libc::setrlimit(libc::RLIMIT_CORE, &lim);
+        }
+        prev(info);
+    }));
 }
 
 fn real_main() -> Result<(), Box<dyn std::error::Error>> {
@@ -61,13 +86,13 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
     let slot_flag: Option<u8> = args.opt_value_from_str("--slot")?;
 
     if !want_publisher {
-        eprintln!("ticker-node: must specify --publisher");
-        eprintln!("  example: ticker-node --publisher --slot 0");
-        std::process::exit(2);
+        return Err("ticker-node: must specify --publisher (example: --publisher --slot 0)".into());
     }
 
     let manifest_path = home_path("manifest.json");
-    let manifest = load_manifest(&manifest_path)?;
+    // v24 P05 — TOFU hash-pin: writes manifest.sha256 sidecar on first load,
+    // refuses to start on any subsequent on-disk divergence. Closes F09.
+    let manifest = load_manifest_hash_pinned(&manifest_path)?;
     let proc_start = SystemTime::now();
 
     let shutdown = Arc::new(AtomicBool::new(false));
@@ -116,7 +141,12 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
         },
     };
     let shutdown_c = shutdown.clone();
-    let publisher_thread = std::thread::Builder::new()
+    // v24 P04 — publisher thread returns Result instead of calling exit.
+    // Lets the main thread propagate the outcome through real_main's
+    // Result chain, so the single `process::exit` in main() fires after
+    // all stack locals (including CycleConfig holding the privkey copy)
+    // have dropped and zeroized.
+    let publisher_thread: std::thread::JoinHandle<Result<(), String>> = std::thread::Builder::new()
         .name("publisher".to_string())
         .spawn(move || {
             let opts = RunOpts { once };
@@ -126,15 +156,15 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
             match r {
                 Ok(Ok(())) => {
                     log_info!("publisher exited cleanly");
-                    std::process::exit(0);
+                    Ok(())
                 }
                 Ok(Err(e)) => {
                     log_error!("publisher fatal", "msg" => e.to_string());
-                    std::process::exit(1);
+                    Err(e.to_string())
                 }
                 Err(_) => {
                     log_error!("publisher thread panic");
-                    std::process::exit(1);
+                    Err("publisher panic".into())
                 }
             }
         })?;
@@ -152,12 +182,16 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
         }));
     }
 
-    // Wait on the publisher; it always exits the process directly (clean or
-    // not), so this join just parks the main thread until that happens. The
-    // stats thread is implicitly cancelled by the process exit.
-    let _ = publisher_thread.join();
+    // v24 P04 — propagate publisher result through real_main's Result.
+    // Main() drives the single process::exit afterwards. The stats thread
+    // is implicitly cancelled by the process exit.
+    let result: Result<(), Box<dyn std::error::Error>> = match publisher_thread.join() {
+        Ok(Ok(()))  => Ok(()),
+        Ok(Err(e))  => Err(e.into()),
+        Err(_panic) => Err("publisher join panic".into()),
+    };
     log_info!("ticker-node exit");
-    Ok(())
+    result
 }
 
 fn install_signal_handlers(shutdown: Arc<AtomicBool>) {
@@ -222,27 +256,58 @@ fn build_publisher_cfg(
     let source = SOURCES
         .get(slot as usize)
         .ok_or("slot exceeds SOURCES length")?;
-    let my_slot_entry = m
-        .slot_for(source.id)
-        .ok_or_else(|| format!("manifest missing slots[].sourceId={} entry", source.id))?;
-    let my_slot_lb_expected: Vec<u8> = hex::decode(&my_slot_entry.locking_bytecode_hex)?;
-    let my_cn_hash: [u8; 20] = hex::decode(&my_slot_entry.cn_hash_hex)?
-        .as_slice()
-        .try_into()?;
-    // v22: derive specialized P2S body from (pkh, cnHash, oracleCatHash) and
-    // assert it matches what the manifest claims. P2S: LB == body.
     let oracle_cat_hash = ticker_core::crypto::hash160(&oracle_cat_le);
-    let slot_redeem = specialize_slot_body(&key.pkh, &my_cn_hash, &oracle_cat_hash)?;
-    if slot_redeem != my_slot_lb_expected {
-        return Err(format!(
-            "slot locking bytecode mismatch for sourceId={}: derived {} vs manifest {} \
-             — wrong manifest or wrong cnHash/pkh?",
-            source.id,
-            hex::encode(&slot_redeem),
-            hex::encode(&my_slot_lb_expected),
-        )
-        .into());
+
+    // v24 P05 — verify ALL 13 cross-daemon slot LBs (closes W11-22.3).
+    // Previously only this daemon's own slot was verified; a tampered
+    // manifest could swap any of the OTHER 12 slot lockings without
+    // detection on this publisher's box. Now every daemon validates
+    // the full set on startup.
+    let mut my_cn_hash: Option<[u8; 20]> = None;
+    let mut my_slot_lb_expected: Option<Vec<u8>> = None;
+    for s in &m.slots {
+        let s_pkh: [u8; 20] = hex::decode(&s.publisher_pkh_hex)?
+            .as_slice()
+            .try_into()
+            .map_err(|_| format!("slots[].sourceId={} publisherPkhHex not 20 B", s.source_id))?;
+        let s_cn: [u8; 20] = hex::decode(&s.cn_hash_hex)?
+            .as_slice()
+            .try_into()
+            .map_err(|_| format!("slots[].sourceId={} cnHashHex not 20 B", s.source_id))?;
+        let s_lb_expected: Vec<u8> = hex::decode(&s.locking_bytecode_hex)?;
+        let s_lb_derived = specialize_slot_body(&s_pkh, &s_cn, &oracle_cat_hash)?;
+        if s_lb_derived != s_lb_expected {
+            return Err(format!(
+                "slot locking bytecode mismatch for sourceId={}: derived {} vs manifest {} \
+                 — wrong manifest or wrong cnHash/pkh?",
+                s.source_id,
+                hex::encode(&s_lb_derived),
+                hex::encode(&s_lb_expected),
+            )
+            .into());
+        }
+        if s.source_id == source.id {
+            // Sanity: the manifest entry for THIS publisher's slot must agree
+            // with the operator key's actual pkh.
+            if s_pkh != key.pkh {
+                return Err(format!(
+                    "manifest slots[].sourceId={} publisherPkhHex {} != operator key pkh {} \
+                     — wrong key for this slot?",
+                    s.source_id,
+                    hex::encode(s_pkh),
+                    hex::encode(key.pkh),
+                )
+                .into());
+            }
+            my_cn_hash = Some(s_cn);
+            my_slot_lb_expected = Some(s_lb_derived);
+        }
     }
+    let my_cn_hash = my_cn_hash
+        .ok_or_else(|| format!("manifest missing slots[].sourceId={}", source.id))?;
+    let my_slot_lb_expected = my_slot_lb_expected
+        .expect("my_slot_lb_expected populated whenever my_cn_hash is");
+    let slot_redeem = my_slot_lb_expected.clone();
     let ticker_redeem = redeem_ticker()?;
 
     // Precompute Electrum scripthashes (sha256(locking_script) reversed, lowercase hex).
