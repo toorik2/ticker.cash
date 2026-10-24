@@ -47,7 +47,7 @@ node/               Rust workspace
   core/             commits, statements, BCH Schnorr, exchange registry, transaction builders, Electrum client
   notary/           ticker-notary: TLSNotary verifier for one row, signs minute statements
   daemon/           ticker-node: prover, builder, sweeper, genesis
-deploy/systemd/     user-mode units for an operator host
+deploy/systemd/     units for an operator host (user units; the web server as a hardened system unit)
 web/                static dashboard (manifest-driven, reads chain state from Fulcrum)
 docs/design/        v25 plan and the first-principles record behind it
 ```

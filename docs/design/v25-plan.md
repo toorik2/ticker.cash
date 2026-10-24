@@ -301,7 +301,7 @@ node/                      Rust workspace (tokio; tlsn is async)
   notary/                  ticker-notary: tlsn Verifier + row pin + parser + signer + HTTP API + per-minute store
   daemon/                  ticker-node: prover (second ~2 of each minute), builder, sweeper, genesis, status publisher
 contracts/                 Oracle.cash, Ticker.cash, PriceGated.cash, artifacts, VM test suite
-deploy/systemd/            user units for one operator host
+deploy/systemd/            systemd units for one operator host (web as a system unit under its own user)
 web/                       head decoder, scripthash subscriptions, notary table, cost meter
 ```
 

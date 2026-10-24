@@ -1,20 +1,45 @@
+# ticker.cash web: the only internet-facing process, so it gets the least. Unlike the notary and
+# node units this is a *system* unit (/etc/systemd/system/) running as the dedicated `web` user,
+# which owns no keys and sees the checkout read-only. nginx terminates TLS and proxies
+# usd.ticker.cash, stats.ticker.cash and quote.layer1.cash to 127.0.0.1:3000.
+# Paths are those of the ticker.cash host; a system unit cannot use %h.
 [Unit]
-Description=ticker.cash web (static dashboard; manifest.json and status.json are written by ticker-node)
-After=network.target
+Description=ticker.cash web (stats, usd, quote; serves files written by ticker-node)
+After=network-online.target
+Wants=network-online.target
 
 [Service]
-Type=simple
-WorkingDirectory=%h/projects/ticker.cash/web
-Environment=PATH=%h/.nvm/versions/node/v24.12.0/bin:/usr/bin
+User=web
+Group=web
+WorkingDirectory=/home/toorik/projects/ticker.cash/web
+Environment=PATH=/home/toorik/.nvm/versions/node/v24.12.0/bin:/usr/bin
 Environment=PORT=3000
 Environment=HOST=127.0.0.1
 Environment=NODE_ENV=production
-ExecStart=%h/projects/ticker.cash/web/node_modules/.bin/tsx server/server.ts
-Restart=on-failure
-RestartSec=5
-StandardOutput=journal
-StandardError=journal
-Slice=ticker.slice
+Environment=HOME=/tmp
+ExecStart=/home/toorik/.nvm/versions/node/v24.12.0/bin/node /home/toorik/projects/ticker.cash/web/node_modules/tsx/dist/cli.mjs server/server.ts
+Restart=always
+RestartSec=3
+
+# Read-only view of the code and dist; no writes outside its private /tmp.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target
