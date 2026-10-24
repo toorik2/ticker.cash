@@ -21,7 +21,10 @@ pub enum Quote {
 #[derive(Debug, Clone, Copy)]
 pub struct Source {
     pub id: u8,
+    /// Stable slug, used in configuration and logs.
     pub name: &'static str,
+    /// Display name of the exchange.
+    pub label: &'static str,
     pub host: &'static str,
     pub path: &'static str,
     pub quote: Quote,
@@ -30,26 +33,26 @@ pub struct Source {
 }
 
 pub const SOURCES: [Source; 16] = [
-    Source { id: 1, name: "kraken", host: "api.kraken.com", path: "/0/public/Ticker?pair=BCHUSD", quote: Quote::Usd, pointers: &["/result/BCHUSD/c/0"] },
-    Source { id: 2, name: "coinbase", host: "api.coinbase.com", path: "/v2/prices/BCH-USD/spot", quote: Quote::Usd, pointers: &["/data/amount"] },
-    Source { id: 3, name: "gemini", host: "api.gemini.com", path: "/v1/pubticker/bchusd", quote: Quote::Usd, pointers: &["/last"] },
+    Source { id: 1, name: "kraken", label: "Kraken", host: "api.kraken.com", path: "/0/public/Ticker?pair=BCHUSD", quote: Quote::Usd, pointers: &["/result/BCHUSD/c/0"] },
+    Source { id: 2, name: "coinbase", label: "Coinbase", host: "api.coinbase.com", path: "/v2/prices/BCH-USD/spot", quote: Quote::Usd, pointers: &["/data/amount"] },
+    Source { id: 3, name: "gemini", label: "Gemini", host: "api.gemini.com", path: "/v1/pubticker/bchusd", quote: Quote::Usd, pointers: &["/last"] },
     // retired 2026-10-24: Binance.US BCH/USD traded 0.03 BCH in 24 h (one trade). Kept for old statements.
-    Source { id: 4, name: "binance_us", host: "api.binance.us", path: "/api/v3/ticker/price?symbol=BCHUSD", quote: Quote::Usd, pointers: &["/price"] },
-    Source { id: 5, name: "bitstamp", host: "www.bitstamp.net", path: "/api/v2/ticker/bchusd/", quote: Quote::Usd, pointers: &["/last"] },
-    Source { id: 6, name: "cryptocom", host: "api.crypto.com", path: "/v2/public/get-ticker?instrument_name=BCH_USD", quote: Quote::Usd, pointers: &["/result/data/0/a", "/result/data/a"] },
-    Source { id: 7, name: "bitfinex", host: "api-pub.bitfinex.com", path: "/v2/tickers?symbols=tBCHN:USD", quote: Quote::Usd, pointers: &["/0/7"] },
+    Source { id: 4, name: "binance_us", label: "Binance.US", host: "api.binance.us", path: "/api/v3/ticker/price?symbol=BCHUSD", quote: Quote::Usd, pointers: &["/price"] },
+    Source { id: 5, name: "bitstamp", label: "Bitstamp", host: "www.bitstamp.net", path: "/api/v2/ticker/bchusd/", quote: Quote::Usd, pointers: &["/last"] },
+    Source { id: 6, name: "cryptocom", label: "Crypto.com", host: "api.crypto.com", path: "/v2/public/get-ticker?instrument_name=BCH_USD", quote: Quote::Usd, pointers: &["/result/data/0/a", "/result/data/a"] },
+    Source { id: 7, name: "bitfinex", label: "Bitfinex", host: "api-pub.bitfinex.com", path: "/v2/tickers?symbols=tBCHN:USD", quote: Quote::Usd, pointers: &["/0/7"] },
     // retired 2026-10-24: EXMO delisted BCH_USD (the pointer no longer resolves). Kept for old statements.
-    Source { id: 8, name: "exmo", host: "api.exmo.com", path: "/v1.1/ticker", quote: Quote::Usd, pointers: &["/BCH_USD/last_trade"] },
+    Source { id: 8, name: "exmo", label: "EXMO", host: "api.exmo.com", path: "/v1.1/ticker", quote: Quote::Usd, pointers: &["/BCH_USD/last_trade"] },
     // retired 2026-10-24: Independent Reserve BCH/USD had no trade since 2026-09-23. Kept for old statements.
-    Source { id: 9, name: "independentreserve", host: "api.independentreserve.com", path: "/Public/GetMarketSummary?primaryCurrencyCode=Bch&secondaryCurrencyCode=Usd", quote: Quote::Usd, pointers: &["/LastPrice"] },
-    Source { id: 10, name: "okx_usdc", host: "www.okx.com", path: "/api/v5/market/ticker?instId=BCH-USDC", quote: Quote::Usdc, pointers: &["/data/0/last"] },
-    Source { id: 11, name: "kucoin_usdc", host: "api.kucoin.com", path: "/api/v1/market/orderbook/level1?symbol=BCH-USDC", quote: Quote::Usdc, pointers: &["/data/price"] },
-    Source { id: 12, name: "bybit", host: "api.bybit.com", path: "/v5/market/tickers?category=spot&symbol=BCHUSDT", quote: Quote::Usdt, pointers: &["/result/list/0/lastPrice"] },
-    Source { id: 13, name: "htx", host: "api.huobi.pro", path: "/market/detail?symbol=bchusdt", quote: Quote::Usdt, pointers: &["/tick/close"] },
-    Source { id: 14, name: "gateio", host: "api.gateio.ws", path: "/api/v4/spot/tickers?currency_pair=BCH_USDT", quote: Quote::Usdt, pointers: &["/0/last"] },
-    Source { id: 15, name: "bitget", host: "api.bitget.com", path: "/api/v2/spot/market/tickers?symbol=BCHUSDT", quote: Quote::Usdt, pointers: &["/data/0/lastPr"] },
+    Source { id: 9, name: "independentreserve", label: "Independent Reserve", host: "api.independentreserve.com", path: "/Public/GetMarketSummary?primaryCurrencyCode=Bch&secondaryCurrencyCode=Usd", quote: Quote::Usd, pointers: &["/LastPrice"] },
+    Source { id: 10, name: "okx_usdc", label: "OKX", host: "www.okx.com", path: "/api/v5/market/ticker?instId=BCH-USDC", quote: Quote::Usdc, pointers: &["/data/0/last"] },
+    Source { id: 11, name: "kucoin_usdc", label: "KuCoin", host: "api.kucoin.com", path: "/api/v1/market/orderbook/level1?symbol=BCH-USDC", quote: Quote::Usdc, pointers: &["/data/price"] },
+    Source { id: 12, name: "bybit", label: "Bybit", host: "api.bybit.com", path: "/v5/market/tickers?category=spot&symbol=BCHUSDT", quote: Quote::Usdt, pointers: &["/result/list/0/lastPrice"] },
+    Source { id: 13, name: "htx", label: "HTX", host: "api.huobi.pro", path: "/market/detail?symbol=bchusdt", quote: Quote::Usdt, pointers: &["/tick/close"] },
+    Source { id: 14, name: "gateio", label: "Gate.io", host: "api.gateio.ws", path: "/api/v4/spot/tickers?currency_pair=BCH_USDT", quote: Quote::Usdt, pointers: &["/0/last"] },
+    Source { id: 15, name: "bitget", label: "Bitget", host: "api.bitget.com", path: "/api/v2/spot/market/tickers?symbol=BCHUSDT", quote: Quote::Usdt, pointers: &["/data/0/lastPr"] },
     // api.binance.com answers HTTP 451 to US addresses; a US operator takes another row.
-    Source { id: 16, name: "binance_usdc", host: "api.binance.com", path: "/api/v3/ticker/price?symbol=BCHUSDC", quote: Quote::Usdc, pointers: &["/price"] },
+    Source { id: 16, name: "binance_usdc", label: "Binance", host: "api.binance.com", path: "/api/v3/ticker/price?symbol=BCHUSDC", quote: Quote::Usdc, pointers: &["/price"] },
 ];
 
 pub fn source_by_id(id: u8) -> Option<&'static Source> {

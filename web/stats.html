@@ -120,7 +120,7 @@ function render(){
     const tr = document.createElement('tr');
     const st = !r.up ? ['down', 'down'] : !r.latest ? ['lag', 'no statement'] : r.latest.seq >= headSeq ? ['ok', 'current'] : (headSeq - r.latest.seq <= 2 ? ['lag', 'behind ' + (headSeq - r.latest.seq)] : ['down', 'stalled']);
     tr.innerHTML = `<td>${String(r.row).padStart(2,'0')}</td>
-      <td>${r.source_name || '?'}${r.quote && r.quote !== 'usd' ? ' <span class="sub">' + r.quote.toUpperCase() + '-quoted</span>' : ''}<span class="sub">${r.host || ''}</span></td>
+      <td>${r.label || r.source_name || '?'}${r.quote && r.quote !== 'usd' ? ' <span class="sub">' + r.quote.toUpperCase() + '-quoted</span>' : ''}<span class="sub">${r.host || ''}</span></td>
       <td>${r.operator || '—'}<span class="sub" title="${r.pubkey}">${r.pubkey ? r.pubkey.slice(0,10) + '…' : ''}</span></td>
       <td>${r.mode || '—'}</td>
       <td class="r">${r.latest ? fmtUsd(r.latest.price / 1e8) : '—'}</td>

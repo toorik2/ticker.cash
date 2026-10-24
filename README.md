@@ -8,6 +8,13 @@ transaction. Nobody in the system chooses a number.
 Live at [usd.ticker.cash](https://usd.ticker.cash) (chipnet). Reference at
 [usd.ticker.cash/docs](https://usd.ticker.cash/docs). Design record in `docs/design/`.
 
+| Deployment (chipnet, 2026-10-24) | |
+|---|---|
+| category | `16bc04ed68a236c217c5f96346206de4442663f41aa5736395e8f943fd92fccb` |
+| head | [`bchtest:p0z2vuz0cegv56z4lc4x5n78sspmm3qu9a7hf6q0yld8f9zvtpq76twyczghu`](https://chipnet.imaginary.cash/address/bchtest:p0z2vuz0cegv56z4lc4x5n78sspmm3qu9a7hf6q0yld8f9zvtpq76twyczghu) |
+| genesis | [`ac602422…cab0230e`](https://chipnet.imaginary.cash/tx/ac602422cb513184bb745568ae19854c76fd04580b95e23687f538f9cab0230e) |
+| manifest | [usd.ticker.cash/manifest.json](https://usd.ticker.cash/manifest.json) |
+
 ## How it works
 
 ```

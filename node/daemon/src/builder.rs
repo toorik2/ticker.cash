@@ -148,7 +148,7 @@ pub async fn status_json(ctx: &Ctx) -> serde_json::Value {
         if let Ok((r, info, latest)) = t.await {
             let source = ticker_core::sources::source_by_id(r.source);
             rows.push(serde_json::json!({
-                "row": r.row, "source": r.source, "source_name": source.map(|s| s.name), "host": source.map(|s| s.host),
+                "row": r.row, "source": r.source, "source_name": source.map(|s| s.name), "label": source.map(|s| s.label), "host": source.map(|s| s.host),
                 "quote": source.map(|s| format!("{:?}", s.quote).to_lowercase()),
                 "operator": r.operator, "pubkey": r.pubkey, "api": r.api,
                 "up": info.is_some(), "mode": info.as_ref().and_then(|i| i["mode"].as_str().map(str::to_string)),

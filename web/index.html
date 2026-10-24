@@ -99,8 +99,9 @@
     </div>
 
     <div class="lead">
-      <p>A <b>notarized BCH/USD price feed</b> on Bitcoin Cash. Thirteen independent notaries each co-run a TLS session with one exchange, verify its certificate, and sign the price they saw. A covenant takes the lower median of at least seven of those signatures and writes it on chain. Once a minute, in one transaction.</p>
+      <p>A <b>notarized BCH/USD price feed</b> on Bitcoin Cash. Thirteen notaries, each pinned to one exchange, co-run a TLS session with it, verify its certificate, and sign the price they saw. A covenant takes the lower median of at least seven of those signatures and writes it on chain. Once a minute, in one transaction.</p>
       <p>Nobody in the system chooses a number. Notaries sign only what they verified; anyone can open the sessions and anyone can post the update. The trust root is <b>7 of 13 verifiers</b>, and the covenant reads nothing but its own input and outputs. No admin keys, no timestamps, no clock.</p>
+      <p>Today ticker.cash operates all thirteen rows, so the honest description is one operator who cryptographically verified each exchange. A row is one small binary and one exchange endpoint, built to be handed to independent operators; the <a href="/stats">stats</a> page names the operator of every row.</p>
       <p><b>Read the price on chain.</b> Spend a Ticker NFT in your transaction and decode its 12-byte commitment: the Unix minute and the price. Integration guide, covenant walkthrough, and how to run a notary in the <a href="/docs">docs</a>.</p>
     </div>
   </div>
@@ -152,7 +153,7 @@ function renderStatus(st){
   const headSeq = st.head ? st.head.seq : (head ? head.commit.seq : 0);
   for (const r of st.rows) {
     const n = document.createElement('span'); n.className = 'n'; n.textContent = String(r.row).padStart(2, '0');
-    const s = document.createElement('span'); s.textContent = (r.source_name || '?') + (r.quote && r.quote !== 'usd' ? ' · ' + r.quote.toUpperCase() : '');
+    const s = document.createElement('span'); s.textContent = (r.label || r.source_name || '?') + (r.quote && r.quote !== 'usd' ? ' · ' + r.quote.toUpperCase() : '');
     const p = document.createElement('span'); p.className = 'p';
     if (!r.up) { p.textContent = 'down'; p.classList.add('down'); }
     else if (!r.latest) { p.textContent = '—'; }

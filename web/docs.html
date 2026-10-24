@@ -89,7 +89,7 @@
   <div class="main">
     <div class="doc-meta"><span><b>ticker.cash</b> · reference</span><span>v25 · <span id="meta-net">chipnet</span></span></div>
     <h1 class="doc-title">A notarized BCH/USD price, one transaction a minute.</h1>
-    <p class="doc-lead">Thirteen independent notaries each verify a TLS session with one exchange and sign the price they saw. A 373-byte covenant checks seven or more of those signatures, takes the lower median, and writes it on chain together with two Ticker NFTs any transaction can spend to read it. Nobody in the system chooses a number.</p>
+    <p class="doc-lead">Thirteen notaries each verify a TLS session with one exchange and sign the price they saw. A 373-byte covenant checks seven or more of those signatures, takes the lower median, and writes it on chain together with two Ticker NFTs any transaction can spend to read it. Nobody in the system chooses a number.</p>
 
     <section class="chapter" id="overview">
       <h2><span class="num">§01</span><span>Overview</span></h2>
@@ -192,10 +192,10 @@ require(seq &gt;= minSeq); require(seq &lt;= maxSeq);              // your fresh
     <section class="chapter" id="notary">
       <h2><span class="num">§08</span><span>Run a notary</span></h2>
       <p>A notary is one small Rust binary, one exchange endpoint, one session a minute. It holds no funds and needs no exchange account. Bandwidth per session is about 1.5 MB in proxy mode and about 43 MB in MPC mode; both finish in under a second against every pinned endpoint.</p>
-      <pre><code>ticker-notary --home ~/.ticker-notary-7 init --row 7 --source 8 \
+      <pre><code>ticker-notary --home ~/.ticker-notary-7 init --row 7 --source 14 \
     --category &lt;deployment category&gt; --listen 0.0.0.0:7007 --api 0.0.0.0:7107 \
-    --mode both --operator "your name"
-ticker-notary --home ~/.ticker-notary-7 run          # systemd unit in node/systemd/</code></pre>
+    --mode both --operator "your name"              # row 7 = Gate.io, registry id 14
+ticker-notary --home ~/.ticker-notary-7 run          # systemd unit in deploy/systemd/</code></pre>
       <p>Rows are assigned at genesis: the table is compiled into the covenant, so joining means being in the table of the next deployment. Until then the useful thing to do is run the binary against the current category with your own key, publish your <code>/v1/info</code>, and show a month of statements that match the chain.</p>
       <table>
         <thead><tr><th>Mode</th><th>Assumption added</th><th>When</th></tr></thead>
@@ -249,6 +249,7 @@ ticker-notary --home ~/.ticker-notary-7 run          # systemd unit in node/syst
           <tr><td>head</td><td id="live-head">—</td></tr>
           <tr><td>Ticker lock</td><td><code id="live-ticker">—</code></td></tr>
           <tr><td>genesis</td><td id="live-genesis">—</td></tr>
+          <tr><td>table (registry ids, rows 0–12)</td><td id="live-table">—</td></tr>
         </tbody>
       </table>
     </section>
@@ -282,7 +283,8 @@ ticker-notary --home ~/.ticker-notary-7 run          # systemd unit in node/syst
     document.getElementById('live-cat').textContent = m.category;
     document.getElementById('live-head').innerHTML = `<a href="${m.explorerAddress(m.headAddress)}" target="_blank" rel="noopener"><code>${m.headAddress}</code> ↗</a>`;
     document.getElementById('live-ticker').textContent = m.ticker_lock;
-    document.getElementById('live-genesis').innerHTML = `<a href="${m.explorerTx(m.genesis_txid)}" target="_blank" rel="noopener"><code>${m.genesis_txid.slice(0,16)}…</code> ↗</a>`;
+    document.getElementById('live-genesis').innerHTML = `<a href="${m.explorerTx(m.genesis_txid)}" target="_blank" rel="noopener"><code>${m.genesis_txid}</code> ↗</a>`;
+    document.getElementById('live-table').textContent = m.table.map((r) => r.source).join(', ');
   } catch (_) { document.getElementById('live-net').textContent = 'not deployed yet'; }
 })();
 </script>

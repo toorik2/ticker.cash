@@ -95,8 +95,8 @@
       headAddress: p2sh32Address(prefix, m.oracle_lock),
       headScripthash: await scripthashOf(m.oracle_lock),
       tickerScripthash: await scripthashOf(m.ticker_lock),
-      explorerAddress: (addr) => `https://bchexplorer.cash/${m.network === 'mainnet' ? '' : 'chipnet/'}address/${addr}`,
-      explorerTx: (txid) => `https://bchexplorer.cash/${m.network === 'mainnet' ? '' : 'chipnet/'}tx/${txid}`,
+      explorerAddress: (addr) => `${m.network === 'mainnet' ? 'https://explorer.salemkode.com' : 'https://chipnet.imaginary.cash'}/address/${addr}`,
+      explorerTx: (txid) => `${m.network === 'mainnet' ? 'https://explorer.salemkode.com' : 'https://chipnet.imaginary.cash'}/tx/${txid}`,
     };
   }
 
@@ -237,7 +237,8 @@
     sizes.sort((a, b) => a - b);
     if (!sizes.length) return null;
     const median = sizes[Math.floor(sizes.length / 2)];
-    return { count: hist.length, medianSize: median, feeSats: median + 1, perDaySats: (median + 1) * 1440 };
+    // the history includes the genesis transaction, which is not an update
+    return { count: Math.max(0, hist.length - 1), medianSize: median, feeSats: median + 1, perDaySats: (median + 1) * 1440 };
   }
 
   window.TickerClient = { DEFAULTS, hexToBytes, bytesToHex, sha256, scripthashOf, p2pkhAddress, p2sh32Address, decodeCommit, loadManifest, loadStatus, pickHead, ElectrumWS, measureRecentUpdates };

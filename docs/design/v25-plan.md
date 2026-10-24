@@ -35,7 +35,7 @@ Background and the evaluation of SolidCash / TLSNotary are in `proof-of-fetch-or
 * **The Oracle reads no foreign inputs.** Its only introspection targets are its own input and its own
   outputs. The entire V22-OC-22 class (unpinned foreign input) is structurally absent.
 
-| Measured (cashscript 0.14 MockNetworkProvider, `BCH_2026_05`, libauth token validation) | v24 on chipnet today | v25 draft |
+| Measured (cashscript 0.14 MockNetworkProvider, `BCH_2026_05`, libauth token validation) | v24 on chipnet (until 2026-10-24) | v25 |
 |---|---|---|
 | Transactions per update | 14 (13 attests + update) | **1** |
 | Bytes per update | 13 × 589 + 3,620–4,458 ≈ **12.0 KB** | **1,701 B** (k = 7) … **2,140 B** (k = 13) |
@@ -173,7 +173,7 @@ in the draft's history if it is ever wanted.
 
 ---
 
-## 4. Covenants (draft, `contracts/`)
+## 4. Covenants (`contracts/`)
 
 ### 4.1 `Oracle.cash` (373 B body; 850 B redeem with the 442-B table and the 31-B Ticker lock pushed)
 
@@ -292,14 +292,17 @@ numbers; benchmark both modes in M0 before committing rows to MPC mode.
 
 ## 7. Off-chain architecture (fresh workspace, no carry-over by default)
 
+As built (the plan had four crates; prover and builder share one daemon because both only need the
+manifest, and the sweeper and the status publisher live with them):
+
 ```
 node/                      Rust workspace (tokio; tlsn is async)
-  ticker-core/             codecs (commit, statement), BCH-Schnorr signer, tx builder, electrum client
-  ticker-notary/           tlsn Verifier + row pin + parser + signer + HTTP API + per-minute store
-  ticker-prover/           tlsn Prover per row; schedules second ~2 of each minute; forwards statements
-  ticker-builder/          collects statements (notary HTTP or local prover), builds/broadcasts, tops up, sweeps
-contracts/             Oracle.cash, Ticker.cash, PriceGated.cash, artifacts, VM test suite
-web/                       head decoder, Ticker scripthash subscriptions, notary registry, cost meter
+  core/                    codecs (commit, statement), BCH-Schnorr signer, exchange registry, tx builders, electrum pool
+  notary/                  ticker-notary: tlsn Verifier + row pin + parser + signer + HTTP API + per-minute store
+  daemon/                  ticker-node: prover (second ~2 of each minute), builder, sweeper, genesis, status publisher
+contracts/                 Oracle.cash, Ticker.cash, PriceGated.cash, artifacts, VM test suite
+deploy/systemd/            user units for one operator host
+web/                       head decoder, scripthash subscriptions, notary table, cost meter
 ```
 
 * **BCH Schnorr in Rust.** No crate exposes BCH's variant (Jacobi-symbol nonce, 33-byte key in the
@@ -338,6 +341,10 @@ web/                       head decoder, Ticker scripthash subscriptions, notary
 ---
 
 ## 9. Milestones and gates
+
+*Outcome (2026-10-24):* M0–M3 were completed in one day and are recorded in §12; the chipnet genesis
+happened before Faster Blocks activates there, since nothing in the covenant depends on it. M4 is next.
+
 
 | When | Milestone | Gate to pass |
 |---|---|---|
