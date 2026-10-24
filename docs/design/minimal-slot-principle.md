@@ -1,3 +1,5 @@
+> **Historical.** This note describes the v24 PublisherSlot, which v25 retired; see `v25-plan.md`.
+
 # The minimal-slot principle (and the closed-category invariant)
 
 Status: adopted v24-minimal (2026-06). Standing design rule for the covenant

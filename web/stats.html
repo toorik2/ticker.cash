@@ -5,9 +5,8 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="theme-color" content="#f3efe4" />
-<meta name="description" content="ticker.cash observability dashboard — per-slot freshness, publisher wallet runway, federation quorum. Reads chain state directly from Fulcrum in the browser." />
+<meta name="description" content="ticker.cash observability: the head's minute and reserve, every notary's latest statement, update cadence and on-chain cost. Chain state read directly from Fulcrum in the browser." />
 <meta property="og:title" content="Ticker · Stats" />
-<meta property="og:description" content="Per-slot observability for the ticker.cash chipnet deploy: freshness, runway, quorum. Direct-from-Fulcrum, no server-side API." />
 <meta property="og:type" content="website" />
 <meta property="og:url" content="https://usd.ticker.cash/stats" />
 <title>Ticker · Stats</title>
@@ -20,516 +19,146 @@
   html{scrollbar-gutter:stable}
   html,body{min-height:100vh;background:#f3efe4;color:#1a1a18;font-family:'IBM Plex Mono',monospace;font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased}
   a{color:#1a1a18;text-decoration:underline;text-underline-offset:3px;text-decoration-thickness:1px;text-decoration-color:#b6b1a3}
-  a:hover{text-decoration-color:#1a1a18}
   [hidden]{display:none !important}
   .head{padding:1rem 1.75rem;display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:0.5rem;border-bottom:1px solid #c8c2b3}
   .head .l{font-weight:700;letter-spacing:0.22em;text-transform:uppercase;font-size:13px;display:flex;align-items:baseline;gap:0.6rem}
   .head .l .pair{color:#6a6457;font-weight:400;letter-spacing:0.08em;font-size:11px;text-transform:none}
   .head .r{font-size:11px;color:#6a6457;display:flex;gap:1.25rem;align-items:center}
   .head .r a{color:#6a6457;text-decoration:none;border-bottom:1px solid transparent}
-  .head .r a:hover{color:#1a1a18;border-bottom-color:#6a6457}
   .head .r a.active{color:#1a1a18;border-bottom-color:#1a1a18}
   .doc{max-width:1180px;margin:0 auto;padding:2rem 1.75rem 5rem}
-  .status-stripe{background:#fffcf0;border:1px solid #1a1a18;padding:0.95rem 1.25rem;margin-bottom:2rem;display:flex;align-items:baseline;flex-wrap:wrap;gap:0.5rem 1rem;font-size:13.5px;font-variant-numeric:tabular-nums}
-  .status-stripe .dot{font-size:14px;line-height:1;color:#1a7b3b}
-  .status-stripe .status-label{font-weight:700;letter-spacing:0.18em;text-transform:uppercase;font-size:12px;color:#1a7b3b;margin-left:0.15rem}
-  .status-stripe.warn .dot,.status-stripe.warn .status-label{color:#a02010}
-  .status-stripe .sep{color:#b6b1a3;font-weight:300}
-  .status-stripe .metric{display:inline-flex;align-items:baseline;gap:0.35rem}
-  .status-stripe .metric .k{color:#6a6457;font-size:10px;letter-spacing:0.14em;text-transform:uppercase;font-weight:500}
-  .status-stripe .metric .v{font-weight:600}
-  .status-stripe .metric.warn .v{color:#a02010}
-  @media(max-width:680px){.status-stripe{font-size:12px;gap:0.4rem 0.6rem;padding:0.8rem 1rem}.status-stripe .sep{display:none}.status-stripe .metric{flex:0 0 auto}}
-  .stalled-banner{padding:1rem 1.25rem;border:2px solid #a02010;background:#fff0ec;color:#a02010;margin-bottom:1.5rem;font-weight:600;letter-spacing:0.04em;display:flex;justify-content:space-between;align-items:baseline;gap:0.5rem;flex-wrap:wrap}
-  .stalled-banner b{font-size:13px;text-transform:uppercase;letter-spacing:0.14em}
-  .stalled-banner .sub{font-weight:400;color:#a02010;opacity:0.7;font-size:11.5px}
-  .slot-table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid #1a1a18;background:#fffcf0;margin-bottom:2rem}
-  .slot-table{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-numeric:tabular-nums}
-  .slot-table thead th{text-align:left;padding:0.7rem 0.9rem;border-bottom:1px solid #1a1a18;font-size:10px;letter-spacing:0.16em;text-transform:uppercase;color:#6a6457;font-weight:600;background:#f3efe4;white-space:nowrap}
-  .slot-table thead th.r{text-align:right}
-  .slot-table thead th[title]{cursor:help;border-bottom-style:dotted;border-bottom-color:#8a8472}
-  .slot-table tbody td{padding:0.65rem 0.9rem;border-bottom:1px solid #ecebe0;vertical-align:baseline}
-  .slot-table tbody tr:last-child td{border-bottom:none}
-  .slot-table tbody td.r{text-align:right}
-  .slot-table tbody td .src{color:#1a1a18;font-weight:600;display:flex;align-items:baseline;gap:0.5rem}
-  .slot-table tbody td .pkh{color:#8a8472;font-size:10.5px;letter-spacing:0.05em;margin-top:0.15rem;font-weight:400}
-  .slot-table tbody td .sub{color:#6a6457;font-size:10.5px;letter-spacing:0;margin-left:0.4em;font-weight:400}
-  .slot-table tbody td.status{font-weight:600;text-transform:uppercase;letter-spacing:0.1em;font-size:10.5px}
-  .slot-table tbody tr.has-error{background:#fff5f2}
-  .status-ok{color:#1a7b3b}
-  .status-lagging{color:#b88800}
-  .status-unfunded{color:#c84800}
-  .status-stalled{color:#a02010}
-  .copy-btn{background:transparent;border:1px solid #c8c2b3;border-radius:2px;font-family:inherit;font-size:9.5px;letter-spacing:0.08em;text-transform:uppercase;color:#6a6457;padding:0.1rem 0.35rem;cursor:pointer;font-weight:500;transition:all 0.15s ease;flex:0 0 auto;line-height:1.3}
-  .copy-btn:hover{color:#1a1a18;border-color:#1a1a18;background:#fffcf0}
-  .copy-btn.copied{color:#1a7b3b;border-color:#1a7b3b}
-  .explore-btn{background:transparent;border:1px solid #c8c2b3;border-radius:2px;font-family:inherit;font-size:9.5px;letter-spacing:0.08em;text-transform:uppercase;color:#6a6457;padding:0.1rem 0.35rem;cursor:pointer;font-weight:500;text-decoration:none;line-height:1.3;flex:0 0 auto;transition:all 0.15s ease}
-  .explore-btn:hover{color:#1a1a18;border-color:#1a1a18;background:#fffcf0;text-decoration:none}
-  .foldout{border:1px solid #c8c2b3;background:#fffcf0;margin-bottom:0.75rem}
-  .foldout > summary{cursor:pointer;padding:0.7rem 1rem;font-size:10.5px;letter-spacing:0.18em;text-transform:uppercase;font-weight:600;color:#1a1a18;list-style:none;display:flex;align-items:center;gap:0.5rem;user-select:none}
-  .foldout > summary::-webkit-details-marker{display:none}
-  .foldout > summary::before{content:'▸';display:inline-block;color:#6a6457;transition:transform 0.15s ease;width:0.8rem}
-  .foldout[open] > summary::before{transform:rotate(90deg)}
-  .foldout > summary .ct{margin-left:auto;font-weight:400;color:#6a6457;letter-spacing:0.04em;font-size:10px;text-transform:none}
-  .foldout[open] > summary{border-bottom:1px solid #c8c2b3}
-  .foldout-body{padding:1rem 1.25rem}
-  .foldout.alert{border-color:#a02010}
-  .foldout.alert > summary{color:#a02010}
-  .foldout.alert > summary::before{color:#a02010}
-  .sparks{display:grid;grid-template-columns:repeat(3,1fr);gap:1.25rem}
-  @media(max-width:680px){.sparks{grid-template-columns:1fr}}
-  .spark{display:flex;flex-direction:column;gap:0.35rem}
-  .spark .h{font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:#6a6457;font-weight:500;display:flex;justify-content:space-between;gap:0.5rem}
-  .spark .h .v{color:#1a1a18;font-weight:600;letter-spacing:0;text-transform:none;font-variant-numeric:tabular-nums}
-  .spark svg{display:block;width:100%;height:34px}
-  .errors-list{margin:0 0 0 1.25rem;padding:0;list-style:disc;color:#a02010;font-size:11.5px;line-height:1.7}
-  .errors-list li{margin-bottom:0.15rem}
-  .ts-strip{margin:-0.5rem 0 1rem;font-size:10.5px;color:#6a6457;letter-spacing:0.04em}
+  .stripe{background:#fffcf0;border:1px solid #1a1a18;padding:0.95rem 1.25rem;margin-bottom:2rem;display:flex;align-items:baseline;flex-wrap:wrap;gap:0.5rem 1rem;font-size:13.5px;font-variant-numeric:tabular-nums}
+  .stripe .label{font-weight:700;letter-spacing:0.18em;text-transform:uppercase;font-size:12px;color:#1a7b3b}
+  .stripe.warn .label{color:#a02010}
+  .stripe .sep{color:#b6b1a3}
+  .stripe .m{display:inline-flex;align-items:baseline;gap:0.35rem}
+  .stripe .m .k{color:#6a6457;font-size:10px;letter-spacing:0.14em;text-transform:uppercase;font-weight:500}
+  .stripe .m .v{font-weight:600}
+  .stripe .m.warn .v{color:#a02010}
+  .wrap{overflow-x:auto;border:1px solid #1a1a18;background:#fffcf0;margin-bottom:2rem}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-numeric:tabular-nums}
+  thead th{text-align:left;padding:0.7rem 0.9rem;border-bottom:1px solid #1a1a18;font-size:10px;letter-spacing:0.16em;text-transform:uppercase;color:#6a6457;font-weight:600;background:#f3efe4;white-space:nowrap}
+  th.r,td.r{text-align:right}
+  tbody td{padding:0.65rem 0.9rem;border-bottom:1px solid #ecebe0;vertical-align:baseline}
+  tbody tr:last-child td{border-bottom:none}
+  td .sub{color:#8a8472;font-size:10.5px;display:block}
+  td.st{font-weight:600;text-transform:uppercase;letter-spacing:0.1em;font-size:10.5px}
+  .ok{color:#1a7b3b}.lag{color:#b88800}.down{color:#a02010}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:1rem;margin-bottom:2rem}
+  .card{border:1px solid #c8c2b3;background:#fffcf0;padding:1rem 1.15rem}
+  .card .h{font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:#6a6457;font-weight:500;margin-bottom:0.4rem}
+  .card .v{font-size:1.4rem;font-weight:300;letter-spacing:-0.02em;font-variant-numeric:tabular-nums}
+  .card .v small{font-size:0.55em;color:#6a6457}
+  .card .d{font-size:11px;color:#6a6457;margin-top:0.35rem}
+  .note{font-size:11px;color:#6a6457;margin:-1rem 0 1.5rem}
   .foot{margin-top:3rem;padding-top:0.8rem;border-top:1px solid #c8c2b3;font-size:10.5px;color:#6a6457;letter-spacing:0.1em;text-transform:uppercase;display:flex;justify-content:space-between;gap:0.5rem;flex-wrap:wrap;font-weight:500}
-  .foot a{color:#6a6457;text-decoration:none;border-bottom:1px solid transparent}
-  .foot a:hover{color:#1a1a18;border-bottom-color:#6a6457}
+  .foot a{color:#6a6457;text-decoration:none}
 </style>
 </head>
 <body>
 <header class="head">
-  <div class="l">▌ TICKER <span class="pair">stats · chipnet</span></div>
+  <div class="l">▌ TICKER <span class="pair" id="pair">stats · chipnet</span></div>
   <div class="r"><a href="/">home</a><a href="/docs">docs</a><a href="/stats" class="active">stats</a><a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github</a></div>
 </header>
 <div class="doc">
-  <div id="stalled-banner" class="stalled-banner" hidden>
-    <span><b>Cycles stopped</b> <span id="stalled-detail" class="sub">—</span></span>
-    <span class="sub">expected stride ~<span id="stalled-stride">—</span></span>
+  <div class="stripe" id="stripe">
+    <span class="label" id="s-label">CONNECTING</span>
+    <span class="sep">·</span><span class="m"><span class="k">minute</span><span class="v" id="s-minute">—</span></span>
+    <span class="sep">·</span><span class="m" id="s-age-m"><span class="v" id="s-age">—</span><span class="k">ago</span></span>
+    <span class="sep">·</span><span class="m" id="s-quorum-m"><span class="k">rows current</span><span class="v" id="s-quorum">—</span><span class="k" style="opacity:.6">(min 7)</span></span>
+    <span class="sep">·</span><span class="m"><span class="k">reserve</span><span class="v" id="s-reserve">—</span></span>
+    <span class="sep">·</span><span class="m"><span class="k">tip</span><span class="v" id="s-tip">—</span></span>
   </div>
-  <div class="status-stripe ok" id="status-stripe">
-    <span class="dot" id="ss-dot">●</span>
-    <span class="status-label" id="ss-status">CONNECTING</span>
-    <span class="sep">·</span>
-    <span class="metric"><span class="k">cycle</span><span class="v" id="ss-seq">—</span></span>
-    <span class="sep">·</span>
-    <span class="metric" id="ss-age-metric"><span class="v" id="ss-age">—</span><span class="k">ago</span></span>
-    <span class="sep">·</span>
-    <span class="metric" id="ss-quorum-metric" title="Publishers caught up to current cycle (out of 13). Minimum 7 required for Oracle.update to succeed; the stripe flips DEGRADED if fewer."><span class="k">active</span><span class="v" id="ss-quorum">—</span><span class="k" style="opacity:0.6;margin-left:0.35em">(min 7)</span></span>
-    <span class="sep">·</span>
-    <span class="metric"><span class="k">stride</span><span class="v" id="ss-stride">—</span></span>
-  </div>
-  <div class="ts-strip" id="ts-strip">reading direct from <span id="fulcrum-host">fulcrum…</span></div>
-  <div class="slot-table-wrap">
-    <table class="slot-table">
+  <div class="note">head read direct from <span id="fulcrum">fulcrum…</span>; notary rows from the operator's status.json (<span id="status-age">—</span>)</div>
+  <div class="wrap">
+    <table>
       <thead><tr>
-        <th title="Slot index (0..12). Stable across cycles. Slot 0 = kraken, slot 12 = htx.">#</th>
-        <th title="The CEX this slot fetches its price from. Click 'copy' to grab the publisher's full P2PKH address for top-ups.">Source</th>
-        <th class="r" title="Wall-clock age of the slot's most recent attest. For an active publisher this should stay below ~60s.">Last attest</th>
-        <th class="r" title="Cycles behind oracle.seq. 0 = caught up. 1-3 = lagging. >3 = stalled.">Behind</th>
-        <th class="r" title="Estimated time until wallet depletes. Per-cycle cost measured live from recent on-chain attest + Oracle.update tx sizes.">Runway</th>
-        <th class="r" title="Current publisher wallet balance in sats. Top up via the copy button next to Source.">Balance</th>
-        <th class="r" title="ok = caught up + funded. lagging = 1-3 cycles behind. unfunded = <5 cycles of runway. stalled = >3 cycles behind.">Status</th>
+        <th>#</th><th>Exchange</th><th>Operator</th><th>Mode</th><th class="r">Last statement</th><th class="r">Minute</th><th class="r">Issued</th><th class="r">Status</th>
       </tr></thead>
-      <tbody id="slot-rows"><tr><td colspan="7" style="text-align:center;padding:1.5rem;color:#6a6457">connecting to fulcrum…</td></tr></tbody>
+      <tbody id="rows"><tr><td colspan="8" style="text-align:center;padding:1.5rem;color:#6a6457">loading…</td></tr></tbody>
     </table>
   </div>
-  <details class="foldout" id="fold-trends">
-    <summary>Trends <span class="ct">accumulated since page load</span></summary>
-    <div class="foldout-body">
-      <div class="sparks">
-        <div class="spark"><div class="h"><span>Cycle seq</span><span class="v" id="spark-seq-v">—</span></div><svg id="spark-seq"></svg></div>
-        <div class="spark"><div class="h"><span>Slots current / 13</span><span class="v" id="spark-quorum-v">—</span></div><svg id="spark-quorum"></svg></div>
-        <div class="spark"><div class="h"><span>Stride (s)</span><span class="v" id="spark-stride-v">—</span></div><svg id="spark-stride"></svg></div>
-      </div>
-    </div>
-  </details>
-  <details class="foldout" id="fold-errors" hidden>
-    <summary>Errors <span class="ct" id="fold-errors-count">0</span></summary>
-    <div class="foldout-body"><ul class="errors-list" id="errors-list"></ul></div>
-  </details>
+  <div class="grid">
+    <div class="card"><div class="h">Updates on chain</div><div class="v" id="c-count">—</div><div class="d">transactions at the head address since genesis</div></div>
+    <div class="card"><div class="h">Update size</div><div class="v" id="c-size">—</div><div class="d">median of the last 12 updates; fee is exactly size + 1 sat</div></div>
+    <div class="card"><div class="h">Cost per day</div><div class="v" id="c-day">—</div><div class="d">at one update a minute, fees only; Ticker dust is swept back</div></div>
+    <div class="card"><div class="h">Reserve runway</div><div class="v" id="c-runway">—</div><div class="d">at fee + 2 × 708 sats per update</div></div>
+  </div>
 </div>
 <div class="foot" style="max-width:1180px;margin:3rem auto 0;padding:0.8rem 1.75rem 1.5rem">
-  <div>stats.ticker.cash · chipnet · client-side, no server-side API</div>
+  <div>usd.ticker.cash/stats · <span id="foot-net">chipnet</span> · client-side, no server-side API</div>
   <div><a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github</a></div>
 </div>
-<script src="/ticker-client.js"></script>
+<script src="/ticker-client.js?v=25"></script>
 <script>
-// ── Page-specific layer for /stats. Render-only — all protocol + state
-//    plumbing lives in /ticker-client.js.
-
-const { ElectrumWS, decodeOracleCommit, decodeSlotCommit, cashaddrEncodeP2PKH,
-        bytesToHex, hexToBytes, measureExpectedSatsPerCycle,
-        CONSTANTS } = window.TickerClient;
-
-const { ORACLE_ADDR, ORACLE_CATEGORY, SLOT_ADDRS, SLOT_SCRIPTHASHES, SLOT_CATEGORY,
-        CASHADDR_PREFIX, STALE_SEC, STRIDE_FLOOR_SEC, DEPLOYED_AT_SEC,
-        EXPECTED_SATS_PER_CYCLE, SOURCES, FULCRUM_WSS_POOL } = CONSTANTS;
-
-// ─── Mutable view state ─────────────────────────────────────────────
-// Each subscription handler updates a slice of this and calls render().
-const state = {
-  oracle: null,                  // { seq, lastTs, medianUsd, activeCount, ageSec }
-  slots: new Map(),              // slotIdx → { ...row }
-  balances: new Map(),           // pkhHex → bigint sats
-  errors: [],
-  history: [],                   // {seq, lastTs, medianUsd, slotsCurrent, cycleStrideSec}
-  fetchedAt: Math.floor(Date.now()/1000),
-  publisherAddrs: new Map(),     // pkhHex → cashaddr (cached)
-  subscribedPublishers: new Set(), // pkhHex (so we only subscribe once)
-  expectedSatsPerCycle: EXPECTED_SATS_PER_CYCLE,  // dynamic — refreshed from chain
-  expectedSatsSource: 'fallback', // 'fallback' | 'measured' — for debugging
-};
-
-// ─── Render helpers (unchanged in spirit from the polling version) ──
-function fmtAge(s){
-  if (s == null) return '—';
-  if (s < 60) return s + 's';
-  if (s < 3600) return Math.floor(s/60) + 'm ' + (s%60).toString().padStart(2,'0') + 's';
-  if (s < 86400) return Math.floor(s/3600) + 'h ' + Math.floor((s%3600)/60).toString().padStart(2,'0') + 'm';
-  return Math.floor(s/86400) + 'd ' + Math.floor((s%86400)/3600).toString().padStart(2,'0') + 'h';
-}
-function fmtSats(n){
-  if (n == null) return '—';
-  const v = typeof n === 'string' ? Number(n) : Number(n);
-  if (!isFinite(v)) return '—';
-  return v.toLocaleString('en-US') + ' sats';
-}
-function fmtPkh(hex){ return hex ? hex.slice(0,8) + '…' + hex.slice(-8) : '—'; }
-function pushError(msg){
-  state.errors.push(String(msg));
-  if (state.errors.length > 20) state.errors.shift();
-}
-
-function computeCycleStride(){
-  const o = state.oracle;
-  if (o && o.seq > 0 && o.lastTs > DEPLOYED_AT_SEC) {
-    return Math.max(STRIDE_FLOOR_SEC, Math.round((o.lastTs - DEPLOYED_AT_SEC) / o.seq));
-  }
-  return STRIDE_FLOOR_SEC;
-}
-
-function computeAggregate(){
-  const slots = Array.from(state.slots.values()).sort((a,b) => a.slot - b.slot);
-  const oracleSeq = state.oracle?.seq ?? 0;
-  for (const s of slots) {
-    s.cyclesBehind = Math.max(0, oracleSeq - s.cycleSeq);
-    const sats = state.balances.get(s.publisherPkh) ?? 0n;
-    s.walletBalanceSats = sats.toString();
-    s.cyclesOfRunway = Number(sats / state.expectedSatsPerCycle);
-    const stride = computeCycleStride();
-    s.runwayDurationSec = s.cyclesOfRunway * stride;
-    s.status = (s.cyclesOfRunway < 5) ? 'unfunded'
-             : (s.cyclesBehind > 3) ? 'stalled'
-             : (s.cyclesBehind > 0) ? 'lagging'
-             : 'ok';
-  }
-  const slotsCurrent  = slots.filter(s => s.cyclesBehind === 0).length;
-  const slotsStalled  = slots.filter(s => s.cyclesBehind > 3).length;
-  const slotsUnfunded = slots.filter(s => s.status === 'unfunded').length;
-  const quorumOk = slotsCurrent >= 7;
-  return { slots, slotsCurrent, slotsStalled, slotsUnfunded, quorumOk, cycleStrideSec: computeCycleStride() };
-}
-
-function updateStatusStripe(agg){
-  const o = state.oracle;
-  const fulcrumOk = !!client.activeEndpoint();
-  const healthy = fulcrumOk && o && (Math.floor(Date.now()/1000) - o.lastTs) < STALE_SEC && agg.quorumOk && agg.slotsStalled === 0 && agg.slotsUnfunded === 0;
-  const baseOk = fulcrumOk && o;
-  const stripe = document.getElementById('status-stripe');
-  stripe.className = 'status-stripe ' + (healthy ? 'ok' : 'warn');
-  document.getElementById('ss-status').textContent =
-    healthy ? 'HEALTHY' : (baseOk ? 'DEGRADED' : 'UNHEALTHY');
-  document.getElementById('ss-seq').textContent = o ? '#' + o.seq.toLocaleString('en-US') : '—';
-  const ageSec = o ? Math.max(0, Math.floor(Date.now()/1000) - o.lastTs) : null;
-  document.getElementById('ss-age').textContent = ageSec != null ? fmtAge(ageSec) : '—';
-  document.getElementById('ss-quorum').textContent = agg.slots.length ? (agg.slotsCurrent + ' / 13') : '—';
-  document.getElementById('ss-stride').textContent = agg.cycleStrideSec + 's';
-  document.getElementById('ss-age-metric').classList.toggle('warn', ageSec != null && ageSec >= STALE_SEC);
-  document.getElementById('ss-quorum-metric').classList.toggle('warn', !agg.quorumOk);
-}
-
-function updateStalledBanner(agg){
-  const banner = document.getElementById('stalled-banner');
-  if (!banner) return;
-  if (!state.oracle) { banner.hidden = true; return; }
-  const stride = agg.cycleStrideSec || 60;
-  const ageSec = Math.max(0, Math.floor(Date.now()/1000) - state.oracle.lastTs);
-  if (ageSec >= 5 * stride) {
-    document.getElementById('stalled-detail').textContent =
-      'no cycle for ' + fmtAge(ageSec) + ' (last cycle #' + state.oracle.seq.toLocaleString('en-US') + ')';
-    document.getElementById('stalled-stride').textContent = stride + 's';
-    banner.hidden = false;
-  } else banner.hidden = true;
-}
-
-function makeTd(text, opts){
-  const td = document.createElement('td');
-  if (opts && opts.right) td.classList.add('r');
-  if (text != null) td.textContent = String(text);
-  return td;
-}
-function makeCopyButton(text){
-  const btn = document.createElement('button');
-  btn.type = 'button'; btn.className = 'copy-btn';
-  btn.textContent = 'copy'; btn.title = 'Copy ' + text;
-  btn.addEventListener('click', async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-      btn.textContent = 'copied'; btn.classList.add('copied');
-      setTimeout(() => { btn.textContent = 'copy'; btn.classList.remove('copied'); }, 1400);
-    } catch {
-      btn.textContent = 'fail';
-      setTimeout(() => { btn.textContent = 'copy'; }, 1400);
-    }
-  });
-  return btn;
-}
-function makeSourceCell(sourceName, pkhShort, fullAddress){
-  const td = document.createElement('td');
-  const src = document.createElement('div'); src.className = 'src';
-  const name = document.createElement('span'); name.textContent = sourceName;
-  src.appendChild(name);
-  if (fullAddress) {
-    src.appendChild(makeCopyButton(fullAddress));
-    const explore = document.createElement('a');
-    explore.className = 'explore-btn'; explore.textContent = 'tx↗';
-    explore.href = 'https://bchexplorer.cash/chipnet/address/' + fullAddress;
-    explore.target = '_blank'; explore.rel = 'noopener';
-    explore.title = 'Open ' + fullAddress + ' in block explorer';
-    src.appendChild(explore);
-  }
-  const pkh = document.createElement('div');
-  pkh.className = 'pkh'; pkh.textContent = pkhShort;
-  td.appendChild(src); td.appendChild(pkh);
-  return td;
-}
-function makeRunwayCell(runwaySec, cyclesOfRunway){
-  const td = document.createElement('td'); td.classList.add('r');
-  if (!runwaySec || cyclesOfRunway < 1) {
-    td.textContent = 'no runway'; td.style.color = '#a02010'; return td;
-  }
-  td.appendChild(document.createTextNode(fmtAge(runwaySec)));
-  const sub = document.createElement('span');
-  sub.className = 'sub';
-  sub.textContent = '(' + cyclesOfRunway.toLocaleString('en-US') + ' cycles)';
-  td.appendChild(document.createTextNode(' ')); td.appendChild(sub);
-  return td;
-}
-function makeStatusCell(status){
-  const td = document.createElement('td');
-  td.classList.add('r', 'status', 'status-' + status);
-  td.textContent = status; return td;
-}
-function makeRow(s, slotErrorSet){
-  const tr = document.createElement('tr');
-  const nowSec = Math.floor(Date.now()/1000);
-  const ageAttest = Math.max(0, nowSec - s.lastAttestTs);
-  tr.dataset.slot = String(s.slot);
-  tr.dataset.lastAttestTs = String(s.lastAttestTs);
-  if (slotErrorSet && slotErrorSet.has(s.slot)) tr.classList.add('has-error');
-  tr.appendChild(makeTd(String(s.slot)));
-  tr.appendChild(makeSourceCell(s.sourceName, fmtPkh(s.publisherPkh), s.publisherAddress));
-  const ageTd = document.createElement('td'); ageTd.classList.add('r', 'age-attest');
-  ageTd.appendChild(document.createTextNode(fmtAge(ageAttest) + ' '));
-  const ago = document.createElement('span'); ago.className = 'sub'; ago.textContent = 'ago';
-  ageTd.appendChild(ago);
-  tr.appendChild(ageTd);
-  tr.appendChild(makeTd(s.cyclesBehind === 0 ? '—' : '−' + s.cyclesBehind, { right: true }));
-  tr.appendChild(makeRunwayCell(s.runwayDurationSec, s.cyclesOfRunway));
-  tr.appendChild(makeTd(fmtSats(s.walletBalanceSats), { right: true }));
-  tr.appendChild(makeStatusCell(s.status));
-  return tr;
-}
-
-// ─── Sparklines + errors ─────────────────────────────────────────────
-const SVG_NS = 'http://www.w3.org/2000/svg';
-function drawSparkline(svg, values){
-  while (svg.firstChild) svg.removeChild(svg.firstChild);
-  if (!values || values.length < 2) return;
-  const W = 100, H = 34;
-  svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
-  svg.setAttribute('preserveAspectRatio', 'none');
-  const min = Math.min(...values), max = Math.max(...values);
-  const range = (max - min) || 1;
-  const step = W / (values.length - 1);
-  const pts = values.map((v, i) => (i*step).toFixed(2) + ',' + (H - 2 - ((v - min)/range) * (H - 4)).toFixed(2)).join(' ');
-  const poly = document.createElementNS(SVG_NS, 'polyline');
-  poly.setAttribute('points', pts); poly.setAttribute('fill', 'none');
-  poly.setAttribute('stroke', '#1a1a18'); poly.setAttribute('stroke-width', '1.2');
-  poly.setAttribute('vector-effect', 'non-scaling-stroke');
-  svg.appendChild(poly);
-}
-function renderSparklines(){
-  const h = state.history;
-  if (!h || h.length < 2) {
-    ['spark-seq','spark-quorum','spark-stride'].forEach(id => {
-      const el = document.getElementById(id);
-      while (el && el.firstChild) el.removeChild(el.firstChild);
-    });
-    return;
-  }
-  drawSparkline(document.getElementById('spark-seq'),    h.map(e => e.seq));
-  drawSparkline(document.getElementById('spark-quorum'), h.map(e => e.slotsCurrent));
-  drawSparkline(document.getElementById('spark-stride'), h.map(e => e.cycleStrideSec));
-  const last = h[h.length - 1];
-  document.getElementById('spark-seq-v').textContent    = '#' + last.seq.toLocaleString('en-US');
-  document.getElementById('spark-quorum-v').textContent = last.slotsCurrent + ' / 13';
-  document.getElementById('spark-stride-v').textContent = last.cycleStrideSec + 's';
-}
-function renderErrors(){
-  const fold = document.getElementById('fold-errors');
-  const list = document.getElementById('errors-list');
-  const ct   = document.getElementById('fold-errors-count');
-  while (list.firstChild) list.removeChild(list.firstChild);
-  if (!state.errors.length) {
-    fold.hidden = true; fold.classList.remove('alert'); fold.removeAttribute('open');
-    ct.textContent = '0'; return;
-  }
-  for (const e of state.errors) {
-    const li = document.createElement('li'); li.textContent = e;
-    list.appendChild(li);
-  }
-  fold.hidden = false; fold.classList.add('alert'); fold.setAttribute('open', '');
-  ct.textContent = String(state.errors.length);
-}
-function extractErrorSlots(){
-  const set = new Set();
-  for (const e of state.errors) { const m = /\bslot (\d+)\b/i.exec(e); if (m) set.add(Number(m[1])); }
-  return set;
-}
-
-// ─── Top-level render ────────────────────────────────────────────────
+const { DEFAULTS, loadManifest, loadStatus, pickHead, ElectrumWS, measureRecentUpdates } = window.TickerClient;
+let head = null, status = null, costs = null;
+const fmtUsd = (n) => (n == null || !isFinite(n)) ? '—' : n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtAge = (s) => s == null ? '—' : s < 60 ? s + 's' : s < 3600 ? Math.floor(s/60) + 'm ' + String(s%60).padStart(2,'0') + 's' : s < 86400 ? Math.floor(s/3600) + 'h ' + String(Math.floor((s%3600)/60)).padStart(2,'0') + 'm' : Math.floor(s/86400) + 'd ' + Math.floor((s%86400)/3600) + 'h';
+const minuteStr = (seq) => new Date(seq * 60000).toISOString().slice(11, 16) + 'Z';
 function render(){
-  const agg = computeAggregate();
-  updateStatusStripe(agg);
-  updateStalledBanner(agg);
-  const activeHost = client.activeEndpoint() || 'fulcrum…';
-  document.getElementById('ts-strip').textContent =
-    'reading direct from ' + activeHost + ' · refreshed ' +
-    new Date(state.fetchedAt * 1000).toISOString().replace('T',' ').slice(0,19);
-  const slotErrorSet = extractErrorSlots();
-  const tbody = document.getElementById('slot-rows');
-  while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
-  if (!agg.slots.length) {
+  const now = Math.floor(Date.now()/1000);
+  const headSeq = head ? head.commit.seq : (status && status.head ? status.head.seq : 0);
+  const age = head ? Math.max(0, now - head.commit.minuteStartUnix) : null;
+  const rows = status ? status.rows : [];
+  const current = rows.filter(r => r.latest && r.latest.seq >= headSeq).length;
+  const upRows = rows.filter(r => r.up).length;
+  const healthy = head && age < DEFAULTS.STALE_SEC && (rows.length === 0 || current >= DEFAULTS.QUORUM);
+  const stripe = document.getElementById('stripe');
+  stripe.className = 'stripe' + (healthy ? '' : ' warn');
+  document.getElementById('s-label').textContent = head ? (healthy ? 'HEALTHY' : 'DEGRADED') : 'WAITING FOR HEAD';
+  document.getElementById('s-minute').textContent = head ? minuteStr(head.commit.seq) + ' · ' + fmtUsd(head.commit.priceUsd) : '—';
+  document.getElementById('s-age').textContent = age != null ? fmtAge(age) : '—';
+  document.getElementById('s-age-m').classList.toggle('warn', age != null && age >= DEFAULTS.STALE_SEC);
+  document.getElementById('s-quorum').textContent = rows.length ? current + ' / ' + rows.length : '—';
+  document.getElementById('s-quorum-m').classList.toggle('warn', rows.length > 0 && current < DEFAULTS.QUORUM);
+  document.getElementById('s-reserve').textContent = head ? Number(head.reserveSats).toLocaleString('en-US') + ' sats' : '—';
+  document.getElementById('s-tip').textContent = status && status.tip ? status.tip.toLocaleString('en-US') : '—';
+  const tb = document.getElementById('rows');
+  tb.innerHTML = '';
+  for (const r of rows) {
     const tr = document.createElement('tr');
-    const td = document.createElement('td');
-    td.colSpan = 7; td.style.textAlign = 'center';
-    td.style.padding = '1.5rem'; td.style.color = '#6a6457';
-    td.textContent = activeHost === 'fulcrum…' ? 'connecting to fulcrum…' : 'no slot UTXOs found';
-    tr.appendChild(td); tbody.appendChild(tr);
-  } else {
-    for (const s of agg.slots) tbody.appendChild(makeRow(s, slotErrorSet));
+    const st = !r.up ? ['down', 'down'] : !r.latest ? ['lag', 'no statement'] : r.latest.seq >= headSeq ? ['ok', 'current'] : (headSeq - r.latest.seq <= 2 ? ['lag', 'behind ' + (headSeq - r.latest.seq)] : ['down', 'stalled']);
+    tr.innerHTML = `<td>${String(r.row).padStart(2,'0')}</td>
+      <td>${r.source_name || '?'}${r.quote && r.quote !== 'usd' ? ' <span class="sub">' + r.quote.toUpperCase() + '-quoted</span>' : ''}<span class="sub">${r.host || ''}</span></td>
+      <td>${r.operator || '—'}<span class="sub" title="${r.pubkey}">${r.pubkey ? r.pubkey.slice(0,10) + '…' : ''}</span></td>
+      <td>${r.mode || '—'}</td>
+      <td class="r">${r.latest ? fmtUsd(r.latest.price / 1e8) : '—'}</td>
+      <td class="r">${r.latest ? minuteStr(r.latest.seq) : '—'}</td>
+      <td class="r">${r.issued != null ? r.issued.toLocaleString('en-US') : '—'}</td>
+      <td class="r st ${st[0]}">${st[1]}</td>`;
+    tb.appendChild(tr);
   }
-  renderSparklines();
-  renderErrors();
-}
-
-// ─── Subscription handlers ───────────────────────────────────────────
-// Whenever Oracle UTXO changes, server pushes → we refetch + decode.
-function onOracleChange(utxos){
-  state.fetchedAt = Math.floor(Date.now()/1000);
-  const u = utxos.find(x => x.token_data && x.token_data.category === ORACLE_CATEGORY && x.token_data.nft && x.token_data.nft.commitment);
-  if (!u) { state.oracle = null; render(); return; }
-  const d = decodeOracleCommit(u.token_data.nft.commitment);
-  if (!d) { pushError('oracle decode failed'); render(); return; }
-  state.oracle = {
-    seq: d.seq, lastTs: d.lastTs, medianUsd: d.medianUsd, activeCount: d.activeCount,
-  };
-  // Append to history if seq advanced
-  const last = state.history[state.history.length - 1];
-  if (!last || last.seq !== d.seq) {
-    const agg = computeAggregate();
-    state.history.push({
-      seq: d.seq, lastTs: d.lastTs, medianUsd: d.medianUsd,
-      slotsCurrent: agg.slotsCurrent, cycleStrideSec: agg.cycleStrideSec,
-    });
-    if (state.history.length > 50) state.history.shift();
-  }
-  render();
-}
-
-// v16: each of the 13 slots lives at its OWN P2SH-32 address. We subscribe
-// per-address and merge results into the same `state.slots` map keyed by
-// decoded sourceId. Decode the per-address UTXO list, update rows, and
-// lazily subscribe to any newly-observed publisher P2PKH so balances
-// stay live.
-function onSlotChange(utxos, slot){
-  // v22: pkh no longer in commit — caller passes the slot index (position
-  // in SLOT_ADDRS), and pkh is looked up from PUBLISHER_PKHS at that index.
-  state.fetchedAt = Math.floor(Date.now()/1000);
-  const pkhHex = CONSTANTS.PUBLISHER_PKHS[slot];
-  if (!pkhHex) { pushError('slot index out of range: ' + slot); return; }
-  const pkhBytes = hexToBytes(pkhHex);
-  for (const u of utxos) {
-    if (!u.token_data || u.token_data.category !== SLOT_CATEGORY) continue;
-    if (!u.token_data.nft || !u.token_data.nft.commitment) continue;
-    if (u.token_data.nft.capability !== 'mutable') continue;
-    const d = decodeSlotCommit(u.token_data.nft.commitment);
-    if (!d) continue;
-    const sourceId = SOURCES[slot].id;
-    let addr = state.publisherAddrs.get(pkhHex);
-    if (!addr) {
-      addr = cashaddrEncodeP2PKH(CASHADDR_PREFIX, pkhBytes);
-      state.publisherAddrs.set(pkhHex, addr);
-    }
-    state.slots.set(slot, {
-      slot, sourceId, sourceName: SOURCES[slot].name,
-      publisherPkh: pkhHex, publisherAddress: addr,
-      lastAttestTs: d.timestamp, cycleSeq: d.cycleSeq,
-    });
-    if (!state.subscribedPublishers.has(pkhHex)) {
-      state.subscribedPublishers.add(pkhHex);
-      const cb = (utxos) => onBalanceChange(pkhHex, utxos);
-      client.subscribeAndFetch(addr, [], cb).catch(e => pushError('publisher ' + pkhHex.slice(0,8) + ' sub: ' + e.message));
+  if (!rows.length) tb.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:1.5rem;color:#6a6457">status.json not available yet</td></tr>';
+  if (costs) {
+    document.getElementById('c-count').textContent = costs.count.toLocaleString('en-US');
+    document.getElementById('c-size').innerHTML = costs.medianSize.toLocaleString('en-US') + ' <small>B</small>';
+    document.getElementById('c-day').innerHTML = (costs.perDaySats / 1e8).toFixed(4) + ' <small>BCH</small>';
+    if (head) {
+      const perUpdate = costs.feeSats + 2 * DEFAULTS.TICKER_SATS;
+      const updates = Number(head.reserveSats) / perUpdate;
+      document.getElementById('c-runway').innerHTML = (updates / 1440).toFixed(1) + ' <small>days</small>';
     }
   }
-  render();
+  document.getElementById('status-age').textContent = status ? 'written ' + fmtAge(Math.max(0, now - status.generated_at)) + ' ago' : 'not loaded';
+  const _ = upRows;
 }
-
-function onBalanceChange(pkhHex, utxos){
-  const sats = utxos.filter(u => !u.token_data).reduce((s, u) => s + BigInt(u.value), 0n);
-  state.balances.set(pkhHex, sats);
-  render();
-}
-
-// ─── Wire it up ──────────────────────────────────────────────────────
-const client = new ElectrumWS(FULCRUM_WSS_POOL, {
-  onStatus: ({ state: s, endpoint }) => {
-    if (s === 'connected') {
-      // wipe transient errors from the previous (failed) session
-      state.errors = state.errors.filter(x => !x.startsWith('ws ') && !x.startsWith('subscribe '));
-    }
+(async () => {
+  let m;
+  try { m = await loadManifest(); } catch (e) { document.getElementById('s-label').textContent = 'DEPLOYING'; return; }
+  document.getElementById('pair').textContent = 'stats · ' + m.network;
+  document.getElementById('foot-net').textContent = m.network;
+  const client = new ElectrumWS(DEFAULTS.FULCRUM_WSS_POOL, { onStatus: ({ state, endpoint }) => { document.getElementById('fulcrum').textContent = (endpoint ? endpoint.url.replace('wss://','') : 'fulcrum') + ' (' + state + ')'; } });
+  client.watchScripthash(m.headScripthash, async (utxos) => {
+    const h = pickHead(utxos, m.category);
+    if (h) head = h;
     render();
-  },
-});
-
-document.getElementById('fulcrum-host').textContent = new URL(FULCRUM_WSS_POOL[0].url).host + ' (+' + (FULCRUM_WSS_POOL.length - 1) + ' fallback)';
-
-client.subscribeAndFetch(ORACLE_ADDR, ['include_tokens'], onOracleChange)
-  .catch(e => { pushError('oracle subscribe: ' + e.message); render(); });
-// v22: subscribe to each of the 13 per-source slot SCRIPTHASHES (Fulcrum 2.x
-// doesn't yet decode P2S cashaddrs — CHIP-2024-12 is too new). Slot index
-// is passed to the callback because v22 commits no longer carry pkh.
-for (let i = 0; i < SLOT_SCRIPTHASHES.length; i++) {
-  const sh = SLOT_SCRIPTHASHES[i];
-  const slotIdx = i;
-  client.subscribeAndFetchByScripthash(sh, ['include_tokens'], (utxos) => onSlotChange(utxos, slotIdx))
-    .catch(e => { pushError('slot[' + slotIdx + '] subscribe: ' + e.message); render(); });
-}
-
-// Dynamically refresh per-cycle cost from chain (measure recent tx sizes
-// at slot[0]'s scripthash). Falls back to CONSTANTS.EXPECTED_SATS_PER_CYCLE
-// if measurement fails. Re-measure every 10 minutes to track network.
-async function refreshExpectedSatsPerCycle(){
-  try {
-    const measured = await measureExpectedSatsPerCycle(client);
-    if (measured && measured > 0n) {
-      state.expectedSatsPerCycle = measured;
-      state.expectedSatsSource = 'measured';
-      render();
-    }
-  } catch (_) { /* keep fallback */ }
-}
-// Defer initial measurement so the page paints first (with fallback constant)
-setTimeout(refreshExpectedSatsPerCycle, 1500);
-setInterval(refreshExpectedSatsPerCycle, 10 * 60 * 1000);
-
-// 1-second tick: keep the "age" columns moving between pushes.
-setInterval(render, 1000);
+    try { costs = await measureRecentUpdates(client, m.headScripthash); render(); } catch (_) {}
+  });
+  const poll = async () => { try { status = await loadStatus(); } catch (_) {} render(); };
+  poll(); setInterval(poll, DEFAULTS.STATUS_POLL_MS);
+  setInterval(render, 1000);
+})();
 </script>
 </body>
 </html>

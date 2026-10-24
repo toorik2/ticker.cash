@@ -1,0 +1,28 @@
+pragma cashscript >= 0.14.0;
+
+// PriceGated v25 — reference consumer. Releases to `recipient` once a co-spent
+// Ticker (input 1, re-emitted at output 1 by Ticker.consume) shows
+// price >= strike and a seq inside [minSeq, maxSeq].
+//   minSeq: freshness floor (Unix minute).  maxSeq: ceiling against surfacing a
+//   hoarded Ticker chain long after the market moved (v23 F02 lesson).
+// Ticker commit: seq(4, u32 LE) ‖ price(8, u64 LE, 1e-8 USD per BCH).
+contract PriceGated(
+    pubkey  recipient,
+    bytes8  strike,
+    bytes32 oracleCategoryVm,   // 32 B category in VM byte order (immutable NFT: no capability byte)
+    bytes   tickerLock,         // the 31-B P2S Ticker locking bytecode
+    int     minSeq,
+    int     maxSeq
+) {
+    function release(sig s) {
+        require(this.activeInputIndex == 0);
+        require(tx.inputs[1].lockingBytecode == tickerLock);
+        require(tx.inputs[1].tokenCategory == oracleCategoryVm);
+        bytes c = tx.inputs[1].nftCommitment;
+        int seq = int(c.slice(0, 4));
+        require(seq >= minSeq);
+        require(seq <= maxSeq);
+        require(int(c.slice(4, 12)) >= int(strike));
+        require(checkSig(s, recipient));
+    }
+}

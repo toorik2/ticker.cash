@@ -6,37 +6,43 @@ on:
   pull_request:
 
 jobs:
-  cargo-test:
-    name: cargo test (workspace) + covenant fingerprint pins
+  rust:
+    name: cargo test (v25 workspace)
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: node
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo registry + target
-        uses: actions/cache@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             node/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('node/Cargo.lock') }}
-
-      - name: cargo build --workspace --release
+          key: ${{ runner.os }}-cargo-v25-${{ hashFiles('node/Cargo.lock') }}
+      - name: build
         run: cargo build --workspace --release
-
-      - name: cargo test --workspace --release
+      - name: test
         run: cargo test --workspace --release
 
-      # v24 P06 — covenant build-pipeline TCB pins. Either Oracle or slot
-      # template emit drift trips loudly; merge is blocked until a human
-      # re-verifies the template literal offsets and re-pins the consts.
-      - name: P06 covenant fingerprint pins (Oracle + PublisherSlot)
+  covenants:
+    name: cashc artifacts + VM suite (BCH_2026_05)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contracts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - name: compiled bodies match the committed hex (the Rust crate embeds them)
         run: |
-          cargo test --release oracle_v23_template_fingerprint
-          cargo test --release slot_v23_template_fingerprint
+          npx cashc Oracle.cash --hex | diff - artifacts/Oracle.body.hex
+          npx cashc Ticker.cash --hex | diff - artifacts/Ticker.body.hex
+          npx cashc PriceGated.cash --hex | diff - artifacts/PriceGated.body.hex
+      - name: VM suite
+        run: npm test

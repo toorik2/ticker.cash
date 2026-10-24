@@ -1,15 +1,17 @@
 [package]
 name        = "ticker-core"
-description = "ticker.cash protocol: byte layouts, transaction encoding, cycle state machine"
+description = "ticker.cash v25 protocol: commits, notary statements, BCH Schnorr, transaction builders, Electrum client"
 version.workspace      = true
 edition.workspace      = true
 rust-version.workspace = true
 license.workspace      = true
 
 [dependencies]
-secp256k1        = { workspace = true }
+k256             = { workspace = true }
 sha2             = { workspace = true }
 ripemd           = { workspace = true }
+hmac             = { workspace = true }
+zeroize          = { workspace = true }
 rustls           = { workspace = true }
 rustls-pki-types = { workspace = true }
 webpki-roots     = { workspace = true }
@@ -17,4 +19,3 @@ serde            = { workspace = true }
 serde_json       = { workspace = true }
 hex              = { workspace = true }
 thiserror        = { workspace = true }
-zeroize          = { workspace = true }

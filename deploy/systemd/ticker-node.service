@@ -1,0 +1,30 @@
+[Unit]
+Description=ticker.cash v25 operator (prover + builder + sweeper)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h
+Environment=TICKER_HOME=%h/.ticker-node
+Environment=TICKER_PUBLISH_DIR=%h/projects/ticker.cash/web/dist
+ExecStart=%h/.local/bin/ticker-node run
+Restart=on-failure
+RestartSec=10s
+Slice=ticker.slice
+StandardOutput=journal
+StandardError=journal
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+LimitCORE=0
+PrivateTmp=yes
+LockPersonality=yes
+UMask=0077
+ReadWritePaths=%h/.ticker-node %h/projects/ticker.cash/web/dist
+
+[Install]
+WantedBy=default.target

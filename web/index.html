@@ -5,9 +5,9 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="theme-color" content="#f3efe4" />
-<meta name="description" content="A decentralized BCH/USD ticker on chipnet. 13 publishers, 13 exchanges, on-chain median per cycle. Live price read direct from Fulcrum in your browser." />
+<meta name="description" content="A notarized BCH/USD price oracle on Bitcoin Cash. Thirteen TLSNotary verifiers sign what the exchanges said; one transaction a minute writes the median on chain. Read direct from Fulcrum in your browser." />
 <meta property="og:title" content="Ticker · BCH/USD on chain" />
-<meta property="og:description" content="A decentralized BCH/USD ticker. 13 publishers, 13 exchanges, on-chain median per cycle. No admin keys." />
+<meta property="og:description" content="Thirteen verifiers sign what the exchanges said. One transaction a minute writes the median. Nobody is privileged." />
 <meta property="og:type" content="website" />
 <meta property="og:url" content="https://usd.ticker.cash/" />
 <title>Ticker · BCH/USD on chain</title>
@@ -32,7 +32,7 @@
   .main{min-width:0}
   .price-panel{border:1px solid #1a1a18;display:grid;grid-template-columns:auto 1fr;background:#fffcf0}
   .vtag{background:#1a1a18;color:#fffcf0;writing-mode:vertical-rl;transform:rotate(180deg);padding:1rem 0.55rem;font-size:10.5px;font-weight:600;letter-spacing:0.4em;text-transform:uppercase;display:flex;align-items:center;justify-content:center}
-  .price-body{padding:2.25rem 2.25rem 1.5rem}
+  .price-body{padding:2.25rem 2.25rem 1.5rem;min-width:0}
   .price-big{font-size:clamp(3rem,9vw,5.5rem);font-weight:300;line-height:0.9;letter-spacing:-0.055em;font-variant-numeric:tabular-nums;color:#1a1a18}
   .price-big .d{font-weight:300;color:#8a8472;margin-right:0.04em}
   .price-trust{margin-top:0.65rem;font-size:11.5px;color:#6a6457;letter-spacing:0.04em}
@@ -50,20 +50,23 @@
   .lead b{color:#1a1a18;font-weight:600}
   .lead a{font-weight:500}
   .specs{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid #1a1a18;background:#fffcf0;margin-top:2rem}
-  @media(max-width:680px){.specs{grid-template-columns:repeat(3,1fr)}}
-  .spec{padding:1.1rem 1.25rem;border-right:1px solid #c8c2b3}
+  .spec{padding:1.1rem 1.25rem;border-right:1px solid #c8c2b3;min-width:0}
   .spec:last-child{border-right:none}
   .spec .h{font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:#6a6457;margin-bottom:0.4rem;font-weight:500}
-  .spec .v{font-size:1.5rem;font-weight:300;line-height:1.05;letter-spacing:-0.025em}
+  .spec .v{font-size:1.5rem;font-weight:300;line-height:1.05;letter-spacing:-0.025em;font-variant-numeric:tabular-nums}
   .spec .v small{font-size:0.5em;font-weight:400;color:#6a6457;letter-spacing:0}
   .side{position:sticky;top:1.5rem;display:flex;flex-direction:column;gap:1.85rem}
   .side h3{font-size:10.5px;letter-spacing:0.22em;text-transform:uppercase;font-weight:600;color:#1a1a18;border-bottom:1px solid #c8c2b3;padding-bottom:0.45rem;margin-bottom:0.85rem}
   .side .kv{font-size:12.5px;display:flex;flex-direction:column}
   .side .kv .row{display:flex;justify-content:space-between;gap:0.75rem;padding:0.45rem 0;border-bottom:1px solid #ecebe0;align-items:baseline}
   .side .kv .row:last-child{border-bottom:none}
-  .side .kv .k{color:#6a6457;font-size:11px;letter-spacing:0.04em}
+  .side .kv .k{color:#6a6457;font-size:11px;letter-spacing:0.04em;white-space:nowrap}
   .side .kv .v{font-weight:600;text-align:right;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
   .side .kv .v code{font-family:inherit;font-size:11px;color:#1a1a18}
+  .rows{font-size:11.5px;display:grid;grid-template-columns:auto 1fr auto;gap:0.25rem 0.75rem;align-items:baseline}
+  .rows .n{color:#8a8472}
+  .rows .p{text-align:right;font-variant-numeric:tabular-nums}
+  .rows .down{color:#a02010}
   .foot{margin-top:3rem;padding-top:0.8rem;border-top:1px solid #c8c2b3;font-size:10.5px;color:#6a6457;letter-spacing:0.1em;text-transform:uppercase;display:flex;justify-content:space-between;gap:0.5rem;flex-wrap:wrap;font-weight:500}
   .foot a{color:#6a6457;text-decoration:none;border-bottom:1px solid transparent}
   .foot a:hover{color:#1a1a18;border-bottom-color:#6a6457}
@@ -71,7 +74,7 @@
 </head>
 <body>
 <header class="head">
-  <div class="l">▌ TICKER <span class="pair">BCH / USD · chipnet</span></div>
+  <div class="l">▌ TICKER <span class="pair" id="pair">BCH / USD · chipnet</span></div>
   <div class="r"><a href="/docs">docs</a><a href="/stats">stats</a><a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github</a></div>
 </header>
 <div class="doc">
@@ -80,97 +83,102 @@
       <div class="vtag">Median</div>
       <div class="price-body">
         <div class="price-big"><span class="d">$</span><span id="price">———</span></div>
-        <div class="price-trust">Median across <b>13 publishers</b>, committed on chain every <b>60 s</b>. Read direct from Fulcrum.</div>
+        <div class="price-trust">Lower median of <b id="k-of">≥ 7 of 13</b> notarized exchange prices, written on chain once a minute. Read direct from Fulcrum.</div>
         <div class="price-stats">
-          <div class="row"><span class="k">Updated</span><span class="v" id="age">—</span></div>
-          <div class="row"><span class="k">Status</span><span class="v ok" id="status">—</span></div>
+          <div class="row"><span class="k">Minute</span><span class="v" id="minute">—</span></div>
+          <div class="row"><span class="k">Age</span><span class="v" id="age">—</span></div>
+          <div class="row"><span class="k">Status</span><span class="v" id="status">connecting</span></div>
         </div>
       </div>
     </div>
 
     <div class="specs">
-      <div class="spec"><div class="h">Publishers</div><div class="v">13</div></div>
+      <div class="spec"><div class="h">Notaries</div><div class="v" id="spec-notaries">13</div></div>
       <div class="spec"><div class="h">Quorum</div><div class="v">≥7</div></div>
-      <div class="spec"><div class="h">Cycle</div><div class="v">60<small>s</small></div></div>
+      <div class="spec"><div class="h">Cadence</div><div class="v">1<small>min</small></div></div>
     </div>
 
     <div class="lead">
-      <p>A <b>decentralized BCH/USD price feed</b> on Bitcoin Cash chipnet. A smart contract takes the median of ≥ 7 of 13 publisher attestations and commits it on chain. Every 60 s.</p>
-      <p>The trust root is the <b>7-of-13 publisher quorum</b>: corrupting fewer than 7 publishers can't move the median; the covenant absorbs ≤ 6 outliers without bias. No admin keys, no upgrade path.</p>
-      <p><b>Read the price on chain.</b> Spend a Ticker NFT as an input in your transaction and decode its 17-byte commit. Full integration guide, signature inventory, and operator playbook in the <a href="/docs">docs</a>.</p>
+      <p>A <b>notarized BCH/USD price feed</b> on Bitcoin Cash. Thirteen independent notaries each co-run a TLS session with one exchange, verify its certificate, and sign the price they saw. A covenant takes the lower median of at least seven of those signatures and writes it on chain. Once a minute, in one transaction.</p>
+      <p>Nobody in the system chooses a number. Notaries sign only what they verified; anyone can open the sessions and anyone can post the update. The trust root is <b>7 of 13 verifiers</b>, and the covenant reads nothing but its own input and outputs. No admin keys, no timestamps, no clock.</p>
+      <p><b>Read the price on chain.</b> Spend a Ticker NFT in your transaction and decode its 12-byte commitment: the Unix minute and the price. Integration guide, covenant walkthrough, and how to run a notary in the <a href="/docs">docs</a>.</p>
     </div>
   </div>
 
   <aside class="side">
     <div>
       <h3>Contracts</h3>
-      <div class="kv">
-        <div class="row"><span class="k">Oracle</span><span class="v"><a href="https://bchexplorer.cash/chipnet/address/bchtest:p0nrdzy7w9fm5rpl9jtc8udux5a9l8q5e5msn2n83xjuhp2kp0x3kr2ug7jck" target="_blank" rel="noopener"><code>p0nrdzy7…r2ug7jck ↗</code></a></span></div>
-        <div class="row"><span class="k">Slot</span><span class="v"><a href="https://bchexplorer.cash/chipnet/address/bchtest:pvq90xk44lmnynfdmelwnvf5nct6dsxyw3u77zs8mcm2329gz30s2s5yy6wch" target="_blank" rel="noopener"><code>pvq90xk4…5yy6wch ↗</code></a></span></div>
-        <div class="row"><span class="k">Ticker</span><span class="v"><a href="https://bchexplorer.cash/chipnet/address/bchtest:pw8gptmxlxp56vclag6tezxscu0qlzd32cufhvcw28c6xlg0s759k5nrd62lp" target="_blank" rel="noopener"><code>pw8gptmx…nrd62lp ↗</code></a></span></div>
+      <div class="kv" id="contracts">
+        <div class="row"><span class="k">Head</span><span class="v" id="head-addr">—</span></div>
+        <div class="row"><span class="k">Category</span><span class="v" id="category">—</span></div>
+        <div class="row"><span class="k">Reserve</span><span class="v" id="reserve">—</span></div>
       </div>
+    </div>
+    <div>
+      <h3>Notaries · last minute</h3>
+      <div class="rows" id="rows"><span class="n">—</span><span>loading status…</span><span class="p"></span></div>
     </div>
   </aside>
 </div>
 <div class="foot" style="max-width:1180px;margin:3rem auto 0;padding:0.8rem 1.75rem 1.5rem">
-  <div>usd.ticker.cash · chipnet · live price read direct from fulcrum</div>
+  <div>usd.ticker.cash · <span id="foot-net">chipnet</span> · live price read direct from fulcrum</div>
   <div><a href="/docs">docs</a> · <a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github</a></div>
 </div>
-<script src="/ticker-client.js"></script>
+<script src="/ticker-client.js?v=25"></script>
 <script>
-// ── Tiny page-specific bootstrap. All the protocol/state lives in
-//    /ticker-client.js. We only render here.
-
-const { ElectrumWS, decodeOracleCommit, CONSTANTS } = window.TickerClient;
-
-let lastLockSec = null;
-function fmtUsd(n){
-  if (n == null || !isFinite(n)) return '———';
-  return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-function fmtAge(s){
-  if (s == null) return '—';
-  if (s < 60) return s + 's';
-  if (s < 3600) return Math.floor(s/60) + 'm ' + (s%60) + 's';
-  if (s < 86400) return Math.floor(s/3600) + 'h ' + Math.floor((s%3600)/60) + 'm';
-  return Math.floor(s/86400) + 'd ' + Math.floor((s%86400)/3600) + 'h';
-}
-function refreshAge(){
-  if (lastLockSec == null) return;
-  const age = Math.max(0, Math.floor(Date.now()/1000) - lastLockSec);
+const { DEFAULTS, loadManifest, loadStatus, pickHead, ElectrumWS } = window.TickerClient;
+let head = null;
+const fmtUsd = (n) => (n == null || !isFinite(n)) ? '———' : n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtAge = (s) => s == null ? '—' : s < 60 ? s + 's' : s < 3600 ? Math.floor(s/60) + 'm ' + (s%60) + 's' : s < 86400 ? Math.floor(s/3600) + 'h ' + Math.floor((s%3600)/60) + 'm' : Math.floor(s/86400) + 'd ' + Math.floor((s%86400)/3600) + 'h';
+const short = (s) => s ? s.slice(0, 10) + '…' + s.slice(-8) : '—';
+function tick(){
+  if (!head) return;
+  const age = Math.max(0, Math.floor(Date.now()/1000) - head.commit.minuteStartUnix);
   document.getElementById('age').textContent = fmtAge(age);
   const sv = document.getElementById('status');
-  if (age > CONSTANTS.STALE_SEC) { sv.textContent = 'Stale'; sv.className = 'v warn'; }
-  else { sv.textContent = 'Live'; sv.className = 'v ok'; }
+  if (age > DEFAULTS.STALE_SEC) { sv.textContent = 'stale'; sv.className = 'v warn'; } else { sv.textContent = 'live'; sv.className = 'v ok'; }
 }
-
-function renderUtxos(utxos){
-  const u = utxos.find(x => x.token_data && x.token_data.category === CONSTANTS.ORACLE_CATEGORY && x.token_data.nft && x.token_data.nft.commitment);
-  if (!u) return;
-  const d = decodeOracleCommit(u.token_data.nft.commitment);
-  if (!d) return;
-  document.getElementById('price').textContent = fmtUsd(d.medianUsd);
-  lastLockSec = d.lastTs;
-  refreshAge();
+function renderHead(h){
+  head = h;
+  document.getElementById('price').textContent = fmtUsd(h.commit.priceUsd);
+  const d = new Date(h.commit.minuteStartUnix * 1000);
+  document.getElementById('minute').textContent = d.toISOString().slice(0, 16).replace('T', ' ') + 'Z';
+  document.getElementById('reserve').textContent = Number(h.reserveSats).toLocaleString('en-US') + ' sats';
+  tick();
 }
-
-const client = new ElectrumWS(CONSTANTS.FULCRUM_WSS_POOL, {
-  onStatus: ({ state }) => {
-    // Tab fell offline → flip Status chip to warn while we reconnect.
-    if (state === 'disconnected' || state === 'connecting') {
-      const sv = document.getElementById('status');
-      if (sv && lastLockSec == null) { sv.textContent = state === 'connecting' ? 'Connecting' : 'Reconnecting'; sv.className = 'v warn'; }
-    }
-  },
-});
-
-// Subscribe + seed initial render. The shared client refetches on every push
-// (and on every reconnect) so we don't need a polling loop here.
-client.subscribeAndFetch(CONSTANTS.ORACLE_ADDR, ['include_tokens'], renderUtxos)
-  .catch(() => { /* connection problem; reconnect path will retry */ });
-
-// 1-second tick to keep the "Updated" age counter moving between pushes.
-setInterval(refreshAge, 1000);
+function renderStatus(st){
+  const box = document.getElementById('rows');
+  box.innerHTML = '';
+  const headSeq = st.head ? st.head.seq : (head ? head.commit.seq : 0);
+  for (const r of st.rows) {
+    const n = document.createElement('span'); n.className = 'n'; n.textContent = String(r.row).padStart(2, '0');
+    const s = document.createElement('span'); s.textContent = (r.source_name || '?') + (r.quote && r.quote !== 'usd' ? ' · ' + r.quote.toUpperCase() : '');
+    const p = document.createElement('span'); p.className = 'p';
+    if (!r.up) { p.textContent = 'down'; p.classList.add('down'); }
+    else if (!r.latest) { p.textContent = '—'; }
+    else { p.textContent = fmtUsd(r.latest.price / 1e8) + (r.latest.seq < headSeq ? ' ·' : ''); }
+    box.append(n, s, p);
+  }
+}
+(async () => {
+  let m;
+  try { m = await loadManifest(); } catch (e) {
+    document.getElementById('status').textContent = 'deploying';
+    document.getElementById('status').className = 'v warn';
+    return;
+  }
+  document.getElementById('pair').textContent = 'BCH / USD · ' + m.network;
+  document.getElementById('foot-net').textContent = m.network;
+  document.getElementById('spec-notaries').textContent = String(m.table.length);
+  const ha = document.getElementById('head-addr');
+  ha.innerHTML = `<a href="${m.explorerAddress(m.headAddress)}" target="_blank" rel="noopener"><code>${short(m.headAddress)} ↗</code></a>`;
+  document.getElementById('category').innerHTML = `<code title="${m.category}">${short(m.category)}</code>`;
+  const client = new ElectrumWS(DEFAULTS.FULCRUM_WSS_POOL, { onStatus: ({ state }) => { if (!head) { const sv = document.getElementById('status'); sv.textContent = state; sv.className = 'v warn'; } } });
+  client.watchScripthash(m.headScripthash, (utxos) => { const h = pickHead(utxos, m.category); if (h) renderHead(h); });
+  const poll = async () => { try { renderStatus(await loadStatus()); } catch (_) {} };
+  poll(); setInterval(poll, DEFAULTS.STATUS_POLL_MS);
+  setInterval(tick, 1000);
+})();
 </script>
 </body>
 </html>

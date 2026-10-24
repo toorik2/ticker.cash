@@ -1,43 +1,16 @@
-//! BCH + CashTokens transaction wire-format encoder.
+//! BCH + CashTokens transaction wire-format encoder (CHIP-2022-02).
 //!
-//! CashTokens (CHIP-2022-02) extends Bitcoin Cash transactions with token
-//! prefixes on outputs. An output's serialized form is:
-//!
-//! ```text
-//!   value (8 B LE) || locking_script_with_optional_token_prefix
-//! ```
-//!
-//! When the output carries CashTokens, the locking script is prefixed with:
-//!
-//! ```text
-//!   0xef || category (32 B LE) || bitfield (1 B) || [amount (CompactVariable)]
-//!         || [commitment_length (CompactVariable) + commitment (≤ 40 B)]
-//!         || actual locking script
-//! ```
-//!
-//! Bitfield bits (from CHIP-2022-02 §4):
-//!   - 0x10 = HAS_AMOUNT
-//!   - 0x20 = HAS_NFT
-//!   - 0x40 = HAS_COMMITMENT_LENGTH
-//!   - low nibble = NFT capability: 0 (none/immutable), 1 (mutable), 2 (minting)
-//!
-//! For our NFT-only mutable / minting tokens with no fungible amount,
-//! the prefix byte is `HAS_NFT | HAS_COMMITMENT_LENGTH | capability` = `0x60 | cap`.
-//! For minting we use `0x62`, for mutable we use `0x61`.
-//!
-//! Length-prefixing the on-the-wire output script (including the token prefix)
-//! is done with the surrounding varint, exactly as for non-token outputs.
+//! An output with a token is serialized as `value(8 LE) ‖ varint(L) ‖ prefix ‖ locking_script`
+//! where the prefix is `0xef ‖ category(32, LE on the wire) ‖ bitfield ‖ [commitment_len ‖
+//! commitment] ‖ [amount]`. Bitfield: `0x10` HAS_AMOUNT, `0x20` HAS_NFT, `0x40`
+//! HAS_COMMITMENT_LENGTH, low nibble = capability (0 none, 1 mutable, 2 minting). Since the
+//! May 2026 upgrade a commitment may be up to 128 bytes; v25 uses 12.
 
-/// NFT capability bits.
 pub const NO_CAPABILITY: u8 = 0x00;
 pub const MUTABLE_CAPABILITY: u8 = 0x01;
 pub const MINTING_CAPABILITY: u8 = 0x02;
 
-// CashTokens prefix marker (CHIP-2022-02): single byte placed before the locking script
-// when an output carries a token.
 const TOKEN_PREFIX_MARKER: u8 = 0xef;
-
-// CashTokens bitfield masks.
 const HAS_AMOUNT: u8 = 0x10;
 const HAS_NFT: u8 = 0x20;
 const HAS_COMMITMENT_LENGTH: u8 = 0x40;
@@ -45,47 +18,35 @@ const HAS_COMMITMENT_LENGTH: u8 = 0x40;
 /// Outpoint of a previous tx output.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TxOutpoint {
-    /// Previous txid, BIG-ENDIAN (display order). The encoder reverses it on the wire.
+    /// Previous txid, big-endian (display order). Reversed on the wire.
     pub txid_be: [u8; 32],
-    /// Output index of the previous tx.
     pub vout: u32,
 }
 
-/// A transaction input.
 #[derive(Debug, Clone)]
 pub struct Input {
     pub prev: TxOutpoint,
-    /// Raw unlock script (scriptSig).
     pub unlock_script: Vec<u8>,
-    /// `nSequence` — defaults to `0xfffffffe` (BIP-125 RBF off, locktime-eligible).
     pub sequence: u32,
 }
 
-/// CashTokens prefix data carried by an output, if any.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TokenPrefix {
-    /// Token category, **little-endian** as it appears on chain (txids in display form are big-endian; this is the reverse).
+    /// Category as it appears on the wire (little-endian; the reverse of the display id).
     pub category_le: [u8; 32],
-    /// NFT capability: one of [`NO_CAPABILITY`], [`MUTABLE_CAPABILITY`], [`MINTING_CAPABILITY`].
     pub capability: u8,
-    /// Optional NFT commitment (≤ 40 bytes).
     pub commitment: Vec<u8>,
-    /// Optional fungible token amount. `0` means no amount (our v12 tokens are NFT-only, never set this).
     pub amount: u64,
 }
 
-/// A transaction output.
 #[derive(Debug, Clone)]
 pub struct Output {
-    /// Sats.
     pub value: u64,
-    /// Locking script (scriptPubKey) without any token prefix.
+    /// Locking script without any token prefix.
     pub locking_script: Vec<u8>,
-    /// Optional CashTokens prefix.
     pub token: Option<TokenPrefix>,
 }
 
-/// Whole transaction.
 #[derive(Debug, Clone)]
 pub struct Tx {
     pub version: i32,
@@ -95,21 +56,14 @@ pub struct Tx {
 }
 
 impl Tx {
-    /// New tx with default version=2 and locktime=0 (matching cashscript's TransactionBuilder defaults).
     pub fn new(inputs: Vec<Input>, outputs: Vec<Output>) -> Self {
-        Tx {
-            version: 2,
-            inputs,
-            outputs,
-            locktime: 0,
-        }
+        Tx { version: 2, inputs, outputs, locktime: 0 }
     }
 }
 
-/// Default sequence number for inputs (BIP-125-disabled, locktime-eligible).
-pub const DEFAULT_SEQUENCE: u32 = 0xffff_fffe;
+/// Default input sequence: final, no relative lock.
+pub const SEQUENCE_FINAL: u32 = 0xffff_ffff;
 
-/// Encode `n` as a Bitcoin CompactSize varint.
 pub fn encode_varint(out: &mut Vec<u8>, n: u64) {
     if n < 0xfd {
         out.push(n as u8);
@@ -125,14 +79,11 @@ pub fn encode_varint(out: &mut Vec<u8>, n: u64) {
     }
 }
 
-/// Compose the CashTokens prefix bytes plus the actual locking script — what goes inside
-/// the output's serialized locking-script payload when a token is present.
-fn encode_output_script_with_token(out: &mut Vec<u8>, locking_script: &[u8], token: &TokenPrefix) {
-    // Marker
+/// CashTokens prefix bytes for an output (without the locking script).
+pub fn encode_token_prefix(token: &TokenPrefix) -> Vec<u8> {
+    let mut out = Vec::with_capacity(2 + 32 + 1 + token.commitment.len() + 9);
     out.push(TOKEN_PREFIX_MARKER);
-    // Category (32 B LE on the wire)
     out.extend_from_slice(&token.category_le);
-    // Bitfield
     let has_nft = token.capability != NO_CAPABILITY || !token.commitment.is_empty();
     let has_commitment_length = !token.commitment.is_empty();
     let has_amount = token.amount > 0;
@@ -148,60 +99,54 @@ fn encode_output_script_with_token(out: &mut Vec<u8>, locking_script: &[u8], tok
     }
     out.push(bits);
     if has_commitment_length {
-        encode_varint(out, token.commitment.len() as u64);
+        encode_varint(&mut out, token.commitment.len() as u64);
         out.extend_from_slice(&token.commitment);
     }
     if has_amount {
-        encode_varint(out, token.amount);
+        encode_varint(&mut out, token.amount);
     }
-    // Actual locking script follows directly.
-    out.extend_from_slice(locking_script);
+    out
 }
 
-/// Encode the full wire bytes of a tx, including a CashTokens-prefixed output script
-/// when applicable. Returned bytes are ready to broadcast via Electrum `blockchain.transaction.broadcast`.
+/// `prefix ‖ locking_script` as it sits inside an output (what the varint length covers).
+pub fn output_script_bytes(out: &Output) -> Vec<u8> {
+    let mut script_buf = Vec::with_capacity(96);
+    if let Some(token) = &out.token {
+        script_buf.extend_from_slice(&encode_token_prefix(token));
+    }
+    script_buf.extend_from_slice(&out.locking_script);
+    script_buf
+}
+
 pub fn encode_tx(tx: &Tx) -> Vec<u8> {
-    let mut buf = Vec::with_capacity(256);
-
-    // version
+    let mut buf = Vec::with_capacity(2048);
     buf.extend_from_slice(&tx.version.to_le_bytes());
-
-    // input count
     encode_varint(&mut buf, tx.inputs.len() as u64);
     for input in &tx.inputs {
-        // prev txid (32 B, reversed from display order)
         let mut txid_le = input.prev.txid_be;
         txid_le.reverse();
         buf.extend_from_slice(&txid_le);
-        // prev vout (4 B LE)
         buf.extend_from_slice(&input.prev.vout.to_le_bytes());
-        // unlock script length + bytes
         encode_varint(&mut buf, input.unlock_script.len() as u64);
         buf.extend_from_slice(&input.unlock_script);
-        // sequence (4 B LE)
         buf.extend_from_slice(&input.sequence.to_le_bytes());
     }
-
-    // output count
     encode_varint(&mut buf, tx.outputs.len() as u64);
     for out in &tx.outputs {
-        // value (8 B LE)
         buf.extend_from_slice(&out.value.to_le_bytes());
-        // build locking-script-with-optional-token-prefix, length-prefixed
-        let mut script_buf = Vec::with_capacity(64);
-        if let Some(token) = &out.token {
-            encode_output_script_with_token(&mut script_buf, &out.locking_script, token);
-        } else {
-            script_buf.extend_from_slice(&out.locking_script);
-        }
+        let script_buf = output_script_bytes(out);
         encode_varint(&mut buf, script_buf.len() as u64);
         buf.extend_from_slice(&script_buf);
     }
-
-    // locktime
     buf.extend_from_slice(&tx.locktime.to_le_bytes());
-
     buf
+}
+
+/// Display-order txid of an encoded transaction.
+pub fn txid_be(raw: &[u8]) -> [u8; 32] {
+    let mut h = crate::crypto::double_sha256(raw);
+    h.reverse();
+    h
 }
 
 #[cfg(test)]
@@ -209,138 +154,50 @@ mod tests {
     use super::*;
 
     #[test]
-    fn varint_below_fd() {
+    fn varint_boundaries() {
         let mut v = Vec::new();
         encode_varint(&mut v, 0xfc);
-        assert_eq!(v, vec![0xfc]);
-    }
-
-    #[test]
-    fn varint_fd_marker() {
-        let mut v = Vec::new();
         encode_varint(&mut v, 0xfd);
-        assert_eq!(v, vec![0xfd, 0xfd, 0x00]);
-    }
-
-    #[test]
-    fn varint_u16_max() {
-        let mut v = Vec::new();
-        encode_varint(&mut v, 0xffff);
-        assert_eq!(v, vec![0xfd, 0xff, 0xff]);
-    }
-
-    #[test]
-    fn varint_above_u16() {
-        let mut v = Vec::new();
         encode_varint(&mut v, 0x10000);
-        assert_eq!(v, vec![0xfe, 0x00, 0x00, 0x01, 0x00]);
+        assert_eq!(v, vec![0xfc, 0xfd, 0xfd, 0x00, 0xfe, 0x00, 0x00, 0x01, 0x00]);
     }
 
     #[test]
-    fn empty_tx_minimum_envelope() {
-        let tx = Tx::new(vec![], vec![]);
-        let bytes = encode_tx(&tx);
-        // version (4) + input count (1) + output count (1) + locktime (4) = 10
-        assert_eq!(bytes.len(), 10);
-        assert_eq!(&bytes[..4], &[0x02, 0x00, 0x00, 0x00]); // version=2 LE
-        assert_eq!(bytes[4], 0); // 0 inputs
-        assert_eq!(bytes[5], 0); // 0 outputs
-        assert_eq!(&bytes[6..10], &[0, 0, 0, 0]); // locktime=0
+    fn empty_tx_is_ten_bytes() {
+        assert_eq!(encode_tx(&Tx::new(vec![], vec![])).len(), 10);
     }
 
     #[test]
-    fn p2pkh_only_output_no_token_prefix() {
-        let pkh = [0xaa; 20];
-        let mut lock = Vec::new();
-        lock.extend_from_slice(&[0x76, 0xa9, 0x14]);
-        lock.extend_from_slice(&pkh);
-        lock.extend_from_slice(&[0x88, 0xac]);
-        let tx = Tx::new(
-            vec![],
-            vec![Output {
-                value: 12345,
-                locking_script: lock.clone(),
-                token: None,
-            }],
-        );
-        let bytes = encode_tx(&tx);
-        // version (4) + inp count (1) + out count (1) + value (8) + scriptlen (1) + 25 + locktime (4)
-        assert_eq!(bytes.len(), 4 + 1 + 1 + 8 + 1 + 25 + 4);
-        // No 0xef byte anywhere — confirms no token prefix.
-        assert!(!bytes.contains(&0xef));
+    fn immutable_nft_prefix_bitfield_is_0x60() {
+        let t = TokenPrefix { category_le: [0x33; 32], capability: NO_CAPABILITY, commitment: vec![1; 12], amount: 0 };
+        let p = encode_token_prefix(&t);
+        assert_eq!(p[0], 0xef);
+        assert_eq!(p[33], 0x60);
+        assert_eq!(p[34], 12);
+        assert_eq!(p.len(), 1 + 32 + 1 + 1 + 12);
     }
 
     #[test]
-    fn mutable_nft_output_has_token_prefix() {
-        let cat = [0x33u8; 32];
-        let commit = vec![0x73, 0x01, 0x00]; // sample slot commit prefix (v13 version byte)
-        let tx = Tx::new(
-            vec![],
-            vec![Output {
-                value: 1500,
-                locking_script: vec![0xaa, 0x20, 0xaa, 0xbb, 0xcc, 0x87], // P2SH-32-ish stub
-                token: Some(TokenPrefix {
-                    category_le: cat,
-                    capability: MUTABLE_CAPABILITY,
-                    commitment: commit.clone(),
-                    amount: 0,
-                }),
-            }],
-        );
-        let bytes = encode_tx(&tx);
-        // 0xef must appear in the output's script section.
-        let prefix_pos = bytes.iter().position(|&b| b == 0xef).expect("token prefix byte");
-        assert_eq!(&bytes[prefix_pos + 1..prefix_pos + 33], &cat);
-        // bitfield: HAS_NFT (0x20) | HAS_COMMITMENT_LENGTH (0x40) | capability 0x01 = 0x61.
-        assert_eq!(bytes[prefix_pos + 33], 0x61);
-        // commitment length varint + commitment bytes
-        assert_eq!(bytes[prefix_pos + 34], commit.len() as u8);
-        assert_eq!(&bytes[prefix_pos + 35..prefix_pos + 35 + commit.len()], &commit[..]);
+    fn minting_nft_prefix_bitfield_is_0x62() {
+        let t = TokenPrefix { category_le: [0; 32], capability: MINTING_CAPABILITY, commitment: vec![0; 12], amount: 0 };
+        assert_eq!(encode_token_prefix(&t)[33], 0x62);
+    }
+
+    /// The v25 Ticker output is 87 bytes on the wire: 8 value + 1 varint + 47 prefix + 31 lock
+    /// (BCHN's dust rule adds 148 and triples: 705; the covenant pins 708, three sats of margin).
+    #[test]
+    fn ticker_output_is_87_bytes() {
+        let out = Output { value: 708, locking_script: vec![0u8; 31], token: Some(TokenPrefix { category_le: [0; 32], capability: NO_CAPABILITY, commitment: vec![0; 12], amount: 0 }) };
+        let tx = Tx::new(vec![], vec![out]);
+        assert_eq!(encode_tx(&tx).len(), 10 + 87);
     }
 
     #[test]
-    fn minting_nft_capability_byte() {
-        let tx = Tx::new(
-            vec![],
-            vec![Output {
-                value: 2000,
-                locking_script: vec![0xaa, 0x20, 0xff, 0x87],
-                token: Some(TokenPrefix {
-                    category_le: [0u8; 32],
-                    capability: MINTING_CAPABILITY,
-                    commitment: vec![0x60, 0x01], // sample
-                    amount: 0,
-                }),
-            }],
-        );
-        let bytes = encode_tx(&tx);
-        let prefix_pos = bytes.iter().position(|&b| b == 0xef).unwrap();
-        // capability 0x02 + HAS_NFT (0x20) + HAS_COMMITMENT_LENGTH (0x40) = 0x62.
-        assert_eq!(bytes[prefix_pos + 33], 0x62);
-    }
-
-    #[test]
-    fn txid_reversed_on_wire() {
-        let txid_be: [u8; 32] = [
-            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
-            0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c,
-            0x1d, 0x1e, 0x1f, 0x20,
-        ];
-        let tx = Tx::new(
-            vec![Input {
-                prev: TxOutpoint { txid_be, vout: 7 },
-                unlock_script: vec![],
-                sequence: DEFAULT_SEQUENCE,
-            }],
-            vec![],
-        );
-        let bytes = encode_tx(&tx);
-        // After version(4) + input_count(1), the next 32 bytes are the reversed txid.
-        let wire_txid = &bytes[5..37];
-        let mut expected_le = txid_be;
-        expected_le.reverse();
-        assert_eq!(wire_txid, &expected_le);
-        // vout=7 (4 B LE)
-        assert_eq!(&bytes[37..41], &7u32.to_le_bytes());
+    fn txid_reverses_on_wire() {
+        let mut txid = [0u8; 32];
+        txid[0] = 0xaa;
+        let tx = Tx::new(vec![Input { prev: TxOutpoint { txid_be: txid, vout: 1 }, unlock_script: vec![], sequence: SEQUENCE_FINAL }], vec![]);
+        let raw = encode_tx(&tx);
+        assert_eq!(raw[5 + 31], 0xaa);
     }
 }

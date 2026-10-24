@@ -1,0 +1,20 @@
+[Unit]
+Description=ticker.cash web (static dashboard; manifest.json and status.json are written by ticker-node)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/projects/ticker.cash/web
+Environment=PATH=%h/.nvm/versions/node/v24.12.0/bin:/usr/bin
+Environment=PORT=3000
+Environment=HOST=127.0.0.1
+Environment=NODE_ENV=production
+ExecStart=%h/projects/ticker.cash/web/node_modules/.bin/tsx server/server.ts
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+Slice=ticker.slice
+
+[Install]
+WantedBy=default.target

@@ -1,71 +1,17 @@
-pragma cashscript >= 0.13.0;
+pragma cashscript >= 0.14.0;
 
-// Ticker v24 — commit widens to 19 B via the Oracle's emission. Body
-// itself is unchanged (pure self-replicate); commits are 1 B version
-// (0x80) + 5 B cycleSeq + 5 B lastTs + 8 B medianPrice = 19 B. The
-// width-change is purely an Oracle-emission property — Ticker.consume
-// just preserves whatever 19-B blob was minted.
-//
-// Each Oracle.update cycle mints K (= 2) Ticker NFTs with MUTABLE capability
-// (0x01). A consumer's tx spends a Ticker at input[idx] and is required to
-// re-emit an IDENTICAL Ticker at output[idx] (same lockingBytecode, same
-// tokenCategory including the mutable capability suffix, same nftCommitment,
-// EXACT value preserved, tokenAmount pinned to 0). This creates a chain of
-// consumers — each is a chain descendant of the Oracle.update tx that
-// produced the original Ticker, and every consumer in the chain inherits
-// co-finality via parent-child outpoint linkage.
-//
-// Capacity per cycle ≈ K × D where K is the number of pre-minted heads (2)
-// and D is the achievable chain depth (RTT-bounded, typically thousands).
-//
-// ── v17 → v18 changes ──────────────────────────────────────────────────
-//
-//   DROP-VERSION-CHECK        v17 had `require(input.nftCommitment.slice(0,1)
-//                             == 0x80)`. Redundant — Oracle.cash mints with a
-//                             hardcoded 0x80 prefix via static concat; the
-//                             self-replicate equality below forces every
-//                             child commit to start with 0x80 too. Save -8 B.
-//
-//   DROP-LENGTH-CHECK         v17 had `require(input.nftCommitment.length ==
-//                             17)`. Redundant — Oracle.cash mints exactly 17 B
-//                             commits; chain equality preserves. Save ~6 B.
-//
-//   DROP-OUTPUT-COUNT-CAP     v17 had `tx.outputs.length <= idx + 2`. The
-//                             consumer is the only one paying tx fees; extra
-//                             outputs are at their own expense. Same logic as
-//                             v16 PublisherSlot drop. Save ~12 B.
-//
-// All v15 audit-fix gates retained:
-//   F-T-1  tokenAmount pinned to 0
-//   F-T-2  strict value == equality
-//
-// Version byte (0x80) unchanged in the commit itself — Oracle.update still
-// emits commits starting with 0x80, just no longer explicitly checked on
-// every consume.
-
+// Ticker v25 draft — immutable NFT (category = Oracle), commit = seq(4) ‖ price(8). P2S (31 B). Value pinned by the Oracle at the 708-sat dust floor.
+// consume(): re-emit at the same index (chain of consumers, co-final with the update).
+// sweep():   anyone may reclaim the dust once the ticker is >= 144 units old
+//            (legacy relative-lock units: 600 ticks each = 1 day before and after Faster Blocks).
 contract Ticker() {
     function consume() {
         int idx = this.activeInputIndex;
-
-        // Self-replicate at the same output index. Full equality on:
-        //  - lockingBytecode (35 B P2SH-32 of this Ticker covenant)
-        //  - tokenCategory (33 B = 32-byte category + 0x01 mutable suffix)
-        //  - nftCommitment (preserves price/lastTs/seq verbatim)
-        //  - value (strict equality)
-        //  - tokenAmount (== 0)
         require(tx.outputs[idx].lockingBytecode == tx.inputs[idx].lockingBytecode);
         require(tx.outputs[idx].tokenCategory == tx.inputs[idx].tokenCategory);
-        require(tx.outputs[idx].nftCommitment == tx.inputs[idx].nftCommitment);
         require(tx.outputs[idx].value == tx.inputs[idx].value);
-        require(tx.outputs[idx].tokenAmount == 0);
-
-        // v24 P03 — restore output-count cap dropped at v18 (F06 / W9 #1).
-        // Bounds consumer-side token-leak surface. Mirrors Oracle.cash + the
-        // pre-v18 Ticker. +15 B for the count cap; +5 B for the change-output
-        // tokenless pin if present.
-        require(tx.outputs.length <= idx + 2);
-        if (tx.outputs.length == idx + 2) {
-            require(tx.outputs[idx + 1].tokenCategory == 0x);
-        }
+    }
+    function sweep() {
+        require(this.age >= 144);
     }
 }

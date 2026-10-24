@@ -1,8 +1,7 @@
-//! Electrum response types — only the fields the daemon needs.
+//! Electrum response types — only what the operator needs.
 
 use serde::Deserialize;
 
-/// CashTokens NFT capability code (matching Fulcrum's `token_data.nft.capability` string values).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum NftCapability {
@@ -11,35 +10,35 @@ pub enum NftCapability {
     None,
 }
 
-/// Token data attached to a UTXO (Fulcrum's CashTokens extension).
 #[derive(Debug, Clone, Deserialize)]
 pub struct TokenData {
-    /// 64-hex category (display order, big-endian).
+    /// 64-hex category, display order.
     pub category: String,
-    /// Optional NFT body.
     #[serde(default)]
     pub nft: Option<NftBody>,
-    /// Optional fungible amount (we don't use; v12 tokens are NFT-only).
-    /// Fulcrum sends as a string ("0"); we deliberately don't parse it.
-    #[serde(default, skip)]
-    pub amount: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct NftBody {
     pub capability: NftCapability,
-    /// Hex-encoded commitment bytes.
+    /// Hex commitment.
     pub commitment: String,
 }
 
-/// One unspent transaction output as returned by `blockchain.address.listunspent`.
+/// One unspent output from `blockchain.scripthash.listunspent` (with `include_tokens`).
 #[derive(Debug, Clone, Deserialize)]
 pub struct Utxo {
-    /// Display-order (big-endian) txid hex.
     pub tx_hash: String,
     pub tx_pos: u32,
     pub value: u64,
+    /// 0 for unconfirmed.
     pub height: i64,
     #[serde(default)]
     pub token_data: Option<TokenData>,
+}
+
+impl Utxo {
+    pub fn txid_be(&self) -> Option<[u8; 32]> {
+        hex::decode(&self.tx_hash).ok()?.try_into().ok()
+    }
 }

@@ -1,0 +1,30 @@
+[Unit]
+Description=ticker.cash v25 notary, table row %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h
+Environment=TICKER_HOME=%h/.ticker-notary-%i
+ExecStart=%h/.local/bin/ticker-notary run
+Restart=on-failure
+RestartSec=10s
+Slice=ticker.slice
+StandardOutput=journal
+StandardError=journal
+
+# hardening (user-mode systemd; see v24 notes for the directives that need CAP_SETPCAP)
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+LimitCORE=0
+PrivateTmp=yes
+LockPersonality=yes
+UMask=0077
+ReadWritePaths=%h/.ticker-notary-%i
+
+[Install]
+WantedBy=default.target
