@@ -191,7 +191,7 @@ require(seq &gt;= minSeq); require(seq &lt;= maxSeq);              // your fresh
 
     <section class="chapter" id="notary">
       <h2><span class="num">§08</span><span>Run a notary</span></h2>
-      <p>A notary is one small Rust binary, one exchange endpoint, one session a minute. It holds no funds and needs no exchange account. Bandwidth per session is about 1.5 MB in proxy mode and about 43 MB in MPC mode; both finish in under a second against every pinned endpoint.</p>
+      <p>A notary is one small Rust binary, one exchange endpoint, one session a minute. It holds no funds and needs no exchange account. Bandwidth per session is about 1.5 MB in proxy mode and about 43 MB in MPC mode. A session takes about a second on an idle machine and up to five when thirteen run side by side on two cores, well inside the minute.</p>
       <pre><code>ticker-notary --home ~/.ticker-notary-7 init --row 7 --source 14 \
     --category &lt;deployment category&gt; --listen 0.0.0.0:7007 --api 0.0.0.0:7107 \
     --mode both --operator "your name"              # row 7 = Gate.io, registry id 14
