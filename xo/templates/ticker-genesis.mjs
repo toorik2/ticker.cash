@@ -55,7 +55,7 @@ export const tickerGenesisTemplate = {
         },
         create: {
             name: 'Create the oracle',
-            description: 'Mint the head: reserve $(<reserveSatoshis>) satoshis, $(<tableBytes> OP_SIZE OP_NIP <34> OP_DIV) notary rows. The category is the funding coin\'s txid.',
+            description: 'Mint the head with a reserve of $(<reserveSatoshis>) satoshis over the chosen notary table. The category is the funding coin\'s txid.',
             icon: 'contract',
             roles: {
                 founder: {
@@ -64,7 +64,7 @@ export const tickerGenesisTemplate = {
                     icon: 'contract',
                     requirements: {
                         secrets: [ 'founderKey' ],
-                        variables: [ 'category', 'tableBytes', 'reserveSatoshis', 'startTimestamp', 'fundingSatoshis' ],
+                        variables: [ 'category', 'tableBytes', 'headCommitment', 'reserveSatoshis', 'startTimestamp', 'fundingSatoshis' ],
                     },
                 },
             },
@@ -123,7 +123,9 @@ export const tickerGenesisTemplate = {
             token: {
                 category: '$(<category>)',
                 amount: null,
-                nft: { capability: 'minting', commitment: '$(genesisCommitment)' },
+                // Token expressions are decoded as hex text by the engine, and there is no primitive for arbitrary
+                // bytes (the table), so the app supplies the commitment; its derivation is in the variable's description.
+                nft: { capability: 'minting', commitment: '$(<headCommitment>)' },
             },
             roles: { founder: { relevant: false } },
         },
@@ -164,17 +166,16 @@ export const tickerGenesisTemplate = {
         oracleLockingBytecode: '0x' + ORACLE_LOCKING_BYTECODE,
         lockP2PKH: 'OP_DUP OP_HASH160 <$(<founderKey.public_key> OP_HASH160)> OP_EQUALVERIFY OP_CHECKSIG',
         unlockP2PKH: '<founderKey.schnorr_signature.all_outputs> <founderKey.public_key>',
-        // timestamp(4) ‖ messageSequence 0 (4) ‖ dataSequence 0 (4) ‖ price 0 (4) ‖ k 0 (1) ‖ hash160(table)
-        genesisCommitment: '<startTimestamp> OP_4 OP_NUM2BIN <0> OP_4 OP_NUM2BIN OP_CAT <0> OP_4 OP_NUM2BIN OP_CAT <0> OP_4 OP_NUM2BIN OP_CAT <0> OP_1 OP_NUM2BIN OP_CAT <tableBytes> OP_HASH160 OP_CAT',
     },
 
 
     variables: {
         founderKey: { name: 'Founder key', description: 'The key that holds the funding coin and receives change.', type: 'private_key' },
         fundingSatoshis: { name: 'Funding coin value', description: 'Satoshis in the funding coin.', type: 'satoshis' },
-        category: { name: 'Category', description: 'The new oracle\'s category: the txid of the funding coin, which must be output 0 of its transaction.', type: 'bytes' },
+        category: { name: 'Category', description: 'The new oracle\'s category: the txid of the funding coin, which must be output 0 of its transaction.', type: 'token_category' },
         tableBytes: { name: 'Notary table', description: 'n × (compressed pubkey 33 ‖ exchange id 1). Row order is permanent for this instance until its rows rotate it.', type: 'bytes' },
         reserveSatoshis: { name: 'Reserve', description: 'Satoshis locked in the head to pay the oracle\'s fees.', type: 'satoshis' },
         startTimestamp: { name: 'Start timestamp', description: 'A minute start before the first update (Unix seconds, multiple of 60).', type: 'integer' },
+        headCommitment: { name: 'Head commitment', description: 'The 37-byte genesis commitment: startTimestamp (4, LE) ‖ 13 zero bytes ‖ hash160(table).', type: 'nft_commitment' },
     },
 };

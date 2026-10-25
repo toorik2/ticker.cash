@@ -252,10 +252,10 @@
     "lockToRecipient": "$(<recipientLockingScript>)",
     "lockP2PKH": "OP_DUP OP_HASH160 <$(<payerKey.public_key> OP_HASH160)> OP_EQUALVERIFY OP_CHECKSIG",
     "unlockP2PKH": "<payerKey.schnorr_signature.all_outputs> <payerKey.public_key>",
-    "tickerTimestamp": "<tickerCommitment> OP_4 OP_SPLIT OP_DROP OP_BIN2NUM",
-    "tickerSequence": "<tickerCommitment> OP_8 OP_SPLIT OP_NIP OP_4 OP_SPLIT OP_DROP OP_BIN2NUM",
-    "tickerPriceCents": "<tickerCommitment> OP_12 OP_SPLIT OP_NIP OP_4 OP_SPLIT OP_DROP OP_BIN2NUM",
-    "tickerRows": "<tickerCommitment> OP_16 OP_SPLIT OP_NIP OP_BIN2NUM",
+    "tickerTimestamp": "<tickerCommitment.toBytes> OP_4 OP_SPLIT OP_DROP OP_BIN2NUM",
+    "tickerSequence": "<tickerCommitment.toBytes> OP_8 OP_SPLIT OP_NIP OP_4 OP_SPLIT OP_DROP OP_BIN2NUM",
+    "tickerPriceCents": "<tickerCommitment.toBytes> OP_12 OP_SPLIT OP_NIP OP_4 OP_SPLIT OP_DROP OP_BIN2NUM",
+    "tickerRows": "<tickerCommitment.toBytes> OP_16 OP_SPLIT OP_NIP OP_BIN2NUM",
     "tickerDollars": "tickerPriceCents <100> OP_DIV",
     "tickerCentsTens": "tickerPriceCents <100> OP_MOD <10> OP_DIV",
     "tickerCentsOnes": "tickerPriceCents <10> OP_MOD"
@@ -298,7 +298,7 @@
     "tickerCommitment": {
       "name": "Ticker commitment",
       "description": "The 17-byte NFT commitment of the Ticker: timestamp ‖ messageSequence ‖ dataSequence ‖ price in US cents ‖ rows that signed. The first 16 bytes are a General Protocols price message.",
-      "type": "bytes"
+      "type": "nft_commitment"
     }
   }
 }

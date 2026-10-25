@@ -95,7 +95,7 @@
     },
     "create": {
       "name": "Create the oracle",
-      "description": "Mint the head: reserve $(<reserveSatoshis>) satoshis, $(<tableBytes> OP_SIZE OP_NIP <34> OP_DIV) notary rows. The category is the funding coin's txid.",
+      "description": "Mint the head with a reserve of $(<reserveSatoshis>) satoshis over the chosen notary table. The category is the funding coin's txid.",
       "icon": "contract",
       "roles": {
         "founder": {
@@ -109,6 +109,7 @@
             "variables": [
               "category",
               "tableBytes",
+              "headCommitment",
               "reserveSatoshis",
               "startTimestamp",
               "fundingSatoshis"
@@ -195,7 +196,7 @@
         "amount": null,
         "nft": {
           "capability": "minting",
-          "commitment": "$(genesisCommitment)"
+          "commitment": "$(<headCommitment>)"
         }
       },
       "roles": {
@@ -255,8 +256,7 @@
   "scripts": {
     "oracleLockingBytecode": "0xaa20a9f9c3bcf15f1fe97aa1ccbe13ea77cbf77fb5cdd0f20dde98798b9aaac0e87487",
     "lockP2PKH": "OP_DUP OP_HASH160 <$(<founderKey.public_key> OP_HASH160)> OP_EQUALVERIFY OP_CHECKSIG",
-    "unlockP2PKH": "<founderKey.schnorr_signature.all_outputs> <founderKey.public_key>",
-    "genesisCommitment": "<startTimestamp> OP_4 OP_NUM2BIN <0> OP_4 OP_NUM2BIN OP_CAT <0> OP_4 OP_NUM2BIN OP_CAT <0> OP_4 OP_NUM2BIN OP_CAT <0> OP_1 OP_NUM2BIN OP_CAT <tableBytes> OP_HASH160 OP_CAT"
+    "unlockP2PKH": "<founderKey.schnorr_signature.all_outputs> <founderKey.public_key>"
   },
   "variables": {
     "founderKey": {
@@ -272,7 +272,7 @@
     "category": {
       "name": "Category",
       "description": "The new oracle's category: the txid of the funding coin, which must be output 0 of its transaction.",
-      "type": "bytes"
+      "type": "token_category"
     },
     "tableBytes": {
       "name": "Notary table",
@@ -288,6 +288,11 @@
       "name": "Start timestamp",
       "description": "A minute start before the first update (Unix seconds, multiple of 60).",
       "type": "integer"
+    },
+    "headCommitment": {
+      "name": "Head commitment",
+      "description": "The 37-byte genesis commitment: startTimestamp (4, LE) ‖ 13 zero bytes ‖ hash160(table).",
+      "type": "nft_commitment"
     }
   }
 }

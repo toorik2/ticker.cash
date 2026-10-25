@@ -14,16 +14,17 @@ export const TOLL_SATS = 1000;
 /** @type {import('@xo-cash/types').BchVmVersion[]} */
 export const SUPPORTED = [ 'BCH_2026_05' ];
 
-/** CashASM that decodes fields of a 17-byte Ticker commitment held in `<tickerCommitment>`. */
+/** CashASM that decodes fields of a 17-byte Ticker commitment held in `tickerCommitment` (type nft_commitment;
+ *  `.toBytes` yields the raw bytes, since the engine passes variable values around as text). */
 export const COMMITMENT_SCRIPTS = {
     // timestamp: bytes 0..4
-    tickerTimestamp: '<tickerCommitment> OP_4 OP_SPLIT OP_DROP OP_BIN2NUM',
+    tickerTimestamp: '<tickerCommitment.toBytes> OP_4 OP_SPLIT OP_DROP OP_BIN2NUM',
     // dataSequence: bytes 8..12
-    tickerSequence: '<tickerCommitment> OP_8 OP_SPLIT OP_NIP OP_4 OP_SPLIT OP_DROP OP_BIN2NUM',
+    tickerSequence: '<tickerCommitment.toBytes> OP_8 OP_SPLIT OP_NIP OP_4 OP_SPLIT OP_DROP OP_BIN2NUM',
     // price in US cents: bytes 12..16
-    tickerPriceCents: '<tickerCommitment> OP_12 OP_SPLIT OP_NIP OP_4 OP_SPLIT OP_DROP OP_BIN2NUM',
+    tickerPriceCents: '<tickerCommitment.toBytes> OP_12 OP_SPLIT OP_NIP OP_4 OP_SPLIT OP_DROP OP_BIN2NUM',
     // rows that signed: byte 16
-    tickerRows: '<tickerCommitment> OP_16 OP_SPLIT OP_NIP OP_BIN2NUM',
+    tickerRows: '<tickerCommitment.toBytes> OP_16 OP_SPLIT OP_NIP OP_BIN2NUM',
     // dollars and cents for descriptions
     tickerDollars: 'tickerPriceCents <100> OP_DIV',
     tickerCentsTens: 'tickerPriceCents <100> OP_MOD <10> OP_DIV',
@@ -43,6 +44,6 @@ export const COMMITMENT_VARIABLE = {
     tickerCommitment: {
         name: 'Ticker commitment',
         description: 'The 17-byte NFT commitment of the Ticker: timestamp ‖ messageSequence ‖ dataSequence ‖ price in US cents ‖ rows that signed. The first 16 bytes are a General Protocols price message.',
-        type: 'bytes',
+        type: 'nft_commitment',
     },
 };

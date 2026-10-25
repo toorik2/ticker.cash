@@ -28,6 +28,7 @@ const mnemonic = fs.readFileSync(mnemonicPath, 'utf8').trim();
 const [cmd, arg1, arg2] = process.argv.slice(2);
 const BROADCAST = process.argv.includes('--broadcast');
 const stampJson = fs.readFileSync(new URL('../dist/ticker-stamp.json', import.meta.url), 'utf8');
+const payIntent = JSON.parse(stampJson).start.find(s => s.action === 'pay');   // carries generate: ['payerKey']
 
 const engine = await Engine.create(mnemonic, { network: 'chipnet', storageType: StorageType.INDEXEDDB, databasePath: path.join(HOME, 'db') + '/' });
 const quit = async (code) => { await engine.stop(); process.exit(code); };
@@ -39,6 +40,12 @@ try {
   }
   const { templateIdentifier } = await engine.importTemplate(stampJson);
 
+  if (cmd === 'release') {
+    let n = 0;
+    for (const inv of await engine.listInvitations()) if (!inv.isArchived) { await engine.archiveInvitation(inv.invitation.invitationIdentifier); n++; }
+    console.log(`archived ${n} open invitation(s); their coins are spendable again`);
+    await quit(0);
+  }
   if (cmd === 'address' || cmd === undefined) {
     const lock = await engine.generateLockingBytecodeFromDefaultPolicy('address');
     const addr = lockingBytecodeToCashAddress({ bytecode: hexToBin(lock), prefix: 'bchtest' });
@@ -47,7 +54,7 @@ try {
     console.log(`spendable ${coins.reduce((a, u) => a + BigInt(u.valueSatoshis), 0n)} sats in ${coins.length} coins`);
     await quit(0);
   }
-  if (cmd !== 'pay' || !arg1 || !arg2) { console.error('usage: stamp-live.mjs address | pay <address> <satoshis> [--broadcast]'); await quit(2); }
+  if (cmd !== 'pay' || !arg1 || !arg2) { console.error('usage: stamp-live.mjs address | release | pay <address> <satoshis> [--broadcast]'); await quit(2); }
   const recipient = cashAddressToLockingBytecode(arg1); if (typeof recipient === 'string') throw new Error(recipient);
   const amount = BigInt(arg2);
 
@@ -65,7 +72,7 @@ try {
   if (!coin) throw new Error(`no wallet coin covers ${amount} sats + toll + fee; fund the address first`);
 
   const stored = await engine.createInvitation({
-    templateIdentifier, actionIdentifier: 'pay', roleIdentifier: 'payer',
+    templateIdentifier, actionIdentifier: 'pay', intent: payIntent,
     variables: [
       { variableIdentifier: 'tickerCommitment', value: ticker.tokenNftCommitment },
       { variableIdentifier: 'tickerSatoshis', value: BigInt(ticker.valueSatoshis) },
@@ -95,7 +102,7 @@ try {
   tx.outputs.forEach((o, n) => console.log(`  out${n} ${o.valueSatoshis} sats${o.token ? ` · Ticker ${binToHex(o.token.nft.commitment)}` : ''}`));
   const fee = BigInt(ticker.valueSatoshis) + BigInt(coin.valueSatoshis) - tx.outputs.reduce((a, o) => a + o.valueSatoshis, 0n);
   console.log(`  fee ${fee} sats`);
-  if (!BROADCAST) { console.log('dry run; add --broadcast to send'); await quit(0); }
+  if (!BROADCAST) { console.log('dry run; add --broadcast to send'); await engine.archiveInvitation(id); await quit(0); }
   const res = await engine.executeAction(id, { broadcastTransaction: true });
   console.log(`broadcast ${res.builtTransaction.transactionHash}`);
   await quit(0);

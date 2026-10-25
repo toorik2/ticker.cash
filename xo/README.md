@@ -8,7 +8,7 @@ a contract it has never seen before. These templates put the ticker.cash BCH/USD
 |---|---|---|
 | `ticker-read` | decodes a Ticker commitment: timestamp, update counter, price in cents, rows that signed | parses, compiles, imports; **`data` actions are still work in progress in the XO engine**, so the wallet shows the decoded fields in the action text but cannot "run" the read |
 | `ticker-stamp` | **pay at the oracle price**: a payment that co-spends the newest Ticker and re-emits it with the 1,000-sat toll, so the transaction carries the consensus-verified rate it was priced at | **paid on chipnet** from a headless XO engine (`cb2195f4…`, see below); needs an app that supplies the Ticker input |
-| `ticker-genesis` | **instantiate an oracle**: mint a v27 head over a notary table of your choice with your own reserve, in two actions (`fund`, `create`) | parses, compiles, imports; needs an app that pins the funding coin (see below) |
+| `ticker-genesis` | **instantiate an oracle**: mint a v27 head over a notary table of your choice with your own reserve, in two actions (`fund`, `create`) | **a second oracle was instantiated on chipnet** from a headless XO engine (`03796b8f…`) and received its first update from the public notaries' statements (`26bfb3e8…`, see below) |
 
 All three share `templates/common.mjs`: the two protocol constants (the 55-byte Ticker lock and the 35-byte
 Oracle lock, identical for every v27 deployment), the ticker.cash category, and the CashAssembly that
@@ -47,12 +47,47 @@ appends a wallet coin as the funding input, adds change, signs its own input and
 | Ticker consumed | counter 37, minute 1792945680 (16:28 UTC), 275.31 USD/BCH, 13 rows; re-emitted at output 0 with 1,792 sats |
 | payment | 5,000 sats at output 1; change at output 2 to the template's payer key |
 
-Things the engine taught us, all now reflected in the templates: covenant bytecode goes into a script as a
-raw `0x…` literal, because output locks compile through libauth, which knows template variables but not
-constants; locks and outputs that belong to someone else (the recipient, the oracle head) carry
-`roles.<role>.relevant: false`, or the wallet starts tracking the recipient's coins as its own; and the
-Ticker's unlocking script is a single `OP_0`, supplied with the input since the engine only compiles
-unlocking scripts for coins it owns.
+## Live test 2: an XO engine instantiated an oracle (chipnet, 2026-10-25)
+
+```
+npm run genesis -- fund 18000 --broadcast     # a coin at the founder key, pinned to output 0 of its transaction
+npm run genesis -- create 17680 --broadcast   # spend it at input 0 into a new head over ticker.cash's table
+npm run genesis -- release                    # archive open invitations so the coins they reserved are spendable again
+```
+
+| | |
+|---|---|
+| funding | `ba3dfff849ec7adf2bcbbc0f87911ed55907a96a45a2a41b3f4d58cc06fd5448` (219 B): 18,000 sats at the founder key, output 0 → the new category |
+| genesis | `03796b8feb6fa200dfdf5aee5e998eba92c1fd9d7f9c517428b64e3960c1dc47` (267 B, fee 320 sats): one input, one output: 17,680 sats at the shared v27 Oracle lock, minting NFT, commitment `1792946580 ‖ 0 ‖ 0 ‖ 0 ‖ 0 ‖ f6118ff8…` |
+| first update | `26bfb3e8075cfdb496eb15a101e3771f3cc9a2c09970724dee25417f1b90a330`: built by `ticker-node build --once` from a second home whose manifest names the new category; counter 1, k = 13, 275.30 USD at minute 1792946640, the same minute and price as ticker.cash's own counter-53 update, from the same 13 statements |
+
+Nobody told the notaries. Their statements name no deployment, so a head that lists their keys consumes them
+from its first minute; the two heads sit at the same address and differ only by category. The new instance
+is a demonstration and is not kept running: its reserve (13,759 sats after the update) pays for a few more
+updates if anyone points a builder at it.
+
+## What the engine taught us
+
+All of it is reflected in the templates and the tools:
+
+* **Covenant bytecode goes into a script as a raw `0x…` literal.** Output locks compile through libauth,
+  which knows template variables but not constants, so `$(<someConstant>)` fails there.
+* **Variables travel as text.** The engine passes variable values to CashAssembly as UTF-8 strings, so a
+  decoder that splits a commitment must ask the primitive for its bytes: `tickerCommitment` has type
+  `nft_commitment` and the scripts use `<tickerCommitment.toBytes>`. Token fields (`category`,
+  `nft.commitment`) are decoded as hex text, which is why a template cannot *compute* a commitment with
+  opcodes yet, and why `ticker-genesis` takes `headCommitment` from the app. There is no primitive for
+  arbitrary bytes (the table), hence no on-template `hash160(table)`.
+* **Foreign locks and outputs carry `roles.<role>.relevant: false`** (the recipient, the oracle head), or the
+  wallet starts tracking the recipient's coins as its own.
+* **Inputs the wallet does not own come with their unlocking script.** The Ticker's is a single `OP_0`; the
+  engine only compiles unlocking scripts for coins it owns.
+* **Generated keys need the start intent.** `createInvitation` takes the template's `start` entry as
+  `intent` (it carries `generate: ['founderKey']`); giving `roleIdentifier` as well is an error.
+* **Coins committed to an invitation stay reserved** until it executes or is archived; the tools archive
+  their dry runs and offer `release`.
+* **Fee and dust.** The engine's fee estimate undershoots token outputs and will emit a change output below
+  the dust limit; the genesis tool leaves a small remainder as the fee instead.
 
 ## How each template works
 
@@ -110,7 +145,8 @@ can be built by anyone running `ticker-node` against that table.
   set, so "7 of 13 rows each sign one approval" has no representation: there is no aggregation of one
   variable across slots. A governance template waits for per-slot variables or an aggregation primitive in
   the template format; we have raised it with General Protocols.
-* **Token genesis.** No primitive yet; hence the two-step `ticker-genesis`.
+* **Token genesis.** No primitive yet; hence the two-step `ticker-genesis`, and the app supplies the
+  commitment because token expressions are decoded as text.
 * **Data actions.** Schema accepts them, the engine ignores them; hence `ticker-read` is a decoder, not a
   live view.
 * **Foreign outputs.** The engine tracks outputs of the wallet's own roles only. Apps must supply the Ticker

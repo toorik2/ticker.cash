@@ -23,7 +23,8 @@ const commitment = Buffer.concat([u32(TS), u32(SEQ), u32(SEQ), u32(CENTS), Buffe
 check('commitment length', commitment.length, 17);
 
 for (const [name, template] of [['stamp', tickerStampTemplate], ['read', tickerReadTemplate]]) {
-  const ctx = { variables: { tickerCommitment: new Uint8Array(commitment) }, templateVariables: template.variables, templateScripts: template.scripts };
+  // Variables arrive as text in the engine; the decoders ask the nft_commitment primitive for its bytes.
+  const ctx = { variables: { tickerCommitment: hex(commitment) }, templateVariables: template.variables, templateScripts: template.scripts };
   const evalInt = (script) => compileCashAssemblyString({ ...ctx, cashAssemblyText: `$(${script})`, evaluationDecodeMode: 'bigint' });
   check(`${name} tickerTimestamp`, evalInt('tickerTimestamp'), TS);
   check(`${name} tickerSequence`, evalInt('tickerSequence'), SEQ);
@@ -41,19 +42,20 @@ for (const [name, template] of [['stamp', tickerStampTemplate], ['read', tickerR
 // Price with cents below 10 keeps its leading zero.
 {
   const c = Buffer.concat([u32(TS), u32(SEQ), u32(SEQ), u32(30005), Buffer.from([7])]);
-  const ctx = { variables: { tickerCommitment: new Uint8Array(c) }, templateScripts: tickerReadTemplate.scripts };
+  const ctx = { variables: { tickerCommitment: hex(c) }, templateVariables: tickerReadTemplate.variables, templateScripts: tickerReadTemplate.scripts };
   const text = compileCashAssemblyString({ ...ctx, cashAssemblyText: '$(tickerDollars).$(tickerCentsTens)$(tickerCentsOnes)', evaluationDecodeMode: 'bigint' });
   check('read 300.05 renders', text, '300.05');
 }
 
-// Genesis commitment: timestamp ‖ 0 ‖ 0 ‖ 0 ‖ 0 ‖ hash160(table), 37 bytes.
+// Genesis commitment as the tool derives it: timestamp ‖ 13 zero bytes ‖ hash160(table), 37 bytes; the
+// template takes it as the nft_commitment variable headCommitment and the engine parses it as hex text.
 {
-  const table = Buffer.alloc(34 * 13, 0x11); // any 13-row table works for the layout check
-  const ctx = { variables: { startTimestamp: BigInt(TS), tableBytes: new Uint8Array(table) }, templateVariables: tickerGenesisTemplate.variables, templateScripts: tickerGenesisTemplate.scripts };
-  const got = compileCashAssemblyString({ ...ctx, cashAssemblyText: '$(genesisCommitment)', evaluationDecodeMode: 'hex' });
-  const want = hex(Buffer.concat([u32(TS), Buffer.alloc(13, 0), hash160(table)]));
-  check('genesis commitment', got, want);
-  check('genesis rows in description', compileCashAssemblyString({ ...ctx, variables: { ...ctx.variables, reserveSatoshis: 1000000n }, cashAssemblyText: tickerGenesisTemplate.actions.create.description, evaluationDecodeMode: 'bigint' }), 'Mint the head: reserve 1000000 satoshis, 13 notary rows. The category is the funding coin\'s txid.');
+  const table = Buffer.alloc(34 * 13, 0x11);
+  const headCommitment = hex(Buffer.concat([u32(TS), Buffer.alloc(13, 0), hash160(table)]));
+  check('genesis commitment length', headCommitment.length / 2, 37);
+  const ctx = { variables: { headCommitment, reserveSatoshis: 1000000n }, templateVariables: tickerGenesisTemplate.variables, templateScripts: tickerGenesisTemplate.scripts };
+  check('genesis commitment round-trips', compileCashAssemblyString({ ...ctx, cashAssemblyText: tickerGenesisTemplate.outputs.headOutput.token.nft.commitment, evaluationDecodeMode: 'utf8' }), headCommitment);
+  check('genesis description', compileCashAssemblyString({ ...ctx, cashAssemblyText: tickerGenesisTemplate.actions.create.description, evaluationDecodeMode: 'bigint' }), "Mint the head with a reserve of 1000000 satoshis over the chosen notary table. The category is the funding coin's txid.");
 }
 
 // Ticker re-emission adds the toll.
