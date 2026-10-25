@@ -228,12 +228,22 @@
     },
     "founderLockingScript": {
       "name": "Founder wallet",
-      "description": "The founder's own funds in this template.",
+      "description": "The founder's own funds in this template. A wallet offers `create` on a coin held here, with the coin as input 0.",
       "icon": "address",
       "lockingType": "p2pkh",
       "lockingBytecode": "lockP2PKH",
       "unlockingBytecode": "unlockP2PKH",
-      "actions": [],
+      "actions": [
+        {
+          "action": "create",
+          "role": "founder"
+        }
+      ],
+      "state": {
+        "variables": [
+          "fundingSatoshis"
+        ]
+      },
       "roles": {
         "founder": {
           "state": {

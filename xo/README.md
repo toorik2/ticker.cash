@@ -160,7 +160,8 @@ CashTokens fixes a category at genesis as the txid of the coin spent at input 0,
    `timestamp ‖ 0 ‖ 0 ‖ 0 ‖ 0 ‖ hash160(table)`, holding the reserve.
 
 The app supplies `category` (the funding coin's txid) and pins the coin as the input; if either is wrong the
-transaction is invalid by consensus and nothing is lost. The result is a live oracle whose head address is
+transaction is invalid by consensus and nothing is lost. In a wallet, `create` is offered on the funding coin
+itself, which pins the input and prefills its value; the category is the one value still typed in. The result is a live oracle whose head address is
 the same as ticker.cash's (every v27 oracle shares the lock), told apart by category, and whose first update
 can be built by anyone running `ticker-node` against that table.
 
@@ -174,11 +175,18 @@ single-slot roles and folds them with a loop, and the genesis template computes 
 
 What remains:
 
-* **The category of a new token.** CashTokens fixes it as the txid of the coin spent at input 0. The engine
-  knows that outpoint when it builds the transaction, but no template expression can reach it, so
-  `ticker-genesis` takes `category` as a variable the app (or the user, from the coin picker) fills in. One
-  keyword in the token schema, `category: 'input0'` or similar, would make genesis a pure template. This is
-  the single request worth making.
+* **The category of a new token.** CashTokens fixes it as the txid of the coin spent at input 0. We looked
+  for a template-side way and found none: output token fields are evaluated without a transaction context,
+  and the Dev Wallet's follow-up suggestions cover token fields and declared state, not outpoints. So
+  `ticker-genesis` takes `category` as a variable the app, or the user from the coin picker, fills in. The
+  fix is on the engine side and small: pass libauth a compilation context while output token fields are
+  evaluated, and `<signing_serialization.outpoint_transaction_hash>`, a built-in libauth already has, yields
+  input 0's txid. We prototyped it in nine lines and built a genesis whose category the template derived
+  itself; see `notes/engine-compilation-context.md`. This is the single request worth making.
+* **Follow-up from the coin.** The Dev Wallet offers a template's actions on coins it holds when the locking
+  script lists them, and prefills variables the script declares as `state`. `ticker-genesis` now offers
+  `create` on the funding coin with `fundingSatoshis` carried along, so the user types the reserve, the
+  timestamp and the category, and nothing else.
 * **Data actions.** Schema accepts them, the engine ignores them; hence `ticker-read` is a decoder, not a
   live view.
 * **Foreign outputs.** The engine tracks outputs of the wallet's own roles only. Apps supply the Ticker (as

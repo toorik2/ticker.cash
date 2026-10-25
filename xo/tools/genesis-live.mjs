@@ -56,7 +56,9 @@ try {
   }
   const all = await engine.listSpendableUnspentOutputs();
   const walletCoins = all.filter(u => u.templateIdentifier === p2pkhId);
-  const founderCoins = all.filter(u => u.templateIdentifier !== p2pkhId);   // coins at founder keys, also from earlier versions of this template
+  // Coins at founder keys (also from earlier versions of this template). Token-bearing coins are oracle heads the
+  // wallet tracks for the rotate template; they are never funding coins.
+  const founderCoins = all.filter(u => u.templateIdentifier !== p2pkhId && u.tokenCategory === undefined);
   console.log(`wallet: ${walletCoins.reduce((a, u) => a + BigInt(u.valueSatoshis), 0n)} sats in ${walletCoins.length} coins; at the founder key: ${founderCoins.map(u => `${u.outpointTransactionHash.slice(0, 12)}…:${u.outpointIndex} ${u.valueSatoshis}`).join(', ') || 'none'}`);
 
   if (cmd === 'fund') {

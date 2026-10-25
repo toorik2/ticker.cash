@@ -150,12 +150,15 @@ export const tickerGenesisTemplate = {
         },
         founderLockingScript: {
             name: 'Founder wallet',
-            description: 'The founder\'s own funds in this template.',
+            description: 'The founder\'s own funds in this template. A wallet offers `create` on a coin held here, with the coin as input 0.',
             icon: 'address',
             lockingType: 'p2pkh',
             lockingBytecode: 'lockP2PKH',
             unlockingBytecode: 'unlockP2PKH',
-            actions: [],
+            // Follow-up: the funding coin carries fundingSatoshis as state, so a wallet starting `create` from the coin
+            // prefills it. The category still has to be typed in (see README).
+            actions: [ { action: 'create', role: 'founder' } ],
+            state: { variables: [ 'fundingSatoshis' ] },
             roles: { founder: { state: { variables: [], secrets: [ 'founderKey' ] } } },
             balance: { satoshis: true, fungibleTokens: true, nonfungibleTokens: true },
             selectable: true,
