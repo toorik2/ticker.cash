@@ -5,10 +5,11 @@ import { parseTemplate, serializeTemplate, generateTemplateIdentifier } from '@x
 import { tickerStampTemplate } from './templates/ticker-stamp.mjs';
 import { tickerReadTemplate } from './templates/ticker-read.mjs';
 import { tickerGenesisTemplate } from './templates/ticker-genesis.mjs';
+import { tickerRotateTemplate } from './templates/ticker-rotate.mjs';
 
 fs.mkdirSync(new URL('./dist/', import.meta.url), { recursive: true });
 let failed = 0;
-for (const [file, template] of [['ticker-stamp', tickerStampTemplate], ['ticker-read', tickerReadTemplate], ['ticker-genesis', tickerGenesisTemplate]]) {
+for (const [file, template] of [['ticker-stamp', tickerStampTemplate], ['ticker-read', tickerReadTemplate], ['ticker-genesis', tickerGenesisTemplate], ['ticker-rotate', tickerRotateTemplate]]) {
   try {
     const json = serializeTemplate(template);
     const parsed = parseTemplate(json);

@@ -95,15 +95,12 @@ try {
     if (funding.outpointIndex !== 0) throw new Error(`the funding coin must be output 0 of its transaction, this one is output ${funding.outpointIndex}`);
     if (BigInt(funding.valueSatoshis) < reserve + 300n) throw new Error('funding coin too small for the reserve plus fee');
     const startTimestamp = BigInt(Math.floor(Date.now() / 60000) * 60);
-    const ts = Buffer.alloc(4); ts.writeUInt32LE(Number(startTimestamp));
-    const headCommitment = Buffer.concat([ts, Buffer.alloc(13, 0), hash160(tableBytes)]).toString('hex');   // = genesisCommitment script
     const stored = await engine.createInvitation({
       templateIdentifier, actionIdentifier: 'create', intent: startIntent('create'),
       variables: [
         { variableIdentifier: 'fundingSatoshis', value: BigInt(funding.valueSatoshis) },
         { variableIdentifier: 'category', value: funding.outpointTransactionHash },
         { variableIdentifier: 'tableBytes', value: tableBytes.toString('hex') },
-        { variableIdentifier: 'headCommitment', value: headCommitment },
         { variableIdentifier: 'reserveSatoshis', value: reserve },
         { variableIdentifier: 'startTimestamp', value: startTimestamp },
       ],

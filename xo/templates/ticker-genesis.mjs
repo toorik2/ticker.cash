@@ -8,7 +8,7 @@
 // flow is two actions: `fund` receives a coin at this template's own key (the app checks it is
 // output 0), then `create` spends exactly that coin at input 0 while the app supplies its txid as
 // `category`. A mismatch is simply an invalid transaction; nothing can be lost to it.
-import { ORACLE_LOCKING_BYTECODE, SUPPORTED } from './common.mjs';
+import { HEX_DECODE, HEX_ENCODE, ORACLE_LOCKING_BYTECODE, SUPPORTED } from './common.mjs';
 
 /** @type {import('@xo-cash/types').XOTemplate} */
 export const tickerGenesisTemplate = {
@@ -55,7 +55,7 @@ export const tickerGenesisTemplate = {
         },
         create: {
             name: 'Create the oracle',
-            description: 'Mint the head with a reserve of $(<reserveSatoshis>) satoshis over the chosen notary table. The category is the funding coin\'s txid.',
+            description: 'Mint the head over the notary table whose hash160 is $(tableHashHex). The category is the funding coin\'s txid.',
             icon: 'contract',
             roles: {
                 founder: {
@@ -64,7 +64,7 @@ export const tickerGenesisTemplate = {
                     icon: 'contract',
                     requirements: {
                         secrets: [ 'founderKey' ],
-                        variables: [ 'category', 'tableBytes', 'headCommitment', 'reserveSatoshis', 'startTimestamp', 'fundingSatoshis' ],
+                        variables: [ 'category', 'tableBytes', 'reserveSatoshis', 'startTimestamp', 'fundingSatoshis' ],
                     },
                 },
             },
@@ -116,16 +116,16 @@ export const tickerGenesisTemplate = {
         },
         headOutput: {
             name: 'Oracle head',
-            description: 'The minting NFT of the new oracle: commitment = timestamp ‖ 0 ‖ 0 ‖ 0 ‖ 0 ‖ hash160(table), holding the reserve.',
+            description: 'The minting NFT of the new oracle: commitment = timestamp ‖ 0 ‖ 0 ‖ 0 ‖ 0 ‖ hash160(table), computed by the template, holding the reserve.',
             icon: 'contract',
             lockingScript: 'oracleLockingScript',
             valueSatoshis: '$(<reserveSatoshis>)',
             token: {
                 category: '$(<category>)',
                 amount: null,
-                // Token expressions are decoded as hex text by the engine, and there is no primitive for arbitrary
-                // bytes (the table), so the app supplies the commitment; its derivation is in the variable's description.
-                nft: { capability: 'minting', commitment: '$(<headCommitment>)' },
+                // Computed by the template: timestamp ‖ zeros ‖ hash160(table), hex-encoded because the engine reads
+                // token expressions back as hex text.
+                nft: { capability: 'minting', commitment: '$(genesisCommitmentHex)' },
             },
             roles: { founder: { relevant: false } },
         },
@@ -166,6 +166,13 @@ export const tickerGenesisTemplate = {
         oracleLockingBytecode: '0x' + ORACLE_LOCKING_BYTECODE,
         lockP2PKH: 'OP_DUP OP_HASH160 <$(<founderKey.public_key> OP_HASH160)> OP_EQUALVERIFY OP_CHECKSIG',
         unlockP2PKH: '<founderKey.schnorr_signature.all_outputs> <founderKey.public_key>',
+        // The table arrives as hex text (no primitive type covers 442 bytes); decode it, hash it, build the
+        // 37-byte commitment, and hand it back as hex text. A description holds one kind of evaluation only
+        // (numbers or text), so the reserve amount is shown by the transaction, the table hash by the action.
+        tableBytesDecoded: `<tableBytes> ${HEX_DECODE}`,
+        genesisCommitment: '<startTimestamp> OP_4 OP_NUM2BIN <0> <13> OP_NUM2BIN OP_CAT tableBytesDecoded OP_HASH160 OP_CAT',
+        genesisCommitmentHex: `genesisCommitment ${HEX_ENCODE}`,
+        tableHashHex: `tableBytesDecoded OP_HASH160 ${HEX_ENCODE}`,
     },
 
 
@@ -176,6 +183,5 @@ export const tickerGenesisTemplate = {
         tableBytes: { name: 'Notary table', description: 'n × (compressed pubkey 33 ‖ exchange id 1). Row order is permanent for this instance until its rows rotate it.', type: 'bytes' },
         reserveSatoshis: { name: 'Reserve', description: 'Satoshis locked in the head to pay the oracle\'s fees.', type: 'satoshis' },
         startTimestamp: { name: 'Start timestamp', description: 'A minute start before the first update (Unix seconds, multiple of 60).', type: 'integer' },
-        headCommitment: { name: 'Head commitment', description: 'The 37-byte genesis commitment: startTimestamp (4, LE) ‖ 13 zero bytes ‖ hash160(table).', type: 'nft_commitment' },
     },
 };

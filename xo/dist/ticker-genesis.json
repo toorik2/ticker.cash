@@ -95,7 +95,7 @@
     },
     "create": {
       "name": "Create the oracle",
-      "description": "Mint the head with a reserve of $(<reserveSatoshis>) satoshis over the chosen notary table. The category is the funding coin's txid.",
+      "description": "Mint the head over the notary table whose hash160 is $(tableHashHex). The category is the funding coin's txid.",
       "icon": "contract",
       "roles": {
         "founder": {
@@ -109,7 +109,6 @@
             "variables": [
               "category",
               "tableBytes",
-              "headCommitment",
               "reserveSatoshis",
               "startTimestamp",
               "fundingSatoshis"
@@ -187,7 +186,7 @@
     },
     "headOutput": {
       "name": "Oracle head",
-      "description": "The minting NFT of the new oracle: commitment = timestamp ‖ 0 ‖ 0 ‖ 0 ‖ 0 ‖ hash160(table), holding the reserve.",
+      "description": "The minting NFT of the new oracle: commitment = timestamp ‖ 0 ‖ 0 ‖ 0 ‖ 0 ‖ hash160(table), computed by the template, holding the reserve.",
       "icon": "contract",
       "lockingScript": "oracleLockingScript",
       "valueSatoshis": "$(<reserveSatoshis>)",
@@ -196,7 +195,7 @@
         "amount": null,
         "nft": {
           "capability": "minting",
-          "commitment": "$(<headCommitment>)"
+          "commitment": "$(genesisCommitmentHex)"
         }
       },
       "roles": {
@@ -256,7 +255,11 @@
   "scripts": {
     "oracleLockingBytecode": "0xaa20a9f9c3bcf15f1fe97aa1ccbe13ea77cbf77fb5cdd0f20dde98798b9aaac0e87487",
     "lockP2PKH": "OP_DUP OP_HASH160 <$(<founderKey.public_key> OP_HASH160)> OP_EQUALVERIFY OP_CHECKSIG",
-    "unlockP2PKH": "<founderKey.schnorr_signature.all_outputs> <founderKey.public_key>"
+    "unlockP2PKH": "<founderKey.schnorr_signature.all_outputs> <founderKey.public_key>",
+    "tableBytesDecoded": "<tableBytes> <\"\"> OP_SWAP OP_BEGIN OP_2 OP_SPLIT OP_ROT OP_ROT OP_1 OP_SPLIT <0x00> OP_CAT OP_BIN2NUM OP_DUP <58> OP_LESSTHAN OP_IF <48> OP_ELSE OP_DUP <97> OP_LESSTHAN OP_IF <55> OP_ELSE <87> OP_ENDIF OP_ENDIF OP_SUB OP_SWAP <0x00> OP_CAT OP_BIN2NUM OP_DUP <58> OP_LESSTHAN OP_IF <48> OP_ELSE OP_DUP <97> OP_LESSTHAN OP_IF <55> OP_ELSE <87> OP_ENDIF OP_ENDIF OP_SUB <16> OP_MUL OP_ADD <2> OP_NUM2BIN OP_1 OP_SPLIT OP_DROP OP_CAT OP_SWAP OP_SIZE OP_0 OP_NUMEQUAL OP_UNTIL OP_DROP",
+    "genesisCommitment": "<startTimestamp> OP_4 OP_NUM2BIN <0> <13> OP_NUM2BIN OP_CAT tableBytesDecoded OP_HASH160 OP_CAT",
+    "genesisCommitmentHex": "genesisCommitment <\"\"> OP_SWAP OP_BEGIN OP_1 OP_SPLIT OP_ROT OP_ROT <0x00> OP_CAT OP_BIN2NUM OP_DUP <16> OP_DIV OP_DUP <10> OP_LESSTHAN OP_IF <48> OP_ELSE <87> OP_ENDIF OP_ADD <1> OP_NUM2BIN OP_SWAP <16> OP_MOD OP_DUP <10> OP_LESSTHAN OP_IF <48> OP_ELSE <87> OP_ENDIF OP_ADD <1> OP_NUM2BIN OP_CAT OP_CAT OP_SWAP OP_SIZE OP_0 OP_NUMEQUAL OP_UNTIL OP_DROP",
+    "tableHashHex": "tableBytesDecoded OP_HASH160 <\"\"> OP_SWAP OP_BEGIN OP_1 OP_SPLIT OP_ROT OP_ROT <0x00> OP_CAT OP_BIN2NUM OP_DUP <16> OP_DIV OP_DUP <10> OP_LESSTHAN OP_IF <48> OP_ELSE <87> OP_ENDIF OP_ADD <1> OP_NUM2BIN OP_SWAP <16> OP_MOD OP_DUP <10> OP_LESSTHAN OP_IF <48> OP_ELSE <87> OP_ENDIF OP_ADD <1> OP_NUM2BIN OP_CAT OP_CAT OP_SWAP OP_SIZE OP_0 OP_NUMEQUAL OP_UNTIL OP_DROP"
   },
   "variables": {
     "founderKey": {
@@ -288,11 +291,6 @@
       "name": "Start timestamp",
       "description": "A minute start before the first update (Unix seconds, multiple of 60).",
       "type": "integer"
-    },
-    "headCommitment": {
-      "name": "Head commitment",
-      "description": "The 37-byte genesis commitment: startTimestamp (4, LE) ‖ 13 zero bytes ‖ hash160(table).",
-      "type": "nft_commitment"
     }
   }
 }

@@ -8,7 +8,8 @@
     "test": "node test.mjs",
     "check": "tsc --noEmit --allowJs --checkJs --module nodenext --moduleResolution nodenext --target es2022 --skipLibCheck templates/*.mjs",
     "stamp": "node tools/stamp-live.mjs",
-    "genesis": "node tools/genesis-live.mjs"
+    "genesis": "node tools/genesis-live.mjs",
+    "rotate": "node tools/rotate-live.mjs"
   },
   "devDependencies": {
     "@xo-cash/types": "^0.0.8",

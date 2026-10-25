@@ -8,7 +8,8 @@ a contract it has never seen before. These templates put the ticker.cash BCH/USD
 |---|---|---|
 | `ticker-read` | decodes a Ticker commitment: timestamp, update counter, price in cents, rows that signed | parses, compiles, imports; **`data` actions are still work in progress in the XO engine**, so the wallet shows the decoded fields in the action text but cannot "run" the read |
 | `ticker-stamp` | **pay at the oracle price**: a payment that co-spends the newest Ticker and re-emits it with the 1,000-sat toll, so the transaction carries the consensus-verified rate it was priced at | **paid on chipnet** from a headless XO engine (`cb2195f4…`, see below); needs an app that supplies the Ticker input |
-| `ticker-genesis` | **instantiate an oracle**: mint a v27 head over a notary table of your choice with your own reserve, in two actions (`fund`, `create`) | **a second oracle was instantiated on chipnet** from a headless XO engine (`03796b8f…`) and received its first update from the public notaries' statements (`26bfb3e8…`, see below) |
+| `ticker-genesis` | **instantiate an oracle**: mint a v27 head over a notary table of your choice with your own reserve, in two actions (`fund`, `create`); the template computes the genesis commitment itself | **a second oracle was instantiated on chipnet** from a headless XO engine (`03796b8f…`) and received its first update from the public notaries' statements (`26bfb3e8…`, see below) |
+| `ticker-rotate` | **change the notary table by majority**: one role per row (13), each row pastes its approval, the template assembles the covenant's `rotate()` spend and the chain enforces 7 of 13 | **a 7-of-13 rotation was posted on chipnet** by eight XO wallets (`310fa7aa…`, see below); the unlocking script is byte-identical to the Rust builder's |
 
 All three share `templates/common.mjs`: the two protocol constants (the 55-byte Ticker lock and the 35-byte
 Oracle lock, identical for every v27 deployment), the ticker.cash category, and the CashAssembly that
@@ -66,18 +67,43 @@ from its first minute; the two heads sit at the same address and differ only by 
 is a demonstration and is not kept running: its reserve (13,759 sats after the update) pays for a few more
 updates if anyone points a builder at it.
 
+## Live test 3: eight XO wallets rotated an oracle's table, 7 of 13 (chipnet, 2026-10-25)
+
+```
+npm run genesis -- create 25600 --manifest vector-table.json --funding <txid>:0 --broadcast   # a throwaway oracle over the 13 test keys
+npm run rotate -- <category> <newTableHex> --signers 0,1,2,3,4,5,6 --keys keys.json --old-table-file table.hex --broadcast
+```
+
+The operator's wallet creates the `rotate` invitation naming the head, the current table and the new table.
+Seven row wallets, each its own process (the engine keeps one Electrum pool per process), accept it in turn,
+join `row0` … `row6` and commit their approval; for the test the tool signs with the repository's test keys in
+place of `ticker-notary sign-rotate`. Back at the operator, the six absent rows are recorded as empty
+approvals, the engine compiles the covenant's unlocking script from the merged variables, and posts.
+
+| | |
+|---|---|
+| oracle | genesis `ff9d3010304fcc94ba427fd86a050cb70b09c603f29d1c9ea2cba70f55306405`, category `5bfd04fd…`, over the 13-row table of `contracts/test/v27-vectors.json` |
+| rotation | `310fa7aacd86…` (1,651 B, unlocking data 1,482 B, fee 1,700 sats): table hash `955b819f…` → `e848f6d4…` (the same table minus row 12), counter and reserve carried over |
+| byte check | the template's `rotateUnlock`, compiled through libauth as the engine does, is identical to the Rust-built unlocking script of the rotation vector; the next commitment and the approval message match the vector too (`npm test`) |
+
+Nothing new was asked of XO for this. The format already had what a majority vote needs: a role per row with
+zero or one participant, variables bound to roles, an unlocking script the engine compiles from everyone's
+commits, and CashAssembly loops (`OP_BEGIN`/`OP_UNTIL`) to fold thirteen optional approvals into the
+covenant's `rows` and `sigs` arguments.
+
 ## What the engine taught us
 
 All of it is reflected in the templates and the tools:
 
 * **Covenant bytecode goes into a script as a raw `0x…` literal.** Output locks compile through libauth,
   which knows template variables but not constants, so `$(<someConstant>)` fails there.
-* **Variables travel as text.** The engine passes variable values to CashAssembly as UTF-8 strings, so a
-  decoder that splits a commitment must ask the primitive for its bytes: `tickerCommitment` has type
-  `nft_commitment` and the scripts use `<tickerCommitment.toBytes>`. Token fields (`category`,
-  `nft.commitment`) are decoded as hex text, which is why a template cannot *compute* a commitment with
-  opcodes yet, and why `ticker-genesis` takes `headCommitment` from the app. There is no primitive for
-  arbitrary bytes (the table), hence no on-template `hash160(table)`.
+* **Two value conventions.** Inside locking and unlocking scripts (compiled by libauth) a hex variable is raw
+  bytes. In token fields, values and descriptions (evaluated by `@xo-cash/utils`) a variable is UTF-8 text,
+  and token fields are read back as hex text. So a decoder asks the primitive for bytes
+  (`<tickerCommitment.toBytes>`, type `nft_commitment`), a table with no primitive type is decoded from hex
+  text by a CashAssembly loop, and a computed commitment is hex-encoded by another loop before the engine
+  reads it (`HEX_DECODE`, `HEX_ENCODE` in `templates/common.mjs`). Loops run fine in the evaluator: decoding
+  442 bytes of table, hashing it and encoding the commitment takes about 150 ms.
 * **Foreign locks and outputs carry `roles.<role>.relevant: false`** (the recipient, the oracle head), or the
   wallet starts tracking the recipient's coins as its own.
 * **Inputs the wallet does not own come with their unlocking script.** The Ticker's is a single `OP_0`; the
@@ -138,19 +164,30 @@ transaction is invalid by consensus and nothing is lost. The result is a live or
 the same as ticker.cash's (every v27 oracle shares the lock), told apart by category, and whose first update
 can be built by anyone running `ticker-node` against that table.
 
-## What XO cannot express yet
+## What the format can do, and the one thing it cannot
 
-* **k-of-n participants.** Rotation (`rotate()`) needs approvals from a strict majority of the table's rows.
-  XO templates have fixed roles with slot counts, and every participant in a role fills the same variable
-  set, so "7 of 13 rows each sign one approval" has no representation: there is no aggregation of one
-  variable across slots. A governance template waits for per-slot variables or an aggregation primitive in
-  the template format; we have raised it with General Protocols.
-* **Token genesis.** No primitive yet; hence the two-step `ticker-genesis`, and the app supplies the
-  commitment because token expressions are decoded as text.
+We first believed two things were missing from XO and would have to be requested: a way to gather one value
+from each of several participants (for 7-of-13 approvals) and a way for a template to compute a token
+commitment. Both turned out to be expressible: the rotation template gathers approvals through thirteen
+single-slot roles and folds them with a loop, and the genesis template computes its commitment with
+`hash160` and a hex-encoding loop. Three live transactions back this up.
+
+What remains:
+
+* **The category of a new token.** CashTokens fixes it as the txid of the coin spent at input 0. The engine
+  knows that outpoint when it builds the transaction, but no template expression can reach it, so
+  `ticker-genesis` takes `category` as a variable the app (or the user, from the coin picker) fills in. One
+  keyword in the token schema, `category: 'input0'` or similar, would make genesis a pure template. This is
+  the single request worth making.
 * **Data actions.** Schema accepts them, the engine ignores them; hence `ticker-read` is a decoder, not a
   live view.
-* **Foreign outputs.** The engine tracks outputs of the wallet's own roles only. Apps must supply the Ticker
-  (as they already supply pool coins in XO's own wrapped-cash template).
+* **Foreign outputs.** The engine tracks outputs of the wallet's own roles only. Apps supply the Ticker (as
+  they already supply pool coins in XO's own wrapped-cash template); the rotation template has the operator
+  track the Oracle lock, which is how the engine comes to know the head it spends.
+* **Quality of life**, worth mentioning to General Protocols: a `bytes` primitive with `toBytes` would remove
+  the decode loops; a dust-aware change policy for token outputs; the post-broadcast bookkeeping that can
+  lose a race with the spend notice; one Electrum pool per process, which rules out several wallets in one
+  process.
 
 ## Chipnet constants
 

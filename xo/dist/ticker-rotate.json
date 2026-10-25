@@ -1,0 +1,548 @@
+{
+  "$schema": "https://libauth.org/schemas/wallet-template-v0.schema.json",
+  "name": "Change the notary table (ticker.cash v27)",
+  "description": "Rotates a v27 oracle to a new notary table. A strict majority of the current rows each sign one approval; the transaction carries them and the covenant verifies them. Rows that do not take part are absent.",
+  "icon": "governance",
+  "version": "1",
+  "supported": [
+    "BCH_2026_05"
+  ],
+  "resources": [
+    {
+      "name": "ticker.cash governance",
+      "description": "Rotation, migration and retirement by majority approval.",
+      "url": "https://usd.ticker.cash/docs#governance"
+    }
+  ],
+  "roles": {
+    "operator": {
+      "name": "Operator",
+      "description": "Proposes the new table, collects approvals and posts the rotation. Holds no power: without a majority nothing moves.",
+      "icon": "owner"
+    },
+    "row0": {
+      "name": "Row 0",
+      "description": "The notary in table row 0. Approves by signing the approval message with the row's key.",
+      "icon": "signer"
+    },
+    "row1": {
+      "name": "Row 1",
+      "description": "The notary in table row 1. Approves by signing the approval message with the row's key.",
+      "icon": "signer"
+    },
+    "row2": {
+      "name": "Row 2",
+      "description": "The notary in table row 2. Approves by signing the approval message with the row's key.",
+      "icon": "signer"
+    },
+    "row3": {
+      "name": "Row 3",
+      "description": "The notary in table row 3. Approves by signing the approval message with the row's key.",
+      "icon": "signer"
+    },
+    "row4": {
+      "name": "Row 4",
+      "description": "The notary in table row 4. Approves by signing the approval message with the row's key.",
+      "icon": "signer"
+    },
+    "row5": {
+      "name": "Row 5",
+      "description": "The notary in table row 5. Approves by signing the approval message with the row's key.",
+      "icon": "signer"
+    },
+    "row6": {
+      "name": "Row 6",
+      "description": "The notary in table row 6. Approves by signing the approval message with the row's key.",
+      "icon": "signer"
+    },
+    "row7": {
+      "name": "Row 7",
+      "description": "The notary in table row 7. Approves by signing the approval message with the row's key.",
+      "icon": "signer"
+    },
+    "row8": {
+      "name": "Row 8",
+      "description": "The notary in table row 8. Approves by signing the approval message with the row's key.",
+      "icon": "signer"
+    },
+    "row9": {
+      "name": "Row 9",
+      "description": "The notary in table row 9. Approves by signing the approval message with the row's key.",
+      "icon": "signer"
+    },
+    "row10": {
+      "name": "Row 10",
+      "description": "The notary in table row 10. Approves by signing the approval message with the row's key.",
+      "icon": "signer"
+    },
+    "row11": {
+      "name": "Row 11",
+      "description": "The notary in table row 11. Approves by signing the approval message with the row's key.",
+      "icon": "signer"
+    },
+    "row12": {
+      "name": "Row 12",
+      "description": "The notary in table row 12. Approves by signing the approval message with the row's key.",
+      "icon": "signer"
+    }
+  },
+  "start": [
+    {
+      "action": "rotate",
+      "role": "operator"
+    }
+  ],
+  "actions": {
+    "rotate": {
+      "name": "Change the notary table",
+      "description": "Rotate the oracle to a new table. Rows: sign this message with `ticker-notary sign-rotate` and paste the approval: $(approvalMessageHex)",
+      "icon": "governance",
+      "roles": {
+        "operator": {
+          "name": "Propose and post",
+          "description": "Name the head, the current table and the new table; post the rotation once a majority has approved.",
+          "icon": "owner",
+          "requirements": {
+            "variables": [
+              "category",
+              "headCommitment",
+              "headValue",
+              "rotationFee",
+              "oldTable",
+              "newTable",
+              "approval0",
+              "approval1",
+              "approval2",
+              "approval3",
+              "approval4",
+              "approval5",
+              "approval6",
+              "approval7",
+              "approval8",
+              "approval9",
+              "approval10",
+              "approval11",
+              "approval12"
+            ]
+          }
+        },
+        "row0": {
+          "name": "Approve as row 0",
+          "description": "Paste the 64-byte approval signed by row 0's key.",
+          "icon": "signer",
+          "requirements": {
+            "variables": [
+              "approval0"
+            ]
+          }
+        },
+        "row1": {
+          "name": "Approve as row 1",
+          "description": "Paste the 64-byte approval signed by row 1's key.",
+          "icon": "signer",
+          "requirements": {
+            "variables": [
+              "approval1"
+            ]
+          }
+        },
+        "row2": {
+          "name": "Approve as row 2",
+          "description": "Paste the 64-byte approval signed by row 2's key.",
+          "icon": "signer",
+          "requirements": {
+            "variables": [
+              "approval2"
+            ]
+          }
+        },
+        "row3": {
+          "name": "Approve as row 3",
+          "description": "Paste the 64-byte approval signed by row 3's key.",
+          "icon": "signer",
+          "requirements": {
+            "variables": [
+              "approval3"
+            ]
+          }
+        },
+        "row4": {
+          "name": "Approve as row 4",
+          "description": "Paste the 64-byte approval signed by row 4's key.",
+          "icon": "signer",
+          "requirements": {
+            "variables": [
+              "approval4"
+            ]
+          }
+        },
+        "row5": {
+          "name": "Approve as row 5",
+          "description": "Paste the 64-byte approval signed by row 5's key.",
+          "icon": "signer",
+          "requirements": {
+            "variables": [
+              "approval5"
+            ]
+          }
+        },
+        "row6": {
+          "name": "Approve as row 6",
+          "description": "Paste the 64-byte approval signed by row 6's key.",
+          "icon": "signer",
+          "requirements": {
+            "variables": [
+              "approval6"
+            ]
+          }
+        },
+        "row7": {
+          "name": "Approve as row 7",
+          "description": "Paste the 64-byte approval signed by row 7's key.",
+          "icon": "signer",
+          "requirements": {
+            "variables": [
+              "approval7"
+            ]
+          }
+        },
+        "row8": {
+          "name": "Approve as row 8",
+          "description": "Paste the 64-byte approval signed by row 8's key.",
+          "icon": "signer",
+          "requirements": {
+            "variables": [
+              "approval8"
+            ]
+          }
+        },
+        "row9": {
+          "name": "Approve as row 9",
+          "description": "Paste the 64-byte approval signed by row 9's key.",
+          "icon": "signer",
+          "requirements": {
+            "variables": [
+              "approval9"
+            ]
+          }
+        },
+        "row10": {
+          "name": "Approve as row 10",
+          "description": "Paste the 64-byte approval signed by row 10's key.",
+          "icon": "signer",
+          "requirements": {
+            "variables": [
+              "approval10"
+            ]
+          }
+        },
+        "row11": {
+          "name": "Approve as row 11",
+          "description": "Paste the 64-byte approval signed by row 11's key.",
+          "icon": "signer",
+          "requirements": {
+            "variables": [
+              "approval11"
+            ]
+          }
+        },
+        "row12": {
+          "name": "Approve as row 12",
+          "description": "Paste the 64-byte approval signed by row 12's key.",
+          "icon": "signer",
+          "requirements": {
+            "variables": [
+              "approval12"
+            ]
+          }
+        }
+      },
+      "requirements": {
+        "participants": [
+          {
+            "role": "operator",
+            "slots": {
+              "min": 1,
+              "max": 1
+            }
+          },
+          {
+            "role": "row0",
+            "slots": {
+              "min": 0,
+              "max": 1
+            }
+          },
+          {
+            "role": "row1",
+            "slots": {
+              "min": 0,
+              "max": 1
+            }
+          },
+          {
+            "role": "row2",
+            "slots": {
+              "min": 0,
+              "max": 1
+            }
+          },
+          {
+            "role": "row3",
+            "slots": {
+              "min": 0,
+              "max": 1
+            }
+          },
+          {
+            "role": "row4",
+            "slots": {
+              "min": 0,
+              "max": 1
+            }
+          },
+          {
+            "role": "row5",
+            "slots": {
+              "min": 0,
+              "max": 1
+            }
+          },
+          {
+            "role": "row6",
+            "slots": {
+              "min": 0,
+              "max": 1
+            }
+          },
+          {
+            "role": "row7",
+            "slots": {
+              "min": 0,
+              "max": 1
+            }
+          },
+          {
+            "role": "row8",
+            "slots": {
+              "min": 0,
+              "max": 1
+            }
+          },
+          {
+            "role": "row9",
+            "slots": {
+              "min": 0,
+              "max": 1
+            }
+          },
+          {
+            "role": "row10",
+            "slots": {
+              "min": 0,
+              "max": 1
+            }
+          },
+          {
+            "role": "row11",
+            "slots": {
+              "min": 0,
+              "max": 1
+            }
+          },
+          {
+            "role": "row12",
+            "slots": {
+              "min": 0,
+              "max": 1
+            }
+          }
+        ]
+      },
+      "transaction": "rotateTransaction"
+    }
+  },
+  "transactions": {
+    "rotateTransaction": {
+      "name": "Notary table changed",
+      "description": "The oracle moved to a new notary table by majority approval. Category, counter, price and rows carry over.",
+      "icon": "governance",
+      "inputs": [
+        {
+          "input": "headInput",
+          "inputIndex": 0
+        }
+      ],
+      "outputs": [
+        {
+          "output": "headOutput",
+          "outputIndex": 0
+        }
+      ],
+      "version": 2,
+      "locktime": 0
+    }
+  },
+  "inputs": {
+    "headInput": {
+      "name": "Oracle head",
+      "description": "The current head: minting NFT, commitment = state ‖ hash160(current table), holding the reserve.",
+      "icon": "contract",
+      "valueSatoshis": "$(<headValue>)",
+      "token": {
+        "category": "$(<category>)",
+        "amount": null,
+        "nft": {
+          "capability": "minting",
+          "commitment": "$(<headCommitment>)"
+        }
+      },
+      "unlockingScript": "rotateUnlock"
+    }
+  },
+  "outputs": {
+    "headOutput": {
+      "name": "Oracle head (new table)",
+      "description": "The same head with the new table hash in its commitment; the reserve minus the fee.",
+      "icon": "contract",
+      "lockingScript": "oracleLockingScript",
+      "valueSatoshis": "$(<headValue> <rotationFee> OP_SUB)",
+      "token": {
+        "category": "$(<category>)",
+        "amount": null,
+        "nft": {
+          "capability": "minting",
+          "commitment": "$(nextCommitmentHex)"
+        }
+      }
+    }
+  },
+  "lockingScripts": {
+    "oracleLockingScript": {
+      "name": "Oracle head",
+      "description": "The v27 Oracle covenant (P2SH-32), shared by every v27 oracle. The operator's wallet tracks it to find heads; nothing here is spendable without approvals.",
+      "icon": "contract",
+      "lockingType": "p2s",
+      "lockingBytecode": "oracleLockingBytecode",
+      "unlockingBytecode": "rotateUnlock",
+      "actions": [
+        {
+          "action": "rotate",
+          "role": "operator"
+        }
+      ],
+      "selectable": false
+    }
+  },
+  "scripts": {
+    "oracleLockingBytecode": "0xaa20a9f9c3bcf15f1fe97aa1ccbe13ea77cbf77fb5cdd0f20dde98798b9aaac0e87487",
+    "approvalSigs": "<\"\"> <\"\"> <approval0> OP_SIZE OP_0 OP_NUMEQUAL OP_IF OP_DROP OP_ELSE OP_ROT OP_SWAP OP_CAT OP_SWAP <0> OP_1 OP_NUM2BIN OP_CAT OP_ENDIF <approval1> OP_SIZE OP_0 OP_NUMEQUAL OP_IF OP_DROP OP_ELSE OP_ROT OP_SWAP OP_CAT OP_SWAP <1> OP_1 OP_NUM2BIN OP_CAT OP_ENDIF <approval2> OP_SIZE OP_0 OP_NUMEQUAL OP_IF OP_DROP OP_ELSE OP_ROT OP_SWAP OP_CAT OP_SWAP <2> OP_1 OP_NUM2BIN OP_CAT OP_ENDIF <approval3> OP_SIZE OP_0 OP_NUMEQUAL OP_IF OP_DROP OP_ELSE OP_ROT OP_SWAP OP_CAT OP_SWAP <3> OP_1 OP_NUM2BIN OP_CAT OP_ENDIF <approval4> OP_SIZE OP_0 OP_NUMEQUAL OP_IF OP_DROP OP_ELSE OP_ROT OP_SWAP OP_CAT OP_SWAP <4> OP_1 OP_NUM2BIN OP_CAT OP_ENDIF <approval5> OP_SIZE OP_0 OP_NUMEQUAL OP_IF OP_DROP OP_ELSE OP_ROT OP_SWAP OP_CAT OP_SWAP <5> OP_1 OP_NUM2BIN OP_CAT OP_ENDIF <approval6> OP_SIZE OP_0 OP_NUMEQUAL OP_IF OP_DROP OP_ELSE OP_ROT OP_SWAP OP_CAT OP_SWAP <6> OP_1 OP_NUM2BIN OP_CAT OP_ENDIF <approval7> OP_SIZE OP_0 OP_NUMEQUAL OP_IF OP_DROP OP_ELSE OP_ROT OP_SWAP OP_CAT OP_SWAP <7> OP_1 OP_NUM2BIN OP_CAT OP_ENDIF <approval8> OP_SIZE OP_0 OP_NUMEQUAL OP_IF OP_DROP OP_ELSE OP_ROT OP_SWAP OP_CAT OP_SWAP <8> OP_1 OP_NUM2BIN OP_CAT OP_ENDIF <approval9> OP_SIZE OP_0 OP_NUMEQUAL OP_IF OP_DROP OP_ELSE OP_ROT OP_SWAP OP_CAT OP_SWAP <9> OP_1 OP_NUM2BIN OP_CAT OP_ENDIF <approval10> OP_SIZE OP_0 OP_NUMEQUAL OP_IF OP_DROP OP_ELSE OP_ROT OP_SWAP OP_CAT OP_SWAP <10> OP_1 OP_NUM2BIN OP_CAT OP_ENDIF <approval11> OP_SIZE OP_0 OP_NUMEQUAL OP_IF OP_DROP OP_ELSE OP_ROT OP_SWAP OP_CAT OP_SWAP <11> OP_1 OP_NUM2BIN OP_CAT OP_ENDIF <approval12> OP_SIZE OP_0 OP_NUMEQUAL OP_IF OP_DROP OP_ELSE OP_ROT OP_SWAP OP_CAT OP_SWAP <12> OP_1 OP_NUM2BIN OP_CAT OP_ENDIF OP_DROP",
+    "approvalRows": "<\"\"> <\"\"> <approval0> OP_SIZE OP_0 OP_NUMEQUAL OP_IF OP_DROP OP_ELSE OP_ROT OP_SWAP OP_CAT OP_SWAP <0> OP_1 OP_NUM2BIN OP_CAT OP_ENDIF <approval1> OP_SIZE OP_0 OP_NUMEQUAL OP_IF OP_DROP OP_ELSE OP_ROT OP_SWAP OP_CAT OP_SWAP <1> OP_1 OP_NUM2BIN OP_CAT OP_ENDIF <approval2> OP_SIZE OP_0 OP_NUMEQUAL OP_IF OP_DROP OP_ELSE OP_ROT OP_SWAP OP_CAT OP_SWAP <2> OP_1 OP_NUM2BIN OP_CAT OP_ENDIF <approval3> OP_SIZE OP_0 OP_NUMEQUAL OP_IF OP_DROP OP_ELSE OP_ROT OP_SWAP OP_CAT OP_SWAP <3> OP_1 OP_NUM2BIN OP_CAT OP_ENDIF <approval4> OP_SIZE OP_0 OP_NUMEQUAL OP_IF OP_DROP OP_ELSE OP_ROT OP_SWAP OP_CAT OP_SWAP <4> OP_1 OP_NUM2BIN OP_CAT OP_ENDIF <approval5> OP_SIZE OP_0 OP_NUMEQUAL OP_IF OP_DROP OP_ELSE OP_ROT OP_SWAP OP_CAT OP_SWAP <5> OP_1 OP_NUM2BIN OP_CAT OP_ENDIF <approval6> OP_SIZE OP_0 OP_NUMEQUAL OP_IF OP_DROP OP_ELSE OP_ROT OP_SWAP OP_CAT OP_SWAP <6> OP_1 OP_NUM2BIN OP_CAT OP_ENDIF <approval7> OP_SIZE OP_0 OP_NUMEQUAL OP_IF OP_DROP OP_ELSE OP_ROT OP_SWAP OP_CAT OP_SWAP <7> OP_1 OP_NUM2BIN OP_CAT OP_ENDIF <approval8> OP_SIZE OP_0 OP_NUMEQUAL OP_IF OP_DROP OP_ELSE OP_ROT OP_SWAP OP_CAT OP_SWAP <8> OP_1 OP_NUM2BIN OP_CAT OP_ENDIF <approval9> OP_SIZE OP_0 OP_NUMEQUAL OP_IF OP_DROP OP_ELSE OP_ROT OP_SWAP OP_CAT OP_SWAP <9> OP_1 OP_NUM2BIN OP_CAT OP_ENDIF <approval10> OP_SIZE OP_0 OP_NUMEQUAL OP_IF OP_DROP OP_ELSE OP_ROT OP_SWAP OP_CAT OP_SWAP <10> OP_1 OP_NUM2BIN OP_CAT OP_ENDIF <approval11> OP_SIZE OP_0 OP_NUMEQUAL OP_IF OP_DROP OP_ELSE OP_ROT OP_SWAP OP_CAT OP_SWAP <11> OP_1 OP_NUM2BIN OP_CAT OP_ENDIF <approval12> OP_SIZE OP_0 OP_NUMEQUAL OP_IF OP_DROP OP_ELSE OP_ROT OP_SWAP OP_CAT OP_SWAP <12> OP_1 OP_NUM2BIN OP_CAT OP_ENDIF OP_NIP",
+    "rotateUnlock": "<$(approvalSigs)> <$(approvalRows)> <oldTable> OP_1 <0x3776009c63c076cd78c78876d178ce8876d278cf8876cc7cc602e80393a27767519dc000ce78ce527e88cf547f75810380510193b175516878009c63c0009d53798277549d57798277549d547982777657a269587981000000655a795379549554937f75537954957f77816e56799f937b757c5279785679a09372777b537a8b7c727b7552795579a2667655798c5296a1697855795296a1699353799f6900cf01117f5779a97888587981765379547f7581a06902605494b1757c5c7f75587f77818b548000ce01207f754f00655c79788b7f75787f77817c8b7c765379a0697672777b5b79780122957f7701227f75607953790140957f7553790140950140947f77014e527901217f777e5f797e011179557954957f755579549554947f777e527901217f75bb6d765879a2665b7a54797e547a7e5e7a7e577a51807ec4539d00cd00c78800d100ce8800d278567a7e88516576cd58798876d155798876d252798876cc0218039d8b7653a2660000656ec6937b757c8b76c3a26600cc7b02180a945200ca82779594a2696d6d6d6d6d6d6d51677c519dc0009d00cf01117f5379a978885479827776529555798277012296a069c4519d00d100ce8800d201117f7c547a88015200ce01207f757e537a7e00cd7e7c7e4f00655679788b7f75787f77817c8b7c765379a0697672777b587952790140957f7552790140950140947f775479587953790122957f7701217f75bb75765479a2660000656ec6937b757c8b76c3a26600cc7b02e803945200ca82779594a2696d6d6d6d755168>",
+    "newTableBytes": "<newTable> <\"\"> OP_SWAP OP_BEGIN OP_2 OP_SPLIT OP_ROT OP_ROT OP_1 OP_SPLIT <0x00> OP_CAT OP_BIN2NUM OP_DUP <58> OP_LESSTHAN OP_IF <48> OP_ELSE OP_DUP <97> OP_LESSTHAN OP_IF <55> OP_ELSE <87> OP_ENDIF OP_ENDIF OP_SUB OP_SWAP <0x00> OP_CAT OP_BIN2NUM OP_DUP <58> OP_LESSTHAN OP_IF <48> OP_ELSE OP_DUP <97> OP_LESSTHAN OP_IF <55> OP_ELSE <87> OP_ENDIF OP_ENDIF OP_SUB <16> OP_MUL OP_ADD <2> OP_NUM2BIN OP_1 OP_SPLIT OP_DROP OP_CAT OP_SWAP OP_SIZE OP_0 OP_NUMEQUAL OP_UNTIL OP_DROP",
+    "tail": "newTableBytes OP_HASH160",
+    "state": "<headCommitment.toBytes> <17> OP_SPLIT OP_DROP",
+    "oldTableHash": "<headCommitment.toBytes> <17> OP_SPLIT OP_NIP",
+    "nextCommitment": "state tail OP_CAT",
+    "nextCommitmentHex": "nextCommitment <\"\"> OP_SWAP OP_BEGIN OP_1 OP_SPLIT OP_ROT OP_ROT <0x00> OP_CAT OP_BIN2NUM OP_DUP <16> OP_DIV OP_DUP <10> OP_LESSTHAN OP_IF <48> OP_ELSE <87> OP_ENDIF OP_ADD <1> OP_NUM2BIN OP_SWAP <16> OP_MOD OP_DUP <10> OP_LESSTHAN OP_IF <48> OP_ELSE <87> OP_ENDIF OP_ADD <1> OP_NUM2BIN OP_CAT OP_CAT OP_SWAP OP_SIZE OP_0 OP_NUMEQUAL OP_UNTIL OP_DROP",
+    "approvalMessage": "<0x52> <category.toBytes> <\"\"> OP_SWAP OP_BEGIN OP_1 OP_SPLIT OP_ROT OP_ROT OP_SWAP OP_CAT OP_SWAP OP_SIZE OP_0 OP_NUMEQUAL OP_UNTIL OP_DROP OP_CAT oldTableHash OP_CAT <0xaa20a9f9c3bcf15f1fe97aa1ccbe13ea77cbf77fb5cdd0f20dde98798b9aaac0e87487> OP_CAT tail OP_CAT",
+    "approvalMessageHex": "approvalMessage <\"\"> OP_SWAP OP_BEGIN OP_1 OP_SPLIT OP_ROT OP_ROT <0x00> OP_CAT OP_BIN2NUM OP_DUP <16> OP_DIV OP_DUP <10> OP_LESSTHAN OP_IF <48> OP_ELSE <87> OP_ENDIF OP_ADD <1> OP_NUM2BIN OP_SWAP <16> OP_MOD OP_DUP <10> OP_LESSTHAN OP_IF <48> OP_ELSE <87> OP_ENDIF OP_ADD <1> OP_NUM2BIN OP_CAT OP_CAT OP_SWAP OP_SIZE OP_0 OP_NUMEQUAL OP_UNTIL OP_DROP"
+  },
+  "variables": {
+    "category": {
+      "name": "Category",
+      "description": "The oracle's category (display order).",
+      "type": "token_category"
+    },
+    "headCommitment": {
+      "name": "Head commitment",
+      "description": "The current head's 37-byte commitment: state (17) ‖ hash160(current table) (20).",
+      "type": "nft_commitment"
+    },
+    "headValue": {
+      "name": "Head value",
+      "description": "Satoshis held by the head (the reserve).",
+      "type": "satoshis"
+    },
+    "rotationFee": {
+      "name": "Fee",
+      "description": "Satoshis the reserve pays for this transaction: its size plus one. The covenant caps it at 1,000 + 2 × the unlocking data length.",
+      "type": "satoshis"
+    },
+    "oldTable": {
+      "name": "Current table",
+      "description": "The current table, n × (compressed pubkey 33 ‖ exchange id 1), hex. Must hash to the head's table hash.",
+      "type": "bytes"
+    },
+    "newTable": {
+      "name": "New table",
+      "description": "The proposed table, same layout, hex. Its hash160 becomes the head's new table hash.",
+      "type": "bytes"
+    },
+    "approval0": {
+      "name": "Approval of row 0",
+      "description": "64-byte Schnorr signature by row 0's key over the approval message, hex; empty when row 0 does not take part.",
+      "type": "bytes"
+    },
+    "approval1": {
+      "name": "Approval of row 1",
+      "description": "64-byte Schnorr signature by row 1's key over the approval message, hex; empty when row 1 does not take part.",
+      "type": "bytes"
+    },
+    "approval2": {
+      "name": "Approval of row 2",
+      "description": "64-byte Schnorr signature by row 2's key over the approval message, hex; empty when row 2 does not take part.",
+      "type": "bytes"
+    },
+    "approval3": {
+      "name": "Approval of row 3",
+      "description": "64-byte Schnorr signature by row 3's key over the approval message, hex; empty when row 3 does not take part.",
+      "type": "bytes"
+    },
+    "approval4": {
+      "name": "Approval of row 4",
+      "description": "64-byte Schnorr signature by row 4's key over the approval message, hex; empty when row 4 does not take part.",
+      "type": "bytes"
+    },
+    "approval5": {
+      "name": "Approval of row 5",
+      "description": "64-byte Schnorr signature by row 5's key over the approval message, hex; empty when row 5 does not take part.",
+      "type": "bytes"
+    },
+    "approval6": {
+      "name": "Approval of row 6",
+      "description": "64-byte Schnorr signature by row 6's key over the approval message, hex; empty when row 6 does not take part.",
+      "type": "bytes"
+    },
+    "approval7": {
+      "name": "Approval of row 7",
+      "description": "64-byte Schnorr signature by row 7's key over the approval message, hex; empty when row 7 does not take part.",
+      "type": "bytes"
+    },
+    "approval8": {
+      "name": "Approval of row 8",
+      "description": "64-byte Schnorr signature by row 8's key over the approval message, hex; empty when row 8 does not take part.",
+      "type": "bytes"
+    },
+    "approval9": {
+      "name": "Approval of row 9",
+      "description": "64-byte Schnorr signature by row 9's key over the approval message, hex; empty when row 9 does not take part.",
+      "type": "bytes"
+    },
+    "approval10": {
+      "name": "Approval of row 10",
+      "description": "64-byte Schnorr signature by row 10's key over the approval message, hex; empty when row 10 does not take part.",
+      "type": "bytes"
+    },
+    "approval11": {
+      "name": "Approval of row 11",
+      "description": "64-byte Schnorr signature by row 11's key over the approval message, hex; empty when row 11 does not take part.",
+      "type": "bytes"
+    },
+    "approval12": {
+      "name": "Approval of row 12",
+      "description": "64-byte Schnorr signature by row 12's key over the approval message, hex; empty when row 12 does not take part.",
+      "type": "bytes"
+    }
+  }
+}
