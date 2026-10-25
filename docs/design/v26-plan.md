@@ -320,7 +320,17 @@ one minute, longest gap three minutes).
 | operator | ticker.cash runs all 13 rows on one host (`deploy/systemd/`); the builder is the same daemon |
 | web | https://usd.ticker.cash serves `manifest.json` and `status.json`; pages read the head from Fulcrum over WSS and check the table hash |
 
-### 11.1 Cutover notes
+### 11.1 Live consumer test (13:21 UTC)
+
+`contracts/tools/live-consume.mjs` funded a `PriceGated` coin (strike $100, window ±5 minutes,
+`minK = 11`) in `1d750ea4baa01d33f2629923c9f22490a99f88db29f264c58c154a587414e7aa` (229 B) and
+released it in `3a35fd323c10a2772e06455f1edf9a4901a3b498e41536e075ec3d3f2868adc5` (622 B) against
+the Ticker of minute 29882240 (k = 13, $272.61), re-emitting the Ticker at output 1 with
+1,786 sats. Both were accepted by the chipnet node on first broadcast: P2S Ticker spend, toll, k
+gate and exact fees all hold on the real network. The re-emitted Ticker is recycled by an update
+once its minute is an hour behind median-time-past, carrying the toll into the reserve.
+
+### 11.2 Cutover notes
 
 * v25 units were stopped at 13:01 UTC; the v25 notary homes and manifest are archived under
   `~/archive/v25/`. The v25 head (category `16bc04ed…`) stays on chain, unspendable except through

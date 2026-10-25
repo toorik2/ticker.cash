@@ -34,6 +34,11 @@ Fee policy in the suite: exactly `size + 1` sat. Measured: update 1,936 B (k = 7
 (k = 8), 2,375 B (k = 13), 2,600 B (k = 13 with two recycled Tickers and a top-up); rotation
 1,637 B (7 approvals). Op-cost at k = 13: 619 k of 1,618 k.
 
+`tools/live-consume.mjs` exercises the consumer path on the deployed oracle: it funds a `PriceGated`
+coin from the operator key, then releases it by co-spending the newest Ticker with the toll.
+`node tools/live-consume.mjs --dry-run` builds without broadcasting. It reads
+`~/.ticker-node/operator.key` (or `TICKER_OPERATOR_KEY`) and never prints it.
+
 Constants shared with `node/core/src/lib.rs`: floor 7 rows, Ticker 786 sats, toll 1,000 sats,
 Ticker life 3,600 s, seq may lead median-time-past by 21,600 s, fee cap 1,000 sats + 2 per byte
 of the head input's unlocking data.
