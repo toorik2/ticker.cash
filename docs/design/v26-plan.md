@@ -330,7 +330,18 @@ the Ticker of minute 29882240 (k = 13, $272.61), re-emitting the Ticker at outpu
 gate and exact fees all hold on the real network. The re-emitted Ticker is recycled by an update
 once its minute is an hour behind median-time-past, carrying the toll into the reserve.
 
-### 11.2 Cutover notes
+### 11.2 First recycle (14:53 UTC)
+
+Update `7059b14cc311c6a2b06e6159d0d86aab781ff8fe94899ef070d6ee2abbce9e10` (minute 29882332,
+2,795 B) spent ten hour-old Tickers for 8,860 sats: nine at 786 and the consumer test's Ticker at
+1,786, toll included. Its locktime 1792938120 was the newest recycle time among them, against
+median-time-past 1792938246. The next update recycled four more and the reserve moved by 972 sats
+net: fee 2,544 plus two new Tickers minus 3,144 recycled. From here the reserve pays fees only, as
+designed. On ten-minute chipnet blocks the first recycle came 105 minutes after the first mint,
+the hour plus median-time-past's lag behind the clock; on one-minute blocks it will be close to
+an hour.
+
+### 11.3 Cutover notes
 
 * v25 units were stopped at 13:01 UTC; the v25 notary homes and manifest are archived under
   `~/archive/v25/`. The v25 head (category `16bc04ed…`) stays on chain, unspendable except through
