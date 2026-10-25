@@ -1,10 +1,12 @@
-//! ticker-notary — one row of the v26 oracle: a key and an exchange.
+//! ticker-notary — one row of the v27 oracle: a key and an exchange.
 //!
 //! Once a minute it fetches the pinned path from the pinned host over TLS (Mozilla roots), parses
-//! the pinned JSON field and signs the minute's statement
-//!   0x4e ‖ category(32, VM byte order) ‖ source(1) ‖ seq(4, u32 LE) ‖ price(8, u64 LE)
-//! at most once per Unix minute, while that minute is current on its own clock. Statements are
-//! served over a read-only HTTP API. The notary holds no funds.
+//! the pinned JSON field, converts the price to US cents and signs the minute's statement
+//!   0x4e ‖ source(1) ‖ timestamp(4, u32 LE) ‖ price(4, u32 LE)
+//! at most once per Unix minute, while that minute is current on its own clock. The timestamp is
+//! the start of the minute. A statement names no deployment: it is a public fact any oracle head
+//! that lists this key may consume. Statements are served over a read-only HTTP API. The notary
+//! holds no funds. Its category is used only for rotation approvals, which are per deployment.
 //!
 //! Files under `$TICKER_HOME` (default `~/.ticker-notary`):
 //!   notary.json      source, category, api address, operator, timing
@@ -30,7 +32,7 @@ use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 
-use ticker_core::commit::{current_minute, now_unix};
+use ticker_core::commit::{cents_from_1e8, current_minute, now_unix};
 use ticker_core::httpx::fetch_https;
 use ticker_core::keyfile::{generate_key_file, load_key, KeyMaterial};
 use ticker_core::sources::{source_by_id, Source};
@@ -77,7 +79,6 @@ struct Notary {
     cfg: Config,
     source: &'static Source,
     key: KeyMaterial,
-    category_vm: [u8; 32],
     home: PathBuf,
     issued: Mutex<BTreeMap<u32, Statement>>,
     started: Instant,
@@ -117,7 +118,7 @@ fn real_main() -> Result<()> {
         "sign-rotate" => sign_rotate(&home, &mut args),
         _ => {
             println!(
-                "ticker-notary v26\n  init --source S --category HEX --api HOST:PORT [--operator NAME] [--offset-ms 2000] [--timeout-s 12] [--retries 3]\n  run\n  pubkey\n  sign-rotate --old-table-hash HEX --next-lock HEX [--tail HEX]    print a rotation approval\nFiles live in --home or $TICKER_HOME (default ~/.ticker-notary)"
+                "ticker-notary v27\n  init --source S --category HEX --api HOST:PORT [--operator NAME] [--offset-ms 2000] [--timeout-s 12] [--retries 3]\n  run\n  pubkey\n  sign-rotate --old-table-hash HEX --next-lock HEX [--tail HEX]    print a rotation approval\nFiles live in --home or $TICKER_HOME (default ~/.ticker-notary)"
             );
             Ok(())
         }
@@ -166,10 +167,10 @@ fn run(home: &PathBuf) -> Result<()> {
     let cfg: Config = serde_json::from_str(&std::fs::read_to_string(home.join("notary.json")).context("notary.json")?)?;
     let source = source_by_id(cfg.source).ok_or_else(|| anyhow!("unknown source id {}", cfg.source))?;
     let key = load_key(home.join("notary.key"))?;
-    let category_vm = category_vm_from_display_hex(&cfg.category).ok_or_else(|| anyhow!("bad category"))?;
+    category_vm_from_display_hex(&cfg.category).ok_or_else(|| anyhow!("bad category"))?;
     let issued = load_issued(&home.join("statements.jsonl"));
     log_info!("notary start", "source" => source.name, "host" => source.host, "pubkey" => hex::encode(key.public_key), "issued_loaded" => issued.len());
-    let notary = Arc::new(Notary { cfg, source, key, category_vm, home: home.clone(), issued: Mutex::new(issued), started: Instant::now() });
+    let notary = Arc::new(Notary { cfg, source, key, home: home.clone(), issued: Mutex::new(issued), started: Instant::now() });
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
     rt.block_on(async move {
         let api_listener = TcpListener::bind(&notary.cfg.api).await.with_context(|| format!("bind {}", notary.cfg.api))?;
@@ -215,7 +216,7 @@ fn load_issued(path: &PathBuf) -> BTreeMap<u32, Statement> {
     if let Ok(text) = std::fs::read_to_string(path) {
         for line in text.lines() {
             if let Ok(st) = serde_json::from_str::<Statement>(line) {
-                map.insert(st.seq, st);
+                map.insert(st.minute(), st);
             }
         }
     }
@@ -265,13 +266,13 @@ async fn attempt_once(n: &Arc<Notary>, seq: u32) -> Result<Statement> {
     if resp.status != 200 {
         bail!("exchange answered {}", resp.status);
     }
-    let price = n.source.extract_price(&resp.body).context("price extraction")?;
+    let price = cents_from_1e8(n.source.extract_price(&resp.body).context("price extraction")?);
     let now = now_unix();
     let start = seq as u64 * 60;
     if now < start || now >= start + WINDOW_SECS {
         bail!("minute {seq} is no longer current (now {now})");
     }
-    let st = Statement::sign(&n.key.private_key, &n.category_vm, n.cfg.source, seq, price)?;
+    let st = Statement::sign(&n.key.private_key, n.cfg.source, seq * 60, price)?;
     let mut issued = n.issued.lock().await;
     if issued.contains_key(&seq) {
         bail!("minute {seq} already issued");
@@ -313,7 +314,7 @@ async fn api_handler(n: Arc<Notary>, req: Request<hyper::body::Incoming>) -> Res
             (
                 StatusCode::OK,
                 serde_json::json!({
-                    "version": 26,
+                    "version": 27,
                     "source": n.cfg.source,
                     "source_name": n.source.name,
                     "host": n.source.host,

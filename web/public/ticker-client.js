@@ -1,4 +1,4 @@
-/* ticker.cash v26 web client — manifest-driven, on-chain consumption only.
+/* ticker.cash v27 web client — manifest-driven, on-chain consumption only.
  *
  * The page loads /manifest.json (written by `ticker-node`) and derives everything it needs from
  * it: the head's P2SH-32 address, the Electrum scripthashes of the head lock and the Ticker lock,
@@ -6,7 +6,8 @@
  * Live head state is read straight from Fulcrum over WSS; notary health comes from /status.json,
  * which the operator daemon refreshes every 10 seconds.
  *
- * Commitments: head = seq u32 LE ‖ price u64 LE ‖ k u8 ‖ tableHash (33 B); Ticker = the first 13 B.
+ * Commitments: head = timestamp u32 LE ‖ messageSequence u32 LE ‖ dataSequence u32 LE ‖ price u32 LE (cents) ‖ k u8
+ * ‖ tableHash (37 B); Ticker = the first 17 B. The first 16 bytes are a General Protocols price message.
  */
 (function () {
   'use strict';
@@ -17,9 +18,9 @@
       { url: 'wss://chipnet.bch.ninja:50004', mode: 'poll', pollMs: 12000 },
     ],
     QUORUM: 7,
-    TICKER_SATS: 786,
+    TICKER_SATS: 792,
     TOLL_SATS: 1000,
-    TICKER_LIFE_SECS: 3600,
+    TICKER_LIFE_SECS: 86400,
     STALE_SEC: 180,
     STATUS_POLL_MS: 10000,
   };
@@ -115,21 +116,24 @@
   function p2sh32Address(prefix, lockHex) { return cashaddr(prefix, 0x0b, hexToBytes(lockHex).slice(2, 34)); }
 
   // ─── commit codecs ───────────────────────────────────────────────────
-  /** @returns {{seq:number, minuteStartUnix:number, price:bigint, priceUsd:number, k:number, keysToForge:number}|null} */
+  /** The 17-byte snapshot: a GP price message (timestamp, messageSequence, dataSequence, price in cents) plus k.
+   *  @returns {{ts:number, minuteStartUnix:number, seq:number, msgSeq:number, price:number, priceUsd:number, k:number, keysToForge:number}|null} */
   function decodeSnapshot(hex) {
-    if (!hex || hex.length < 26) return null;
-    const b = hexToBytes(hex.slice(0, 26));
+    if (!hex || hex.length < 34) return null;
+    const b = hexToBytes(hex.slice(0, 34));
     const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
-    const seq = dv.getUint32(0, true);
-    const price = dv.getBigUint64(4, true);
-    const k = b[12];
-    return { seq, minuteStartUnix: seq * 60, price, priceUsd: Number(price) / 1e8, k, keysToForge: keysToForge(k) };
+    const ts = dv.getUint32(0, true);
+    const msgSeq = dv.getUint32(4, true);
+    const seq = dv.getUint32(8, true);
+    const price = dv.getUint32(12, true);
+    const k = b[16];
+    return { ts, minuteStartUnix: ts, seq, msgSeq, price, priceUsd: price / 100, k, keysToForge: keysToForge(k) };
   }
   /** Head commitment: snapshot plus the notary table's hash160 (hex). */
   function decodeHeadCommit(hex) {
-    if (!hex || hex.length !== 66) return null;
+    if (!hex || hex.length !== 74) return null;
     const s = decodeSnapshot(hex);
-    return s ? { ...s, tableHash: hex.slice(26) } : null;
+    return s ? { ...s, tableHash: hex.slice(34) } : null;
   }
   /** Keys that must collude to write a minute signed by k rows: the lower median's rank plus one. */
   function keysToForge(k) { return k > 0 ? Math.floor((k - 1) / 2) + 1 : 0; }
@@ -139,7 +143,7 @@
     const res = await fetch(url, { cache: 'no-store' });
     if (!res.ok) throw new Error('manifest.json: HTTP ' + res.status);
     const m = await res.json();
-    if (m.version !== 26 || !m.category || !m.oracle_lock || !m.ticker_lock || !m.table_hash || !Array.isArray(m.table)) throw new Error('manifest.json: not a v26 manifest');
+    if (m.version !== 27 || !m.category || !m.oracle_lock || !m.ticker_lock || !m.table_hash || !Array.isArray(m.table)) throw new Error('manifest.json: not a v27 manifest');
     const prefix = m.network === 'mainnet' ? 'bitcoincash' : 'bchtest';
     const tableBytes = new Uint8Array(m.table.length * 34);
     m.table.forEach((r, i) => { tableBytes.set(hexToBytes(r.pubkey), i * 34); tableBytes[i * 34 + 33] = r.source; });
@@ -172,7 +176,7 @@
       if (!td || td.category !== category || !td.nft || td.nft.capability !== 'minting') continue;
       const d = decodeHeadCommit(td.nft.commitment);
       if (!d) continue;
-      if (!best || d.seq > best.commit.seq) best = { utxo: u, commit: d, reserveSats: BigInt(u.value) };
+      if (!best || d.seq > best.commit.seq || (d.seq === best.commit.seq && d.ts > best.commit.ts)) best = { utxo: u, commit: d, reserveSats: BigInt(u.value) };
     }
     return best;
   }
@@ -206,7 +210,7 @@
         this.ws = ws;
         this.backoffMs = 1000;
         this.setState('connected');
-        this.request('server.version', 'ticker-web/26', '1.4').catch(() => {});
+        this.request('server.version', 'ticker-web/27', '1.4').catch(() => {});
         for (const [key, w] of this.watches) this.arm(key, w);
         this.heartbeat();
       };

@@ -10,11 +10,14 @@ use std::time::Duration;
 use anyhow::{anyhow, bail, Context, Result};
 use ticker_core::commit::{now_unix, HeadCommit};
 use ticker_core::keyfile::load_key;
-use ticker_core::price::format_price_1e8;
 use ticker_core::statement::Statement;
 use ticker_core::tx::build::keys_to_forge;
 use ticker_core::tx::{build_update, P2pkhInput};
 use ticker_core::{log_info, log_warn, FEE_CAP_BASE_SATS, FEE_CAP_PER_UNLOCK_BYTE, MAX_RECYCLE_PER_UPDATE, QUORUM, TICKER_LIFE_SECS, TICKER_SATS, TOLL_SATS};
+
+fn usd(cents: u32) -> String {
+    format!("{}.{:02}", cents / 100, cents % 100)
+}
 
 use crate::{api, chain, Ctx};
 
@@ -23,16 +26,15 @@ const POLL: Duration = Duration::from_secs(2);
 const POST_AT_SEC: u64 = 20;
 const API_TIMEOUT: Duration = Duration::from_secs(3);
 
-/// Statements for minute `seq`: one per row, each verified against its row's key and source.
-async fn collect(ctx: &Ctx, seq: u32) -> Vec<Statement> {
+/// Statements for Unix minute `minute`: one per row, each verified against its row's key and source.
+async fn collect(ctx: &Ctx, minute: u32) -> Vec<Statement> {
     let mut tasks = Vec::new();
     for r in ctx.manifest.table.iter().cloned() {
         tasks.push(tokio::spawn(async move {
-            let res = api::get_json_opt::<Statement>(&r.api, &format!("/v1/statement?seq={seq}"), API_TIMEOUT).await;
+            let res = api::get_json_opt::<Statement>(&r.api, &format!("/v1/statement?seq={minute}"), API_TIMEOUT).await;
             (r, res)
         }));
     }
-    let cat_vm = ctx.manifest.category_vm();
     let mut out = Vec::new();
     for t in tasks {
         let Ok((row, res)) = t.await else { continue };
@@ -40,7 +42,7 @@ async fn collect(ctx: &Ctx, seq: u32) -> Vec<Statement> {
             Ok(None) => {} // notary up, nothing for this minute yet
             Ok(Some(st)) => {
                 let Some(pk) = row.pubkey_bytes() else { continue };
-                if st.seq != seq || st.source != row.source || !st.verify(&cat_vm, &pk) {
+                if st.ts != minute * 60 || st.source != row.source || !st.verify(&pk) {
                     log_warn!("statement rejected", "row" => row.row, "reason" => "signature, source or minute mismatch");
                     continue;
                 }
@@ -58,11 +60,11 @@ pub async fn build_once(ctx: &Ctx, topup_sats: Option<u64>) -> Result<Option<Str
         bail!("the head's table hash {} is not the manifest's; the table was rotated, rewrite manifest.json", hex::encode(head.commit.table_hash));
     }
     let now = now_unix();
-    let seq = (now / 60) as u32;
-    if head.commit.snapshot.seq >= seq {
+    let minute = (now / 60) as u32;
+    if head.commit.snapshot.ts >= minute * 60 {
         return Ok(None); // this minute is already on chain
     }
-    let statements = collect(ctx, seq).await;
+    let statements = collect(ctx, minute).await;
     let rows = ctx.manifest.table.len();
     if statements.len() < QUORUM {
         return Ok(None);
@@ -85,7 +87,7 @@ pub async fn build_once(ctx: &Ctx, topup_sats: Option<u64>) -> Result<Option<Str
     let built = build_update(&head, &table, &statements, &recycled, &topups)?;
     let txid = chain::broadcast(&ctx.manifest, built.raw.clone()).await.context("broadcast update")?;
     let c = HeadCommit::decode(&built.tx.outputs[0].token.as_ref().unwrap().commitment)?;
-    log_info!("update posted", "txid" => &txid, "seq" => seq, "k" => c.snapshot.k, "rows" => rows, "median" => format_price_1e8(c.snapshot.price), "size" => built.size, "fee" => built.fee,
+    log_info!("update posted", "txid" => &txid, "ts" => c.snapshot.ts, "seq" => c.snapshot.seq, "k" => c.snapshot.k, "rows" => rows, "median" => usd(c.snapshot.price), "size" => built.size, "fee" => built.fee,
         "recycled" => recycled.len(), "recycled_sats" => recycled.iter().map(|t| t.value).sum::<u64>(), "topups" => topups.len(), "reserve_after" => built.tx.outputs[0].value, "locktime" => built.tx.locktime, "mtp" => mtp);
     Ok(Some(txid))
 }
@@ -132,14 +134,14 @@ pub async fn status_json(ctx: &Ctx) -> serde_json::Value {
                 "up": info.is_some(),
                 "uptime_s": info.as_ref().and_then(|i| i["uptime_s"].as_u64()),
                 "issued": info.as_ref().and_then(|i| i["issued"].as_u64()),
-                "latest": latest.map(|st| serde_json::json!({ "seq": st.seq, "price": st.price, "price_usd": format_price_1e8(st.price) })),
+                "latest": latest.map(|st| serde_json::json!({ "ts": st.ts, "minute": st.minute(), "price": st.price, "price_usd": usd(st.price) })),
             }));
         }
     }
     rows.sort_by_key(|r| r["row"].as_u64().unwrap_or(99));
     let manifest_hash = ctx.manifest.table_hash_bytes();
     serde_json::json!({
-        "version": 26,
+        "version": 27,
         "generated_at": now_unix(),
         "network": ctx.manifest.network, "category": ctx.manifest.category,
         "oracle_lock": ctx.manifest.oracle_lock, "ticker_lock": ctx.manifest.ticker_lock, "table_hash": ctx.manifest.table_hash,
@@ -147,8 +149,8 @@ pub async fn status_json(ctx: &Ctx) -> serde_json::Value {
         "fee_cap": { "base_sats": FEE_CAP_BASE_SATS, "per_unlock_byte": FEE_CAP_PER_UNLOCK_BYTE },
         "tip": tip, "mtp": mtp,
         "head": head.as_ref().map(|h| serde_json::json!({
-            "seq": h.commit.snapshot.seq, "minute_start_unix": h.commit.snapshot.minute_start_unix(),
-            "price": h.commit.snapshot.price, "price_usd": format_price_1e8(h.commit.snapshot.price),
+            "ts": h.commit.snapshot.ts, "minute_start_unix": h.commit.snapshot.ts, "seq": h.commit.snapshot.seq,
+            "price": h.commit.snapshot.price, "price_usd": usd(h.commit.snapshot.price),
             "k": h.commit.snapshot.k, "keys_to_forge": if h.commit.snapshot.k > 0 { keys_to_forge(h.commit.snapshot.k as usize) } else { 0 },
             "table_hash": hex::encode(h.commit.table_hash), "table_matches_manifest": h.commit.table_hash == manifest_hash,
             "reserve_sats": h.value, "txid": hex::encode(h.outpoint.txid_be), "vout": h.outpoint.vout,
@@ -195,10 +197,11 @@ pub async fn status(ctx: Arc<Ctx>) -> Result<()> {
         Some(h) => {
             let s = h.commit.snapshot;
             println!(
-                "head  seq {} ({}Z) price {} k {} ({} keys to forge) reserve {} sats (~{} updates at 2,400 B) outpoint {}:{}",
+                "head  ts {} ({}Z) seq {} price {} k {} ({} keys to forge) reserve {} sats (~{} updates at 2,400 B) outpoint {}:{}",
+                s.ts,
+                fmt_minute(s.ts / 60),
                 s.seq,
-                fmt_minute(s.seq),
-                format_price_1e8(s.price),
+                usd(s.price),
                 s.k,
                 if s.k > 0 { keys_to_forge(s.k as usize) } else { 0 },
                 h.value,
@@ -217,7 +220,7 @@ pub async fn status(ctx: Arc<Ctx>) -> Result<()> {
         let latest = api::get_json_opt::<Statement>(&r.api, "/v1/latest", Duration::from_secs(4)).await;
         let name = ticker_core::sources::source_by_id(r.source).map(|s| s.label).unwrap_or("?");
         match (info, latest) {
-            (Ok(_), Ok(Some(st))) => println!("row {:>2} {:<12} {:<16} seq {} price {}", r.row, name, r.operator, st.seq, format_price_1e8(st.price)),
+            (Ok(_), Ok(Some(st))) => println!("row {:>2} {:<12} {:<16} ts {} price {}", r.row, name, r.operator, st.ts, usd(st.price)),
             (Ok(_), Ok(None)) => println!("row {:>2} {:<12} {:<16} up, no statement yet", r.row, name, r.operator),
             (Ok(_), Err(e)) => println!("row {:>2} {:<12} {:<16} up, bad answer ({e})", r.row, name, r.operator),
             (Err(e), _) => println!("row {:>2} {:<12} {:<16} DOWN ({e})", r.row, name, r.operator),

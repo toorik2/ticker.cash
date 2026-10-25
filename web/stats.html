@@ -90,25 +90,25 @@
   <div>usd.ticker.cash/stats · <span id="foot-net">chipnet</span> · client-side, no server-side API</div>
   <div><a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github</a></div>
 </div>
-<script src="/ticker-client.js?v=26"></script>
+<script src="/ticker-client.js?v=27"></script>
 <script>
 const { DEFAULTS, loadManifest, loadStatus, pickHead, ElectrumWS, measureRecentUpdates } = window.TickerClient;
 let head = null, status = null, costs = null, manifest = null;
 const fmtUsd = (n) => (n == null || !isFinite(n)) ? '—' : n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtAge = (s) => s == null ? '—' : s < 60 ? s + 's' : s < 3600 ? Math.floor(s/60) + 'm ' + String(s%60).padStart(2,'0') + 's' : s < 86400 ? Math.floor(s/3600) + 'h ' + String(Math.floor((s%3600)/60)).padStart(2,'0') + 'm' : Math.floor(s/86400) + 'd ' + Math.floor((s%86400)/3600) + 'h';
-const minuteStr = (seq) => new Date(seq * 60000).toISOString().slice(11, 16) + 'Z';
+const minuteStr = (ts) => new Date(ts * 1000).toISOString().slice(11, 16) + ' UTC';
 function render(){
   const now = Math.floor(Date.now()/1000);
-  const headSeq = head ? head.commit.seq : (status && status.head ? status.head.seq : 0);
+  const headTs = head ? head.commit.ts : (status && status.head ? status.head.ts : 0);
   const age = head ? Math.max(0, now - head.commit.minuteStartUnix) : null;
   const rows = status ? status.rows : [];
-  const current = rows.filter(r => r.latest && r.latest.seq >= headSeq).length;
+  const current = rows.filter(r => r.latest && r.latest.ts >= headTs).length;
   const upRows = rows.filter(r => r.up).length;
   const healthy = head && age < DEFAULTS.STALE_SEC && (rows.length === 0 || current >= DEFAULTS.QUORUM);
   const stripe = document.getElementById('stripe');
   stripe.className = 'stripe' + (healthy ? '' : ' warn');
   document.getElementById('s-label').textContent = head ? (healthy ? 'HEALTHY' : 'DEGRADED') : 'WAITING FOR HEAD';
-  document.getElementById('s-minute').textContent = head ? minuteStr(head.commit.seq) + ' · ' + fmtUsd(head.commit.priceUsd) : '—';
+  document.getElementById('s-minute').textContent = head ? minuteStr(head.commit.ts) + ' · ' + fmtUsd(head.commit.priceUsd) + ' · #' + head.commit.seq : '—';
   document.getElementById('s-age').textContent = age != null ? fmtAge(age) : '—';
   document.getElementById('s-age-m').classList.toggle('warn', age != null && age >= DEFAULTS.STALE_SEC);
   document.getElementById('s-k').textContent = head ? head.commit.k + ' / ' + (manifest ? manifest.table.length : rows.length) : '—';
@@ -123,12 +123,12 @@ function render(){
   tb.innerHTML = '';
   for (const r of rows) {
     const tr = document.createElement('tr');
-    const st = !r.up ? ['down', 'down'] : !r.latest ? ['lag', 'no statement'] : r.latest.seq >= headSeq ? ['ok', 'current'] : (headSeq - r.latest.seq <= 2 ? ['lag', 'behind ' + (headSeq - r.latest.seq)] : ['down', 'stalled']);
+    const st = !r.up ? ['down', 'down'] : !r.latest ? ['lag', 'no statement'] : r.latest.ts >= headTs ? ['ok', 'current'] : ((headTs - r.latest.ts) / 60 <= 2 ? ['lag', 'behind ' + ((headTs - r.latest.ts) / 60)] : ['down', 'stalled']);
     tr.innerHTML = `<td>${String(r.row).padStart(2,'0')}</td>
       <td>${r.label || r.source_name || '?'}${r.quote && r.quote !== 'usd' ? ' <span class="sub">' + r.quote.toUpperCase() + '-quoted</span>' : ''}<span class="sub">${r.host || ''}</span></td>
       <td>${r.operator || '—'}<span class="sub" title="${r.pubkey}">${r.pubkey ? r.pubkey.slice(0,10) + '…' : ''}</span></td>
-      <td class="r">${r.latest ? fmtUsd(r.latest.price / 1e8) : '—'}</td>
-      <td class="r">${r.latest ? minuteStr(r.latest.seq) : '—'}</td>
+      <td class="r">${r.latest ? fmtUsd(r.latest.price / 100) : '—'}</td>
+      <td class="r">${r.latest ? minuteStr(r.latest.ts) : '—'}</td>
       <td class="r">${r.issued != null ? r.issued.toLocaleString('en-US') : '—'}</td>
       <td class="r st ${st[0]}">${st[1]}</td>`;
     tb.appendChild(tr);

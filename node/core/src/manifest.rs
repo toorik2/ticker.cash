@@ -7,11 +7,13 @@
 //! a rotation the operator rewrites the table here and republishes.
 
 use crate::sources::source_by_id;
-use crate::tx::covenant::{oracle_lock, table_hash, ticker_lock};
+use crate::tx::covenant::{legacy, oracle_lock, table_hash, ticker_lock};
 use crate::{MAX_ROWS, QUORUM, TABLE_ENTRY_LEN};
 use serde::{Deserialize, Serialize};
 
-pub const MANIFEST_VERSION: u32 = 26;
+pub const MANIFEST_VERSION: u32 = 27;
+/// The previous generation; a manifest of this version is loaded only to migrate it.
+pub const LEGACY_MANIFEST_VERSION: u32 = 26;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TableRow {
@@ -45,9 +47,9 @@ pub struct Manifest {
     /// Token category, display order hex (64 chars).
     pub category: String,
     pub genesis_txid: String,
-    /// P2SH-32 locking bytecode of the head, hex (35 B). The same for every v26 deployment.
+    /// P2SH-32 locking bytecode of the head, hex (35 B). The same for every deployment of a version.
     pub oracle_lock: String,
-    /// P2S locking bytecode of Tickers, hex (57 B).
+    /// P2S locking bytecode of Tickers, hex (55 B).
     pub ticker_lock: String,
     /// hash160 of the table below, hex (40 chars): what the head commitment carries.
     pub table_hash: String,
@@ -61,8 +63,10 @@ pub enum ManifestError {
     Io(#[from] std::io::Error),
     #[error("manifest JSON: {0}")]
     Json(#[from] serde_json::Error),
-    #[error("manifest version {0} is not {MANIFEST_VERSION}")]
+    #[error("manifest version {0} is neither {MANIFEST_VERSION} nor {LEGACY_MANIFEST_VERSION}")]
     Version(u32),
+    #[error("manifest version {0} must be migrated first (ticker-node migrate)")]
+    Legacy(u32),
     #[error("table has {0} rows, expected {QUORUM}..={MAX_ROWS}")]
     Rows(usize),
     #[error("table row {0} out of order or duplicated")]
@@ -77,7 +81,7 @@ pub enum ManifestError {
     DuplicateSource(u8, u8),
     #[error("category is not 32 bytes of hex")]
     Category,
-    #[error("oracle_lock is not the v26 Oracle lock")]
+    #[error("oracle_lock is not the Oracle lock of this manifest's version")]
     OracleLock,
     #[error("ticker_lock does not match the compiled Ticker covenant")]
     TickerLock,
@@ -98,9 +102,11 @@ impl Manifest {
     }
 
     pub fn validate(&self) -> Result<(), ManifestError> {
-        if self.version != MANIFEST_VERSION {
-            return Err(ManifestError::Version(self.version));
-        }
+        let (expect_oracle, expect_ticker) = match self.version {
+            MANIFEST_VERSION => (oracle_lock(), ticker_lock()),
+            LEGACY_MANIFEST_VERSION => (legacy::oracle26_lock(), legacy::ticker26_lock()),
+            v => return Err(ManifestError::Version(v)),
+        };
         if self.network != "chipnet" && self.network != "mainnet" {
             return Err(ManifestError::Network);
         }
@@ -111,16 +117,33 @@ impl Manifest {
         if hex::decode(&self.category).map(|c| c.len() != 32).unwrap_or(true) {
             return Err(ManifestError::Category);
         }
-        if hex::encode(oracle_lock()) != self.oracle_lock {
+        if hex::encode(expect_oracle) != self.oracle_lock {
             return Err(ManifestError::OracleLock);
         }
-        if hex::encode(ticker_lock()) != self.ticker_lock {
+        if hex::encode(expect_ticker) != self.ticker_lock {
             return Err(ManifestError::TickerLock);
         }
         if hex::encode(table_hash(&self.table_bytes())) != self.table_hash {
             return Err(ManifestError::TableHash);
         }
         Ok(())
+    }
+
+    /// Refuse anything but the current version (everything except `migrate`).
+    pub fn require_current(&self) -> Result<(), ManifestError> {
+        if self.version != MANIFEST_VERSION {
+            return Err(ManifestError::Legacy(self.version));
+        }
+        Ok(())
+    }
+
+    /// Rewrite a v26 manifest as v27 after the migration transaction: new locks, same table.
+    pub fn migrated(&self) -> Manifest {
+        let mut m = self.clone();
+        m.version = MANIFEST_VERSION;
+        m.oracle_lock = hex::encode(oracle_lock());
+        m.ticker_lock = hex::encode(ticker_lock());
+        m
     }
 
     /// The table exactly as the covenant hashes it: rows in order, `pubkey ‖ source` each.
@@ -236,6 +259,20 @@ mod tests {
         let mut m = manifest(13);
         m.oracle_lock = "aa".repeat(35);
         assert!(matches!(m.validate(), Err(ManifestError::OracleLock)));
+        // a v26 manifest validates against the v26 locks and migrates to the v27 ones
+        let mut old = manifest(13);
+        old.version = LEGACY_MANIFEST_VERSION;
+        old.oracle_lock = hex::encode(legacy::oracle26_lock());
+        old.ticker_lock = hex::encode(legacy::ticker26_lock());
+        old.validate().unwrap();
+        assert!(matches!(old.require_current(), Err(ManifestError::Legacy(26))));
+        let new = old.migrated();
+        new.validate().unwrap();
+        new.require_current().unwrap();
+        assert_eq!(new.oracle_lock, hex::encode(oracle_lock()));
+        let mut bad = manifest(13);
+        bad.version = 25;
+        assert!(matches!(bad.validate(), Err(ManifestError::Version(25))));
         assert!(matches!(manifest(6).validate(), Err(ManifestError::Rows(6))));
         let mut m = manifest(13);
         m.table[5].source = 1;

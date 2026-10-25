@@ -5,7 +5,7 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="theme-color" content="#f3efe4" />
-<meta name="description" content="ticker.cash v26 reference: how thirteen notaries, one covenant and one transaction a minute produce a notarized BCH/USD price on Bitcoin Cash that says how many rows signed it; how to read it on chain; how to run a notary; how the rows govern the table." />
+<meta name="description" content="ticker.cash v27 reference: thirteen notaries, one covenant and one transaction a minute produce a notarized BCH/USD price on Bitcoin Cash, written as a General Protocols price message that also says how many rows signed it; how to read it on chain; how to run a notary; how the rows govern the table; how anyone instantiates an oracle." />
 <meta property="og:title" content="Ticker · Docs" />
 <meta property="og:type" content="website" />
 <meta property="og:url" content="https://usd.ticker.cash/docs" />
@@ -67,7 +67,7 @@
 </head>
 <body>
 <header class="head">
-  <div class="l"><a href="/">▌ TICKER</a> <span class="pair">docs · v26</span></div>
+  <div class="l"><a href="/">▌ TICKER</a> <span class="pair">docs · v27</span></div>
   <div class="r"><a href="/">home</a><a href="/docs" class="active">docs</a><a href="/stats">stats</a><a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github</a></div>
 </header>
 <div class="doc">
@@ -88,14 +88,14 @@
     </ol>
   </aside>
   <div class="main">
-    <div class="doc-meta"><span><b>ticker.cash</b> · reference</span><span>v26 · <span id="meta-net">chipnet</span></span></div>
-    <h1 class="doc-title">A notarized BCH/USD price that says how many rows stand behind it.</h1>
-    <p class="doc-lead">Thirteen notaries each fetch one exchange over TLS every minute and sign the price they saw. A 506-byte covenant checks seven or more of those signatures, takes the lower median, and writes it on chain together with the number of rows that signed, plus two Ticker NFTs any transaction can spend to read it. Nobody in the system chooses a number, and nobody chooses your trust level: the chain records how many rows backed each minute, and your contract sets the bar.</p>
+    <div class="doc-meta"><span><b>ticker.cash</b> · reference</span><span>v27 · <span id="meta-net">chipnet</span></span></div>
+    <h1 class="doc-title">A notarized BCH/USD price, written as a price message that says how many rows stand behind it.</h1>
+    <p class="doc-lead">Thirteen notaries each fetch one exchange over TLS every minute and sign the price they saw. A 518-byte covenant checks seven or more of those signatures, takes the lower median, and writes it on chain as a General Protocols price message followed by the number of rows that signed, plus two Ticker NFTs any transaction can spend to read it. Nobody in the system chooses a number, and nobody chooses your trust level: the chain records how many rows backed each minute, and your contract sets the bar. The notaries sign public facts, so anyone can run an oracle over them.</p>
 
     <section class="chapter" id="overview">
       <h2><span class="num">§01</span><span>Overview</span></h2>
-      <p>The oracle is a single CashTokens category on Bitcoin Cash. Its <b>head</b> is the category's minting NFT, held by the Oracle covenant. The head's 33-byte commitment is the whole state: the Unix minute of observation, the price, <b>k</b> (how many table rows signed), and the hash160 of the notary table. Every update spends the head and recreates it with a newer minute, minting two immutable <b>Tickers</b> that carry the first 13 bytes. Consumers spend a Ticker in their own transaction; the Ticker covenant makes them recreate it at the same index with a small toll, which chains their transaction to the update that minted it.</p>
-      <p>The only parties with keys are the <b>notaries</b>. Each is a key and an exchange: once a minute it opens its own TLS session to the pinned host, validates the certificate chain against the public roots, fetches the pinned path, parses the pinned JSON field, and signs a statement for that minute. It signs at most once per minute, only while that minute is current on its own clock, and holds no funds.</p>
+      <p>The oracle is a single CashTokens category on Bitcoin Cash. Its <b>head</b> is the category's minting NFT, held by the Oracle covenant. The head's 37-byte commitment is the whole state: a 16-byte <b>General Protocols price message</b> (the timestamp of the observed minute, the oracle's update counter twice, the price in US cents), then <b>k</b> (how many table rows signed), then the hash160 of the notary table. Every update spends the head and recreates it with a newer minute and a counter advanced by one, minting two immutable <b>Tickers</b> that carry the first 17 bytes. Consumers spend a Ticker in their own transaction; the Ticker covenant makes them recreate it at the same index with a small toll, which chains their transaction to the update that minted it.</p>
+      <p>The only parties with keys are the <b>notaries</b>. Each is a key and an exchange: once a minute it opens its own TLS session to the pinned host, validates the certificate chain against the public roots, fetches the pinned path, parses the pinned JSON field, converts the price to cents, and signs a statement for that minute. It signs at most once per minute, only while that minute is current on its own clock, and holds no funds. A statement names no deployment: it is a public fact, and any oracle head whose table lists that key may use it.</p>
       <p><b>Builders</b> (anyone) read the statements from the notaries' APIs and post updates; if two builders post the same minute, the network's first-seen rule picks one. The head carries a BCH reserve and pays its own fees, so building needs no coins. The same transaction <b>recycles</b> Tickers whose hour is up, so their dust and tolls return to the reserve. The <b>table is state, not code</b>: a majority of the current rows can replace it, move the head to a successor covenant, or retire it, without a new deployment.</p>
     </section>
 
@@ -103,10 +103,10 @@
       <h2><span class="num">§02</span><span>Trust model</span></h2>
       <h3>What consensus enforces</h3>
       <ul>
-        <li>At least <b>7 distinct table rows</b> signed the same <code>(category, exchange, minute, price)</code>; each signature is checked with <code>OP_CHECKDATASIG</code> against the pubkey in the table whose hash160 the head carries.</li>
-        <li>The value written is the <b>lower median</b> of those prices, and the commitment's <b>k</b> is exactly how many rows signed.</li>
-        <li>The minute strictly increases and may lead the chain's median-time-past by at most six hours. No block height, no relative lock anywhere.</li>
-        <li>The head, its category and minting capability survive; exactly two Tickers of 786 sats are minted with the same snapshot; every input's value returns to the reserve except the two Tickers and a fee of at most 1,000 sats plus two per byte of unlocking data.</li>
+        <li>At least <b>7 distinct table rows</b> signed the same <code>(exchange, minute, price)</code>; each signature is checked with <code>OP_CHECKDATASIG</code> against the pubkey in the table whose hash160 the head carries.</li>
+        <li>The value written is the <b>lower median</b> of those prices in cents, and the commitment's <b>k</b> is exactly how many rows signed.</li>
+        <li>The timestamp strictly increases and may lead the chain's median-time-past by at most six hours; the update counter advances by exactly one. No block height, no relative lock anywhere.</li>
+        <li>The head, its category and minting capability survive; exactly two Tickers of 792 sats are minted with the same snapshot; every input's value returns to the reserve except the two Tickers and a fee of at most 1,000 sats plus two per byte of unlocking data.</li>
         <li>The table changes only through <code>rotate()</code>, approved by a strict majority of the current rows.</li>
       </ul>
       <h3>Who must collude to forge a minute</h3>
@@ -125,11 +125,11 @@
       <p>A strict majority of the current rows (7 of 13). They can change the table, migrate the head to another covenant, or retire it to a plain key, and with it the reserve. Seven keys already control every minute, so governance adds no power that the price did not already grant; it is why the reserve is kept to a few weeks of fees. While ticker.cash runs all thirteen rows, the honest description is "one operator who cryptographically verified each exchange".</p>
       <h3>What nobody can do</h3>
       <ul>
-        <li>Post a statement for another deployment, minute or exchange: all three are in the signed message.</li>
+        <li>Post a statement for another minute or exchange: both are in the signed message. A statement is valid for every deployment on purpose: it is a fact, not a vote.</li>
         <li>Count a row twice: row indexes must be strictly ascending and inside the table.</li>
         <li>Claim more rows than signed: <code>k</code> is the length of the row list the signatures were checked against.</li>
         <li>Strand the head with a far-future minute: the minute is bound to chain time.</li>
-        <li>Keep a Ticker alive: its lifetime is keyed to its own minute, and only an update can destroy it. Burn one in an update: a consumer's re-emission must carry the same commitment and a toll.</li>
+        <li>Keep a Ticker alive past its day: its lifetime is keyed to its own timestamp, and only an update can destroy it. Burn one in an update: a consumer's re-emission must carry the same commitment and a toll.</li>
         <li>Forge Tickers: the category's only minting NFT is the head, and the covenant pins every output.</li>
       </ul>
       <div class="callout"><b>Time.</b> A Bitcoin-family covenant can prove "not before" but never "not after", so no oracle can prove freshness on chain. v26 does not pretend to: the minute is attested by the signing rows and bounded below by chain time; consumers judge freshness from the minute in the commitment.</div>
@@ -138,21 +138,21 @@
     <section class="chapter" id="minute">
       <h2><span class="num">§03</span><span>One minute</span></h2>
       <ol class="body">
-        <li>At second two of minute <code>m</code>, every notary fetches <code>GET &lt;pinned path&gt;</code> from its pinned host over its own TLS session, checks status <code>200</code>, extracts the price, confirms <code>m</code> is still current, and signs. A failed fetch is retried twice, six seconds apart, never past second 45. The statement is served at <code>GET /v1/statement?seq=m</code>.</li>
-        <li>A builder polls every row's API. As soon as all rows have signed <code>m</code>, or at second twenty with at least seven, it builds one transaction: input 0 the head, then up to ten Tickers whose minute is an hour behind median-time-past, then any top-up coins; output 0 the head with <code>m ‖ median ‖ k ‖ tableHash</code>, outputs 1 and 2 Tickers with <code>m ‖ median ‖ k</code>.</li>
+        <li>At second two of minute <code>m</code>, every notary fetches <code>GET &lt;pinned path&gt;</code> from its pinned host over its own TLS session, checks status <code>200</code>, extracts the price, rounds it to cents, confirms <code>m</code> is still current, and signs for timestamp <code>60m</code>. A failed fetch is retried twice, six seconds apart, never past second 45. The statement is served at <code>GET /v1/statement?seq=m</code>.</li>
+        <li>A builder polls every row's API. As soon as all rows have signed <code>m</code>, or at second twenty with at least seven, it builds one transaction: input 0 the head, then up to ten Tickers whose day is up by median-time-past, then any top-up coins; output 0 the head with <code>60m ‖ n+1 ‖ n+1 ‖ median ‖ k ‖ tableHash</code>, outputs 1 and 2 Tickers with the first 17 bytes.</li>
         <li>The transaction's locktime is set to the latest of <code>60m − 6 h</code> and the recycle times of the Tickers it spends; every input carries sequence <code>0xfffffffe</code>.</li>
         <li>On one-minute blocks the update lands in the next block. When a block is slow, the next minute's update spends the unconfirmed head.</li>
-        <li>Consumers spend Tickers and re-emit them with the toll. An hour after its minute, a Ticker is recycled by the next update and its sats return to the reserve.</li>
+        <li>Consumers spend Tickers and re-emit them with the toll. A day after its minute, a Ticker is recycled by the next update and its sats return to the reserve.</li>
       </ol>
     </section>
 
     <section class="chapter" id="statement">
       <h2><span class="num">§04</span><span>The messages</span></h2>
-      <pre><code>statement = 0x4e ‖ category(32, VM byte order) ‖ source(1) ‖ seq(4, u32 LE) ‖ price(8, u64 LE)     (46 B)
-approval  = 0x52 ‖ category(32) ‖ oldTableHash(20) ‖ nextLockingBytecode ‖ nextCommitment[13..]
+      <pre><code>statement = 0x4e ‖ source(1) ‖ timestamp(4, u32 LE) ‖ price(4, u32 LE)                 (10 B)
+approval  = 0x52 ‖ category(32) ‖ oldTableHash(20) ‖ nextLockingBytecode ‖ nextCommitment[17..]
 signature = Schnorr(secp256k1) over sha256(message)      (64 B; what OP_CHECKDATASIG verifies)
-price     = USD per BCH in 1e-8 units;  seq = floor(unix_time / 60)</code></pre>
-      <p>A statement names the exchange, not a table position: a notary is a key and a source, and the table may be rotated around it. The covenant rebuilds the message from its own token category (reversed display order), the source byte stored in the row's table entry, the sequence and the supplied price. Only the price and the signature travel in the transaction.</p>
+price     = US cents per BCH;  timestamp = 60 × floor(unix_time / 60), the start of the minute</code></pre>
+      <p>A statement names the exchange and nothing else: not a table position, not a deployment. It is a signed public fact, which is why a second oracle instance with its own category and reserve can consume the same statements; the suite demonstrates exactly that. The covenant rebuilds the message from the source byte stored in the row's table entry, the timestamp and the supplied price. Only the price and the signature travel in the transaction. Approvals bind the category: governance stays per instance.</p>
       <p>The table is <code>n × (pubkey 33 ‖ source 1)</code>, 442 bytes for thirteen rows. Every spend supplies it in full and the covenant checks its hash160 against the head's commitment. The manifest publishes it row by row with each notary's operator and API.</p>
     </section>
 
@@ -161,52 +161,53 @@ price     = USD per BCH in 1e-8 units;  seq = floor(unix_time / 60)</code></pre>
       <table>
         <thead><tr><th>Part</th><th>Bytes (k = 7 / 13)</th><th>Note</th></tr></thead>
         <tbody>
-          <tr><td>redeem script</td><td>567</td><td>506 B covenant + 57 B Ticker lock, pushed; identical for every deployment</td></tr>
+          <tr><td>redeem script</td><td>577</td><td>518 B covenant + 55 B Ticker lock, pushed; identical for every deployment</td></tr>
           <tr><td>notary table</td><td>445</td><td>13 × 34 B, pushed</td></tr>
           <tr><td>signatures</td><td>451 / 835</td><td>64 B each</td></tr>
-          <tr><td>prices</td><td>57 / 106</td><td>u64 1e-8 USD</td></tr>
-          <tr><td>rows, seq, claimed median, function selector</td><td>23 / 29</td><td></td></tr>
+          <tr><td>prices</td><td>29 / 53</td><td>u32 cents</td></tr>
+          <tr><td>rows, timestamp, claimed median, function selector</td><td>19 / 25</td><td></td></tr>
           <tr><td>input overhead</td><td>43</td><td>outpoint, sequence, varint</td></tr>
-          <tr><td>head output</td><td>112</td><td>P2SH-32 + 33-byte commitment</td></tr>
-          <tr><td>two Ticker outputs</td><td>228</td><td>114 B each, P2S, 786 sats each (the dust floor)</td></tr>
-          <tr><td>each recycled Ticker input</td><td>+ 43</td><td>returns 786 sats plus any tolls</td></tr>
-          <tr><td><b>total</b></td><td><b>1,936 / 2,375</b></td><td>fee is exactly size + 1 sat</td></tr>
+          <tr><td>head output</td><td>116</td><td>P2SH-32 + 37-byte commitment</td></tr>
+          <tr><td>two Ticker outputs</td><td>232</td><td>116 B each, P2S, 792 sats each (the dust floor)</td></tr>
+          <tr><td>each recycled Ticker input</td><td>+ 43</td><td>returns 792 sats plus any tolls</td></tr>
+          <tr><td><b>total</b></td><td><b>1,922 / 2,336</b></td><td>fee is exactly size + 1 sat</td></tr>
         </tbody>
       </table>
-      <p>The fee is exact because the transaction is fixed-width before it is built: the Oracle input carries no transaction signature and Schnorr signatures never vary in size. At one update a minute that is 0.028 to 0.034 BCH a day. The 2 × 786 sats parked in Tickers come back an hour later, so the reserve pays fees only.</p>
+      <p>The fee is exact because the transaction is fixed-width before it is built: the Oracle input carries no transaction signature and Schnorr signatures never vary in size. At one update a minute that is 0.028 to 0.034 BCH a day. The 2 × 792 sats parked in Tickers come back a day later, so the reserve pays fees only.</p>
     </section>
 
     <section class="chapter" id="covenant">
       <h2><span class="num">§06</span><span>The covenants</span></h2>
-      <p><code>Oracle.cash</code> (506 bytes, cashc 0.14, P2SH-32) has two functions. <code>update(table, seq, rows, prices, sigs, median)</code>:</p>
+      <p><code>Oracle.cash</code> (518 bytes, cashc 0.14, P2SH-32) has two functions. <code>update(table, ts, rows, prices, sigs, median)</code>:</p>
       <ol class="body">
-        <li>The head is input 0; <code>seq.length == 4</code>, <code>median.length == 8</code>, <code>k = rows.length ≥ 7</code>.</li>
+        <li>The head is input 0; <code>ts.length == 4</code>, <code>median.length == 4</code>, <code>k = rows.length ≥ 7</code>.</li>
         <li>Rank the claimed median: at most <code>(k−1)/2</code> prices below it, at most <code>k/2</code> above it, and it is one of them. That is the unique lower median for any k.</li>
-        <li><code>hash160(table) == commit[13..33)</code>; <code>int(seq) &gt; int(commit[0..4))</code>; <code>tx.time ≥ 60·seq − 21600</code>.</li>
-        <li>For each row: indexes strictly ascending; <code>entry = table[row]</code>; <code>checkDataSig(sig, 0x4e ‖ cat ‖ source ‖ seq ‖ price, pubkey)</code>.</li>
-        <li>Exactly three outputs. Output 0: same locking bytecode, same category with minting capability, commitment <code>seq ‖ median ‖ k ‖ tableHash</code>. Outputs 1 and 2: the Ticker lock, same category, immutable, <code>seq ‖ median ‖ k</code>, exactly 786 sats.</li>
-        <li><code>value(out0) ≥ Σ value(inputs) − 2·786 − 1000 − 2·len(unlocking data)</code>.</li>
+        <li><code>hash160(table) == commit[17..37)</code>; <code>int(ts) &gt; int(commit[0..4))</code>; <code>tx.time ≥ int(ts) − 21600</code>; <code>sequence = int(commit[8..12)) + 1</code>.</li>
+        <li>For each row: indexes strictly ascending; <code>entry = table[row]</code>; <code>checkDataSig(sig, 0x4e ‖ source ‖ ts ‖ price, pubkey)</code>.</li>
+        <li>Exactly three outputs. Output 0: same locking bytecode, same category with minting capability, commitment <code>ts ‖ sequence ‖ sequence ‖ median ‖ k ‖ tableHash</code>. Outputs 1 and 2: the Ticker lock, same category, immutable, the first 17 bytes, exactly 792 sats.</li>
+        <li><code>value(out0) ≥ Σ value(inputs) − 2·792 − 1000 − 2·len(unlocking data)</code>.</li>
       </ol>
-      <p><code>rotate(table, rows, sigs)</code>: the head is input 0; the table hashes to the commitment; <code>2·rows.length &gt; n</code>; exactly one output that keeps the category and minting capability and whose commitment starts with the current <code>seq ‖ price ‖ k</code>; every signer approved <code>0x52 ‖ cat ‖ tableHash ‖ out0.lockingBytecode ‖ out0.commitment[13..]</code>; the value rule as above without the Tickers.</p>
-      <p><code>Ticker.cash</code> (57 bytes, P2S): <code>consume()</code> recreates the Ticker at the same index with the same lock, category and commitment and at least 1,000 sats more; <code>recycle()</code> requires input 0 to be this category's minting head and <code>tx.time ≥ 60·seq + 3600</code> from its own commitment, and nothing else, so the NFT is burned.</p>
+      <p><code>rotate(table, rows, sigs)</code>: the head is input 0; the table hashes to the commitment; <code>2·rows.length &gt; n</code>; exactly one output that keeps the category and minting capability and whose commitment starts with the current 17-byte snapshot; every signer approved <code>0x52 ‖ cat ‖ tableHash ‖ out0.lockingBytecode ‖ out0.commitment[17..]</code>; the value rule as above without the Tickers. The live v27 head was reached this way from v26: a rotation into the new lock, carrying category, reserve, price and k.</p>
+      <p><code>Ticker.cash</code> (55 bytes, P2S): <code>consume()</code> recreates the Ticker at the same index with the same lock, category and commitment and at least 1,000 sats more; <code>recycle()</code> requires input 0 to be this category's minting head and <code>tx.time ≥ timestamp + 86400</code> from its own commitment, and nothing else, so the NFT is burned.</p>
       <p>Source, compiled artifacts and the VM test suite are in <code>contracts/</code> of the repository; the suite drives a forged transaction into every <code>require</code> and carries the red-team findings against v25 as negative tests.</p>
     </section>
 
     <section class="chapter" id="integrate">
       <h2><span class="num">§07</span><span>Integrate</span></h2>
       <h3>On chain</h3>
-      <p>Spend a Ticker as an input of your transaction and recreate it at the same output index with 1,000 sats more (<code>Ticker.consume</code> enforces lock, category, commitment and toll). Pin the category from the manifest, then read the commitment and <b>decide what k you accept</b>:</p>
+      <p>Spend a Ticker as an input of your transaction and recreate it at the same output index with 1,000 sats more (<code>Ticker.consume</code> enforces lock, category, commitment and toll). Pin the category from the manifest, then read the commitment and <b>decide what k you accept</b>. The first 16 bytes are laid out exactly like a General Protocols oracle message, so code that parses those parses a Ticker:</p>
       <pre><code>require(tx.inputs[1].tokenCategory == oracleCategoryVm);   // 32 bytes, reversed display id: an immutable NFT, never the head
-bytes c = tx.inputs[1].nftCommitment;                       // 13 bytes
-require(c.length == 13);
-int seq   = int(c.slice(0, 4));                             // Unix minute of observation
-int price = int(c.slice(4, 12));                            // USD per BCH × 1e8
-int k     = int(c.slice(12, 13));                           // rows that signed this minute
-require(seq &gt;= minSeq); require(seq &lt;= maxSeq);            // your freshness floor and ceiling
+bytes c = tx.inputs[1].nftCommitment;                       // 17 bytes
+require(c.length == 17);
+int t     = int(c.slice(0, 4));                             // timestamp: start of the observed minute
+int seq   = int(c.slice(8, 12));                            // the oracle's update counter (bytes 4..8 repeat it)
+int price = int(c.slice(12, 16));                           // US cents per BCH
+int k     = int(c.slice(16, 17));                           // rows that signed this minute
+require(t &gt;= minTime); require(t &lt;= maxTime);              // your freshness floor and ceiling
 require(k &gt;= 11);                                           // six keys to fool you; 13 for seven; 7 for four</code></pre>
-      <p>The reference consumer <code>contracts/PriceGated.cash</code> (51 bytes) does exactly this. Keep a <code>maxSeq</code> ceiling: without one, a counterparty can hold a Ticker and surface it later. For anything that lives longer than its tolerance window, settle in two steps: a claimant posts a Ticker, and during a short window anyone may override it with a Ticker of a newer minute.</p>
+      <p>The reference consumer <code>contracts/PriceGated.cash</code> (53 bytes) does exactly this. Keep a <code>maxTime</code> ceiling: without one, a counterparty can hold a Ticker and surface it later. Two consecutive Tickers have consecutive counters, which is what settlement contracts in the AnyHedge family check; a Ticker lives a day, so such a pair must be used within a day of the later one.</p>
       <h3>Off chain</h3>
-      <p>Everything a client needs is in <a href="/manifest.json"><code>/manifest.json</code></a>: category, head and Ticker locking bytecode, the table and its hash, and an Electrum pool. The head's current commitment is the minting NFT of the category at the head address; <code>blockchain.scripthash.listunspent</code> with <code>include_tokens</code> returns it. Every v26 oracle shares the head address, so filter by category. This page's <a href="/stats">stats</a> view is built on nothing else, and it checks the on-chain table hash against the manifest's.</p>
+      <p>Everything a client needs is in <a href="/manifest.json"><code>/manifest.json</code></a>: category, head and Ticker locking bytecode, the table and its hash, and an Electrum pool. The head's current commitment is the minting NFT of the category at the head address; <code>blockchain.scripthash.listunspent</code> with <code>include_tokens</code> returns it. Every v27 oracle shares the head address, so filter by category. This page's <a href="/stats">stats</a> view is built on nothing else, and it checks the on-chain table hash against the manifest's.</p>
     </section>
 
     <section class="chapter" id="notary">
@@ -216,7 +217,7 @@ require(k &gt;= 11);                                           // six keys to fo
     --category &lt;deployment category&gt; --api 0.0.0.0:7107 --operator "your name"   # source 14 = Gate.io
 ticker-notary --home ~/.ticker-notary-7 run          # systemd unit in deploy/systemd/
 ticker-notary --home ~/.ticker-notary-7 pubkey       # what goes into the table</code></pre>
-      <p>Joining is a table change: the current rows approve a table with your key and source (§09). Until then the useful thing to do is run the binary against the current category with your own key, publish your <code>/v1/info</code>, and show a month of statements that match the chain.</p>
+      <p>Joining this oracle's table is a table change: the current rows approve a table with your key and source (§09). But your statements are useful before that: they name no deployment, so anyone may genesis a head whose table lists your key, and a month of statements that match the exchanges is your track record. The same holds the other way round: anyone can run an oracle over any set of public notaries, with their own table and reserve, and nobody has to agree to it.</p>
     </section>
 
     <section class="chapter" id="governance">
@@ -230,7 +231,7 @@ ticker-notary --home ~/.ticker-notary-7 pubkey       # what goes into the table<
       <pre><code>ticker-node approval-request --table new-table.json          # prints old hash, next lock, tail
 ticker-notary --home ~/.ticker-notary-N sign-rotate --old-table-hash … --next-lock … --tail …  &gt; approvals/row-N.json
 ticker-node rotate --table new-table.json --approvals approvals/   # builds, broadcasts, rewrites manifest.json</code></pre>
-      <p>Approvals bind the old table hash, so they are valid only against the table they were written for. Never rotate back to a table that was used before: an old approval set for that exact transition would become valid again.</p>
+      <p>Approvals bind the old table hash, so they are valid only against the table they were written for. Never rotate back to a table that was used before: an old approval set for that exact transition would become valid again. The v26 to v27 upgrade was a migration of this kind: seven rows approved the v27 lock as the next locking bytecode, and the head moved with its category, reserve, price and k.</p>
     </section>
 
     <section class="chapter" id="reference">
@@ -239,18 +240,19 @@ ticker-node rotate --table new-table.json --approvals approvals/   # builds, bro
       <table>
         <tbody>
           <tr><td>rows / floor</td><td>13 / 7 (k is written; the bar is the consumer's)</td></tr>
-          <tr><td>median</td><td>lower median (unique for any k)</td></tr>
-          <tr><td>Tickers per update</td><td>2 × 786 sats, immutable, P2S; toll 1,000 sats per consume; recyclable an hour after their minute</td></tr>
+          <tr><td>median</td><td>lower median in US cents (unique for any k)</td></tr>
+          <tr><td>Tickers per update</td><td>2 × 792 sats, immutable, P2S; toll 1,000 sats per consume; recyclable a day after their timestamp</td></tr>
           <tr><td>fee cap</td><td>1,000 sats + 2 per byte of the head input's unlocking data (about 2× the honest fee)</td></tr>
           <tr><td>fee policy</td><td>exactly size + 1 sat</td></tr>
-          <tr><td>seq bound</td><td>60·seq − 21,600 ≤ locktime ≤ median-time-past</td></tr>
+          <tr><td>time bound</td><td>timestamp − 21,600 ≤ locktime ≤ median-time-past; counter +1 per update</td></tr>
           <tr><td>statement window</td><td>a notary signs minute m only while 60m ≤ now &lt; 60m + 90 s, once</td></tr>
           <tr><td>governance</td><td>strict majority of current rows</td></tr>
         </tbody>
       </table>
       <h3>Commitments</h3>
-      <pre><code>head   (33 B):  seq u32 LE [4] ‖ price u64 LE [8] ‖ k u8 [1] ‖ tableHash [20]
-Ticker (13 B):  seq u32 LE [4] ‖ price u64 LE [8] ‖ k u8 [1]</code></pre>
+      <pre><code>Ticker (17 B):  timestamp u32 LE [4] ‖ messageSequence u32 LE [4] ‖ dataSequence u32 LE [4] ‖ price u32 LE [4] ‖ k u8 [1]
+head   (37 B):  Ticker ‖ tableHash [20]
+bytes 0..16 are a General Protocols price-oracle message (little-endian signed ints, price in cents)</code></pre>
       <h3>Exchanges</h3>
       <p>The source byte in every statement names an entry of an append-only registry (<code>node/core/src/sources.rs</code>): host, path and the JSON field the notary signs. An id is never redefined; replacing an exchange means a new id and a table change. Ids 4 (Binance.US), 8 (EXMO) and 9 (Independent Reserve) were retired on 2026-10-24 when their BCH/USD markets went quiet. Six rows quote USD, three USDC, four USDT, so a single stablecoin losing its peg leaves at least seven unaffected rows.</p>
       <table>
@@ -288,25 +290,29 @@ Ticker (13 B):  seq u32 LE [4] ‖ price u64 LE [8] ‖ k u8 [1]</code></pre>
     <section class="chapter" id="faq">
       <h2><span class="num">§11</span><span>FAQ</span></h2>
       <h3>Why write k instead of requiring more rows?</h3>
-      <p>Because with thirteen rows you cannot have both full outage tolerance and full forgery resistance in the same minute, and the builder's choice of statements is invisible to the chain. v25 required seven and treated every minute as a seven; v26 keeps the floor at seven so the oracle stays live with six rows down, and writes the real count so a reader who needs eleven or thirteen can insist on it.</p>
+      <p>Because with thirteen rows you cannot have both full outage tolerance and full forgery resistance in the same minute, and the builder's choice of statements is invisible to the chain. v25 required seven and treated every minute as a seven; since v26 the floor stays at seven so the oracle stays live with six rows down, and the real count is written so a reader who needs eleven or thirteen can insist on it.</p>
       <h3>What if three rows are down for a day?</h3>
-      <p>The oracle keeps writing minutes with k = 10. A consumer that insists on k ≥ 11 waits; one happy with k ≥ 7 continues. No arrangement of thirteen rows avoids that choice; v26 makes it the reader's.</p>
+      <p>The oracle keeps writing minutes with k = 10. A consumer that insists on k ≥ 11 waits; one happy with k ≥ 7 continues. No arrangement of thirteen rows avoids that choice; the oracle makes it the reader's.</p>
       <h3>Why does the notary fetch the exchange itself instead of using TLSNotary?</h3>
-      <p>Because the chain trusts the notary's key either way. In v25 the notary was the TLSNotary verifier of a session a third party drove; what consumers trusted was still the notary's signature. Fetching directly gives the same guarantee (certificate validation against public roots) with one dependency fewer, no session to open, and a fetch that takes under a second instead of a proving round that sometimes ran past the minute.</p>
+      <p>Because the chain trusts the notary's key either way. In v25 the notary was the TLSNotary verifier of a session a third party drove; what consumers trusted was still the notary's signature. Fetching directly gives the same guarantee (certificate validation against public roots) with one dependency fewer, no session to open, and a fetch that takes well under a second.</p>
+      <h3>Why is the snapshot a General Protocols message?</h3>
+      <p>Because it costs nothing and removes a translation layer. GP's Oracles.cash is what AnyHedge and BCH Bull read: one key signs a 16-byte message a minute, price in cents. Our Ticker carries the same 16 bytes, verified by consensus instead of a key, followed by k. Anything that parses their messages parses ours. What a Ticker cannot do is produce their key's signature, so contracts that verify that signature need a one-line change to accept a Ticker input instead.</p>
+      <h3>Can I run my own oracle over these notaries?</h3>
+      <p>Yes. Statements are signed facts that name no deployment. Genesis a head with your own reserve and a table listing any notaries' keys (ours, yours, a mix), run a builder, and you have an oracle with its own category that your consumers can pin. The notaries never need to know. Your instance's governance is its own rows.</p>
       <h3>Why can't the chain check that the minute is fresh?</h3>
-      <p>Because a valid transaction must stay valid forever; consensus can bound time from below (locktimes) but never from above. v26 uses the lower bound to stop a far-future minute, and leaves freshness to the reader.</p>
+      <p>Because a valid transaction must stay valid forever; consensus can bound time from below (locktimes) but never from above. v27 uses the lower bound to stop a far-future minute, and leaves freshness to the reader.</p>
       <h3>Who pays?</h3>
-      <p>The head. Each update spends the exact fee from its reserve and parks 2 × 786 sats in Tickers, which come back an hour later; consumers add 1,000 sats to every Ticker they use, which comes back with it. Anyone can top the reserve up by adding a coin to an update.</p>
+      <p>The head. Each update spends the exact fee from its reserve and parks 2 × 792 sats in Tickers, which come back a day later; consumers add 1,000 sats to every Ticker they use, which comes back with it. Anyone can top the reserve up by adding a coin to an update.</p>
       <h3>Is this real money?</h3>
       <p>The live deployment is on chipnet, Bitcoin Cash's six-months-early test network. Mainnet follows once independent notaries hold rows.</p>
     </section>
   </div>
 </div>
 <div class="foot" style="max-width:1180px;margin:3rem auto 0;padding:0.8rem 1.75rem 1.5rem">
-  <div>usd.ticker.cash/docs · v26</div>
+  <div>usd.ticker.cash/docs · v27</div>
   <div><a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github</a></div>
 </div>
-<script src="/ticker-client.js?v=26"></script>
+<script src="/ticker-client.js?v=27"></script>
 <script>
 (async () => {
   try {

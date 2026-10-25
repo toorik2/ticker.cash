@@ -1,9 +1,9 @@
-//! ticker.cash v26 — a notarized BCH/USD price feed whose chain state is one 33-byte commitment.
+//! ticker.cash v27 — a notarized BCH/USD price feed whose chain state is one 37-byte commitment.
 //!
 //! Module map:
 //!   crypto     — sha256 / hash160, secp256k1 keys, BCH Schnorr (CHIP-2019-05) sign + verify
-//!   commit     — the 13-byte snapshot (seq ‖ price ‖ k) and the 33-byte head commitment (‖ tableHash)
-//!   statement  — the 46-byte notary message, the signed Statement, and rotation Approvals
+//!   commit     — the 17-byte snapshot (a General Protocols price message ‖ k) and the 37-byte head commitment (‖ tableHash)
+//!   statement  — the 42-byte notary message, the signed Statement, and rotation Approvals
 //!   price      — exact decimal parsing (no floats) of exchange price strings
 //!   sources    — the append-only exchange registry: host, path, JSON pointer per source id
 //!   httpx      — HTTPS GET with Mozilla roots (the notary's fetch) and HTTP/1.1 parsing
@@ -13,12 +13,13 @@
 //!   manifest   — the public deployment manifest (category, locks, notary table)
 //!   logging    — JSON-per-line structured stdout
 //!
-//! Design rules carried by this crate (see docs/design/v26-plan.md):
+//! Design rules carried by this crate (see docs/design/v27-plan.md):
 //!   * The Oracle covenant reads its own input, the values of all inputs and its own outputs.
-//!     Time is the Unix minute the notaries signed; the chain enforces `seq > previous` and that a
-//!     minute leads median-time-past by at most six hours.
+//!     Time is the start of the Unix minute the notaries signed; the chain enforces that it
+//!     increases, that it leads median-time-past by at most six hours, and that the update counter
+//!     advances by exactly one.
 //!   * Fees are exactly `size + 1` sat. Every update is fixed-width before it is built.
-//!   * The Ticker value is the exact dust floor (786 sats) and is pinned by the covenant.
+//!   * The Ticker value is the exact dust floor (792 sats) and is pinned by the covenant.
 //!   * `k`, the number of rows that signed, is written into every commitment: the floor is 7, the
 //!     bar is the consumer's.
 
@@ -38,12 +39,16 @@ pub mod tx;
 pub const QUORUM: usize = 7;
 /// Ticker outputs per update (covenant literal).
 pub const TICKERS_PER_UPDATE: usize = 2;
-/// Ticker value: the dust floor of a 114-byte P2S token output, 3 × (114 + 148), pinned exactly.
-pub const TICKER_SATS: u64 = 786;
+/// Ticker value: the dust floor of a 116-byte P2S token output, 3 × (116 + 148), pinned exactly.
+pub const TICKER_SATS: u64 = 792;
+/// The v26 Ticker value, still met at the v26 Ticker lock until those Tickers are recycled.
+pub const LEGACY_TICKER_SATS: u64 = 786;
 /// A consumer adds at least this many sats to a Ticker it re-emits (`Ticker.consume`).
 pub const TOLL_SATS: u64 = 1_000;
-/// A Ticker may be recycled once its minute is this old by median-time-past (`Ticker.recycle`).
-pub const TICKER_LIFE_SECS: u64 = 3_600;
+/// A Ticker may be recycled once its timestamp is this old by median-time-past (`Ticker.recycle`).
+pub const TICKER_LIFE_SECS: u64 = 86_400;
+/// The v26 Ticker lifetime (its commitment carries a minute, not a timestamp).
+pub const LEGACY_TICKER_LIFE_SECS: u64 = 3_600;
 /// An update's minute may lead median-time-past by at most this much (`Oracle.update`).
 pub const SEQ_AHEAD_SECS: u64 = 21_600;
 /// Fee cap an update or rotation may draw: base plus per byte of the head input's unlocking data.

@@ -1,23 +1,29 @@
 pragma cashscript >= 0.14.0;
 
-// Oracle v26 — the head of a notarized BCH/USD price feed. One minting NFT; its commitment is
-// the whole state (33 bytes):
+// Oracle v27 — the head of a notarized BCH/USD price feed. One minting NFT; its commitment is
+// the whole state (37 bytes):
 //
-//   seq(4, u32 LE)   the Unix minute the notaries observed in; strictly increasing
-//   price(8, u64 LE) lower median of the included statements, 1e-8 USD per BCH
-//   k(1)             how many table rows signed this minute: the reader's own trust bar
-//   tableHash(20)    hash160 of the notary table, n × (pubkey 33 ‖ source 1); every spend
-//                    supplies the table in full
+//   timestamp(4)        start of the Unix minute the rows observed in; strictly increasing
+//   messageSequence(4)  equal to dataSequence
+//   dataSequence(4)     the oracle's update counter, +1 per update, set by this covenant
+//   price(4)            lower median of the included statements, US cents per BCH
+//   k(1)                how many table rows signed this minute: the reader's own trust bar
+//   tableHash(20)       hash160 of the notary table, n × (pubkey 33 ‖ source 1); every spend
+//                       supplies the table in full
 //
-// The oracle's identity is its token category. The table is state, not code: a majority of the
-// current rows can replace it, move the head to a successor covenant, or retire it, through
-// rotate(). Nothing else about a deployment is fixed at genesis, and this script is the same
-// for every deployment.
+// The first 16 bytes are a General Protocols price-oracle message, little-endian signed ints, so
+// any reader of that format reads a Ticker as a price message; the signature is consensus. The
+// oracle's identity is its token category. The table is state, not code: a majority of current
+// rows can replace it, move the head to a successor covenant, or retire it, through rotate().
+// This script is the same for every deployment.
 //
 // Statement signed by a notary (BCH Schnorr data signature; never stored on chain):
-//   0x4e ‖ category(32, VM byte order) ‖ source(1) ‖ seq(4) ‖ price(8)                (46 B)
+//   0x4e ‖ source(1) ‖ timestamp(4) ‖ price(4)                                          (10 B)
+// A statement names no deployment: it is a public fact about one exchange at one minute, and any
+// head whose table lists the signing key may consume it. That is what lets anyone instantiate an
+// oracle over public notaries. Governance approvals, by contrast, bind the category.
 // Rotation approval signed by a row:
-//   0x52 ‖ category(32) ‖ oldTableHash(20) ‖ nextLockingBytecode ‖ nextCommitment[13..]
+//   0x52 ‖ category(32) ‖ oldTableHash(20) ‖ nextLockingBytecode ‖ nextCommitment[17..]
 //
 // The Oracle reads its own input, the values of all inputs, and its own outputs. It never
 // introspects a foreign input's script or token.
@@ -25,12 +31,12 @@ contract Oracle(bytes tickerLock) {
     // Post a minute. Input 0 is the head; any further inputs are Tickers being recycled or coins
     // topping the reserve up; their value flows into output 0 less a bounded fee.
     //   rows    k × 1 B table row indexes, strictly ascending (distinct and inside the table)
-    //   prices  k × 8 B, one per row, same order; sigs k × 64 B, same order
-    //   median  the claimed lower median, 8 B
-    function update(bytes table, bytes seq, bytes rows, bytes prices, bytes sigs, bytes median) {
+    //   prices  k × 4 B cents, one per row, same order; sigs k × 64 B, same order
+    //   median  the claimed lower median, 4 B
+    function update(bytes table, bytes ts, bytes rows, bytes prices, bytes sigs, bytes median) {
         require(this.activeInputIndex == 0);
-        require(seq.length == 4);
-        require(median.length == 8);
+        require(ts.length == 4);
+        require(median.length == 4);
         int k = rows.length;
         require(k >= 7);
 
@@ -41,7 +47,7 @@ contract Oracle(bytes tickerLock) {
         int upper = 0;
         int lower = 0;
         do {
-            int p = int(prices.slice(i * 8, i * 8 + 8));
+            int p = int(prices.slice(i * 4, i * 4 + 4));
             lower = lower + int(p < med);
             upper = upper + int(p > med);
             i = i + 1;
@@ -50,19 +56,19 @@ contract Oracle(bytes tickerLock) {
         require(upper <= k / 2);
         require(lower + upper < k);
 
-        bytes state, bytes tableHash = tx.inputs[0].nftCommitment.split(13);
+        bytes state, bytes tableHash = tx.inputs[0].nftCommitment.split(17);
         require(hash160(table) == tableHash);
-        int s = int(seq);
-        require(s > int(state.split(4)[0]));
+        int t = int(ts);
+        require(t > int(state.split(4)[0]));
         // The minute may lead chain time (median-time-past) by at most six hours, so no coalition
-        // can post a far-future seq and strand the head. A time-mode locktime: Faster Blocks
+        // can post a far-future minute and strand the head. A time-mode locktime: Faster Blocks
         // leaves it untouched.
-        require(tx.time >= s * 60 - 21600);
+        require(tx.time >= t - 21600);
+        bytes sequence = toPaddedBytes(int(state.slice(8, 12)) + 1, 4);
 
         // Every included statement verifies against its row's key, over the source byte that row
-        // is pinned to, this seq and its price.
+        // is pinned to, this minute's timestamp and its price.
         bytes cat = tx.inputs[0].tokenCategory.split(32)[0];
-        bytes prefix = 0x4e + cat;
         int prev = -1;
         int j = 0;
         do {
@@ -71,10 +77,10 @@ contract Oracle(bytes tickerLock) {
             require(r > prev);
             prev = r;
             bytes entry = table.split(r * 34)[1].split(34)[0];
-            require(checkDataSig(datasig(sigs.slice(j * 64 - 64, j * 64)), prefix + entry.split(33)[1] + seq + prices.slice(j * 8 - 8, j * 8), pubkey(entry.split(33)[0])));
+            require(checkDataSig(datasig(sigs.slice(j * 64 - 64, j * 64)), 0x4e + entry.split(33)[1] + ts + prices.slice(j * 4 - 4, j * 4), pubkey(entry.split(33)[0])));
         } while (j < k);
 
-        bytes snapshot = seq + median + toPaddedBytes(k, 1);
+        bytes snapshot = ts + sequence + sequence + median + toPaddedBytes(k, 1);
         require(tx.outputs.length == 3);
         require(tx.outputs[0].lockingBytecode == tx.inputs[0].lockingBytecode);
         require(tx.outputs[0].tokenCategory == tx.inputs[0].tokenCategory);
@@ -84,11 +90,11 @@ contract Oracle(bytes tickerLock) {
             require(tx.outputs[o].lockingBytecode == tickerLock);
             require(tx.outputs[o].tokenCategory == cat);
             require(tx.outputs[o].nftCommitment == snapshot);
-            require(tx.outputs[o].value == 786);
+            require(tx.outputs[o].value == 792);
             o = o + 1;
         } while (o < 3);
 
-        // Everything that came in returns to the reserve except the two Tickers (2 × 786) and a
+        // Everything that came in returns to the reserve except the two Tickers (2 × 792) and a
         // fee of at most 1,000 sats plus two per byte of this input's unlocking data. Honest
         // builders pay exactly size + 1.
         int total = 0;
@@ -97,22 +103,22 @@ contract Oracle(bytes tickerLock) {
             total = total + tx.inputs[n].value;
             n = n + 1;
         } while (n < tx.inputs.length);
-        require(tx.outputs[0].value >= total - 2572 - 2 * tx.inputs[0].unlockingBytecode.length);
+        require(tx.outputs[0].value >= total - 2584 - 2 * tx.inputs[0].unlockingBytecode.length);
     }
 
     // Governance by the rows: a majority of the current table signs the next locking bytecode and
     // the next commitment tail. The same script with a new tableHash is a table change; another
-    // script is a migration; a plain P2PKH is retirement. seq, price and k carry over unchanged.
+    // script is a migration; a plain P2PKH is retirement. The 17-byte state carries over unchanged.
     function rotate(bytes table, bytes rows, bytes sigs) {
         require(this.activeInputIndex == 0);
-        bytes state, bytes tableHash = tx.inputs[0].nftCommitment.split(13);
+        bytes state, bytes tableHash = tx.inputs[0].nftCommitment.split(17);
         require(hash160(table) == tableHash);
         int k = rows.length;
         require(k * 2 > table.length / 34);
 
         require(tx.outputs.length == 1);
         require(tx.outputs[0].tokenCategory == tx.inputs[0].tokenCategory);
-        bytes nextState, bytes tail = tx.outputs[0].nftCommitment.split(13);
+        bytes nextState, bytes tail = tx.outputs[0].nftCommitment.split(17);
         require(nextState == state);
         bytes approval = 0x52 + tx.inputs[0].tokenCategory.split(32)[0] + tableHash + tx.outputs[0].lockingBytecode + tail;
 

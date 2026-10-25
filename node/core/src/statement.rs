@@ -1,31 +1,32 @@
 //! Notary statements and rotation approvals: the two messages a table key ever signs.
 //!
 //! ```text
-//!   statement = 0x4e ‖ category(32, VM byte order) ‖ source(1) ‖ seq(4 LE) ‖ price(8 LE)     (46 B)
-//!   approval  = 0x52 ‖ category(32) ‖ oldTableHash(20) ‖ nextLockingBytecode ‖ nextCommitment[13..]
+//!   statement = 0x4e ‖ source(1) ‖ timestamp(4 LE) ‖ price(4 LE, cents)                                 (10 B)
+//!   approval  = 0x52 ‖ category(32) ‖ oldTableHash(20) ‖ nextLockingBytecode ‖ nextCommitment[17..]
 //!   sig       = BCH Schnorr over sha256(message)            (OP_CHECKDATASIG hashes the message)
 //! ```
 //!
-//! A statement names the exchange (source id), not a table position: a notary is a key and a
-//! source, and the table may be rotated around it. The covenant rebuilds the message from its own
-//! token category, the source byte stored in the row's table entry, the sequence and the supplied
-//! price; only the price and the signature travel in the transaction.
+//! A statement names the exchange (source id) and nothing else: not a table position, and not a
+//! deployment. It is a public fact, "this exchange said this price at this minute", signed by a
+//! key, and any head whose table lists that key may consume it. That is what lets anyone
+//! instantiate an oracle over public notaries. The timestamp is the start of the observed minute;
+//! the price is US cents per BCH. The covenant rebuilds the message from the source byte stored in
+//! the row's table entry, the timestamp and the supplied price; only the price and the signature
+//! travel in the transaction. Approvals, by contrast, bind the category: governance is per instance.
 
 use crate::crypto::{schnorr_sign, schnorr_verify, sha256, KeyError};
 use crate::{APPROVAL_TAG, STATEMENT_TAG};
 use serde::{Deserialize, Serialize};
 
-pub const MESSAGE_LEN: usize = 1 + 32 + 1 + 4 + 8;
+pub const MESSAGE_LEN: usize = 1 + 1 + 4 + 4;
 
-/// Build the statement message. `category_vm` is the category in VM byte order, i.e. the display
-/// id reversed (what `tx.inputs[0].tokenCategory.split(32)[0]` yields on chain).
-pub fn message(category_vm: &[u8; 32], source: u8, seq: u32, price: u64) -> [u8; MESSAGE_LEN] {
+/// Build the statement message.
+pub fn message(source: u8, ts: u32, price: u32) -> [u8; MESSAGE_LEN] {
     let mut m = [0u8; MESSAGE_LEN];
     m[0] = STATEMENT_TAG;
-    m[1..33].copy_from_slice(category_vm);
-    m[33] = source;
-    m[34..38].copy_from_slice(&seq.to_le_bytes());
-    m[38..46].copy_from_slice(&price.to_le_bytes());
+    m[1] = source;
+    m[2..6].copy_from_slice(&ts.to_le_bytes());
+    m[6..10].copy_from_slice(&price.to_le_bytes());
     m
 }
 
@@ -51,17 +52,24 @@ pub fn category_vm_from_display_hex(display_hex: &str) -> Option<[u8; 32]> {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Statement {
     pub source: u8,
-    pub seq: u32,
-    pub price: u64,
+    /// Start of the observed Unix minute, seconds.
+    pub ts: u32,
+    /// US cents per BCH.
+    pub price: u32,
     /// 64-byte Schnorr signature, hex.
     pub sig: String,
 }
 
 impl Statement {
-    pub fn sign(privkey: &[u8; 32], category_vm: &[u8; 32], source: u8, seq: u32, price: u64) -> Result<Self, KeyError> {
-        let m = message(category_vm, source, seq, price);
+    pub fn sign(privkey: &[u8; 32], source: u8, ts: u32, price: u32) -> Result<Self, KeyError> {
+        let m = message(source, ts, price);
         let sig = schnorr_sign(privkey, &sha256(&m))?;
-        Ok(Statement { source, seq, price, sig: hex::encode(sig) })
+        Ok(Statement { source, ts, price, sig: hex::encode(sig) })
+    }
+
+    /// The Unix minute this statement is for.
+    pub fn minute(&self) -> u32 {
+        self.ts / 60
     }
 
     pub fn sig_bytes(&self) -> Option<[u8; 64]> {
@@ -69,9 +77,9 @@ impl Statement {
     }
 
     /// Verify against a table row's pubkey.
-    pub fn verify(&self, category_vm: &[u8; 32], pubkey: &[u8; 33]) -> bool {
+    pub fn verify(&self, pubkey: &[u8; 33]) -> bool {
         let Some(sig) = self.sig_bytes() else { return false };
-        let m = message(category_vm, self.source, self.seq, self.price);
+        let m = message(self.source, self.ts, self.price);
         schnorr_verify(&sig, pubkey, &sha256(&m)).unwrap_or(false)
     }
 }
@@ -124,34 +132,28 @@ mod tests {
 
     #[test]
     fn message_layout() {
-        let cat = [0xabu8; 32];
-        let m = message(&cat, 4, 0x0102_0304, 0x0a0b_0c0d_0e0f_1011);
-        assert_eq!(m.len(), 46);
+        let m = message(4, 0x0102_0304, 0x0e0f_1011);
+        assert_eq!(m.len(), 10);
         assert_eq!(m[0], 0x4e);
-        assert_eq!(&m[1..33], &cat);
-        assert_eq!(m[33], 4);
-        assert_eq!(&m[34..38], &[0x04, 0x03, 0x02, 0x01]);
-        assert_eq!(&m[38..46], &[0x11, 0x10, 0x0f, 0x0e, 0x0d, 0x0c, 0x0b, 0x0a]);
+        assert_eq!(m[1], 4);
+        assert_eq!(&m[2..6], &[0x04, 0x03, 0x02, 0x01]);
+        assert_eq!(&m[6..10], &[0x11, 0x10, 0x0f, 0x0e]);
     }
 
     #[test]
     fn sign_verify_and_binding() {
         let sk = [7u8; 32];
         let pk = derive_pubkey(&sk).unwrap();
-        let cat = [1u8; 32];
-        let st = Statement::sign(&sk, &cat, 3, 29_870_000, 27_715_000_000).unwrap();
-        assert!(st.verify(&cat, &pk));
-        let mut other = [1u8; 32];
-        other[0] = 2;
-        assert!(!st.verify(&other, &pk));
-        for (field, mutate) in [("source", 0u8), ("seq", 1), ("price", 2)] {
+        let st = Statement::sign(&sk, 3, 1_792_200_000, 27_715).unwrap();
+        assert!(st.verify(&pk));
+        for (field, mutate) in [("source", 0u8), ("ts", 1), ("price", 2)] {
             let mut t = st.clone();
             match mutate {
                 0 => t.source = 9,
-                1 => t.seq += 1,
+                1 => t.ts += 60,
                 _ => t.price += 1,
             }
-            assert!(!t.verify(&cat, &pk), "{field} must be bound");
+            assert!(!t.verify(&pk), "{field} must be bound");
         }
     }
 

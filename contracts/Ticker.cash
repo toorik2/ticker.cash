@@ -1,17 +1,19 @@
 pragma cashscript >= 0.14.0;
 
-// Ticker v26 — an immutable NFT of the oracle's category carrying the 13-byte snapshot
-//   seq(4, u32 LE Unix minute) ‖ price(8, u64 LE, 1e-8 USD) ‖ k(1, rows that signed)
-// Minted two per update by the Oracle at the exact dust floor; P2S, so the lock below is the
-// whole output script.
+// Ticker v27 — an immutable NFT of the oracle's category carrying the 17-byte snapshot
+//   timestamp(4) ‖ messageSequence(4) ‖ dataSequence(4) ‖ price(4, US cents) ‖ k(1)
+// The first 16 bytes are a General Protocols price-oracle message (little-endian signed ints):
+// the timestamp is the start of the observed minute, both sequences are the oracle's contiguous
+// update counter, the price is the lower median in cents. k is the number of rows that signed.
+// Minted two per update by the Oracle at the exact dust floor; P2S, so this lock is the output.
 //
 // consume(): a consumer co-spends the Ticker and recreates it at the same index with the same
-//            lock, category and commitment, adding a 1,000-sat toll to it. The toll stays in the
-//            Ticker and reaches the oracle's reserve when the Ticker is recycled.
-// recycle(): only inside a transaction whose input 0 is this category's minting head (an update
-//            or a rotation), and only once the Ticker's own minute is an hour old by chain time
-//            (median-time-past, a time-mode locktime: unchanged by Faster Blocks). The NFT is
-//            burned by not being re-emitted; the Oracle's value rule carries its sats into the reserve.
+//            lock, category and commitment, adding a 1,000-sat toll. The toll stays in the Ticker
+//            and reaches the oracle's reserve when the Ticker is recycled.
+// recycle(): only inside a transaction whose input 0 is this category's minting head, and only a
+//            day after the Ticker's own timestamp by chain time (median-time-past, a time-mode
+//            locktime). The NFT is burned by not being re-emitted; the Oracle's value rule
+//            carries its sats into the reserve.
 contract Ticker() {
     function consume() {
         int idx = this.activeInputIndex;
@@ -23,6 +25,6 @@ contract Ticker() {
     function recycle() {
         int idx = this.activeInputIndex;
         require(tx.inputs[0].tokenCategory == tx.inputs[idx].tokenCategory + 0x02);
-        require(tx.time >= int(tx.inputs[idx].nftCommitment.slice(0, 4)) * 60 + 3600);
+        require(tx.time >= int(tx.inputs[idx].nftCommitment.split(4)[0]) + 86400);
     }
 }

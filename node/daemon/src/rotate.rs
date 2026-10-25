@@ -4,6 +4,8 @@
 //!   approval-request  prints the fields each row signs with `ticker-notary sign-rotate`
 //!   rotate            reads the approvals (one JSON file each), builds, broadcasts, and rewrites
 //!                     manifest.json when the rotation is a table change
+//!   migrate           the one-time move of a v26 head into the v27 lock (`--migrate` on
+//!                     approval-request prints what the rows sign for it)
 //!
 //! A table change keeps the Oracle lock and sets the tail to the new table's hash160. A retirement
 //! moves the head to a P2PKH with an empty tail; from there the key holder can do anything with it.
@@ -15,7 +17,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use serde::Deserialize;
 use ticker_core::manifest::{table_bytes, validate_rows, Manifest, TableRow};
 use ticker_core::statement::Approval;
-use ticker_core::tx::build_rotate;
+use ticker_core::tx::{build_migration, build_rotate, migration_tail};
 use ticker_core::tx::cashaddr::{decode_p2pkh_cashaddr, AddressPrefix};
 use ticker_core::tx::covenant::{oracle_lock, table_hash};
 use ticker_core::tx::script::p2pkh_locking_script;
@@ -47,7 +49,13 @@ pub fn load_rows(path: &PathBuf) -> Result<Vec<TableRow>> {
     Ok(rows)
 }
 
-pub fn plan(manifest: &Manifest, table: Option<PathBuf>, retire_to: Option<String>) -> Result<Plan> {
+pub fn plan(manifest: &Manifest, table: Option<PathBuf>, retire_to: Option<String>, migrate: bool) -> Result<Plan> {
+    if migrate {
+        if table.is_some() || retire_to.is_some() {
+            bail!("--migrate takes no table and no address");
+        }
+        return Ok(Plan { next_lock: oracle_lock().to_vec(), tail: migration_tail(&manifest.table_hash_bytes()), rows: None });
+    }
     match (table, retire_to) {
         (Some(path), None) => {
             let rows = load_rows(&path)?;
@@ -91,6 +99,33 @@ fn load_approvals(dir: &PathBuf) -> Result<Vec<Approval>> {
         bail!("no approvals (*.json) in {}", dir.display());
     }
     Ok(out)
+}
+
+/// The one-time migration: spend the v26 head into the v27 lock and rewrite the manifest.
+pub async fn migrate(ctx: Arc<Ctx>, approvals_dir: PathBuf, dry_run: bool) -> Result<()> {
+    if ctx.manifest.version != ticker_core::manifest::LEGACY_MANIFEST_VERSION {
+        bail!("manifest is version {}; migrate applies to a v26 manifest", ctx.manifest.version);
+    }
+    let approvals = load_approvals(&approvals_dir)?;
+    let head = chain::find_legacy_head(&ctx.manifest).await?.ok_or_else(|| anyhow!("no v26 head found for the manifest category"))?;
+    if head.commit.table_hash != ctx.manifest.table_hash_bytes() {
+        bail!("the head's table hash is not the manifest's; rewrite manifest.json first");
+    }
+    let table = ctx.manifest.table_bytes();
+    let built = build_migration(&head, &table, &approvals, &[])?;
+    println!("migration {} B, fee {} sats, {} approvals of {} rows; v26 head {}:{} (seq {}, k {}) → v27 lock {}", built.size, built.fee, approvals.len(), ctx.manifest.table.len(), hex::encode(head.outpoint.txid_be), head.outpoint.vout, head.commit.snapshot.seq, head.commit.snapshot.k, hex::encode(oracle_lock()));
+    if dry_run {
+        println!("dry-run: nothing broadcast");
+        return Ok(());
+    }
+    let txid = chain::broadcast(&ctx.manifest, built.raw.clone()).await.context("broadcast migration")?;
+    let m = ctx.manifest.migrated();
+    let path = ctx.home.join("manifest.json");
+    std::fs::write(&path, serde_json::to_string_pretty(&m)?)?;
+    log_info!("migration posted", "txid" => &txid, "approvals" => approvals.len(), "oracle_lock" => &m.oracle_lock);
+    println!("manifest.json rewritten as version {}; restart the notaries on the v27 binary, then start the node", m.version);
+    println!("{txid}");
+    Ok(())
 }
 
 pub async fn rotate(ctx: Arc<Ctx>, plan: Plan, approvals_dir: PathBuf, dry_run: bool) -> Result<()> {

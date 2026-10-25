@@ -1,4 +1,4 @@
-//! ticker-node — the v26 operator: builder, recycler, status publisher, genesis, rotation.
+//! ticker-node — the v27 operator: builder, recycler, status publisher, genesis, rotation, migration.
 //!
 //! None of these roles is privileged. The builder reads every row's statement for the current
 //! minute from the notaries' APIs and posts one update; the same transaction recycles Tickers whose
@@ -73,12 +73,25 @@ fn real_main() -> Result<()> {
         }
         "approval-request" => {
             let manifest = Manifest::load(home.join("manifest.json")).context("manifest.json")?;
-            let plan = rotate::plan(&manifest, args.opt_value_from_str::<&str, String>("--table")?.map(PathBuf::from), args.opt_value_from_str("--retire-to")?)?;
+            let migrate = args.contains("--migrate");
+            if !migrate {
+                manifest.require_current()?;
+            }
+            let plan = rotate::plan(&manifest, args.opt_value_from_str::<&str, String>("--table")?.map(PathBuf::from), args.opt_value_from_str("--retire-to")?, migrate)?;
             rotate::approval_request(&manifest, &plan)
+        }
+        "migrate" => {
+            let manifest = Manifest::load(home.join("manifest.json")).context("manifest.json")?;
+            let approvals: PathBuf = args.value_from_str::<&str, String>("--approvals").map(PathBuf::from).context("--approvals DIR required")?;
+            let dry = args.contains("--dry-run");
+            let ctx = Arc::new(Ctx { home: home.clone(), manifest });
+            let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
+            rt.block_on(rotate::migrate(ctx, approvals, dry))
         }
         "rotate" => {
             let manifest = Manifest::load(home.join("manifest.json")).context("manifest.json")?;
-            let plan = rotate::plan(&manifest, args.opt_value_from_str::<&str, String>("--table")?.map(PathBuf::from), args.opt_value_from_str("--retire-to")?)?;
+            manifest.require_current()?;
+            let plan = rotate::plan(&manifest, args.opt_value_from_str::<&str, String>("--table")?.map(PathBuf::from), args.opt_value_from_str("--retire-to")?, false)?;
             let approvals: PathBuf = args.value_from_str::<&str, String>("--approvals").map(PathBuf::from).context("--approvals DIR required")?;
             let dry = args.contains("--dry-run");
             let ctx = Arc::new(Ctx { home: home.clone(), manifest });
@@ -87,6 +100,7 @@ fn real_main() -> Result<()> {
         }
         "build" | "run" | "status" | "status-json" | "topup" => {
             let manifest = Manifest::load(home.join("manifest.json")).context("manifest.json")?;
+            manifest.require_current()?;
             let once = args.contains("--once");
             let topup_sats: Option<u64> = args.opt_value_from_str("--sats")?;
             let ctx = Arc::new(Ctx { home: home.clone(), manifest });
@@ -122,7 +136,7 @@ fn real_main() -> Result<()> {
         }
         _ => {
             println!(
-                "ticker-node v26\n  keygen [--network chipnet|mainnet]      create operator.key, print its address\n  address [--network ..]                  print the operator address\n  derive                                  print the locks, head address and table hash a genesis.json produces\n  genesis --reserve SATS --prepare        create the vout-0 funding coin and print the future category\n  genesis --reserve SATS [--dry-run]      mint the head from genesis.json, write manifest.json\n  run                                     builder + recycler; publishes status when TICKER_PUBLISH_DIR is set\n  build [--once]                          builder only\n  topup --sats N                          one update that also moves a coin of at least N sats into the reserve\n  approval-request --table FILE | --retire-to ADDR\n                                          print what the rows must sign (ticker-notary sign-rotate)\n  rotate (--table FILE | --retire-to ADDR) --approvals DIR [--dry-run]\n                                          post the rotation and rewrite manifest.json\n  status | status-json\n  env TICKER_PUBLISH_DIR=DIR            run also writes manifest.json + status.json there every 10 s\nFiles live in --home or $TICKER_HOME (default ~/.ticker-node)"
+                "ticker-node v27\n  keygen [--network chipnet|mainnet]      create operator.key, print its address\n  address [--network ..]                  print the operator address\n  derive                                  print the locks, head address and table hash a genesis.json produces\n  genesis --reserve SATS --prepare        create the vout-0 funding coin and print the future category\n  genesis --reserve SATS [--dry-run]      mint the head from genesis.json, write manifest.json\n  run                                     builder + recycler; publishes status when TICKER_PUBLISH_DIR is set\n  build [--once]                          builder only\n  topup --sats N                          one update that also moves a coin of at least N sats into the reserve\n  approval-request --table FILE | --retire-to ADDR | --migrate\n                                          print what the rows must sign (ticker-notary sign-rotate)\n  rotate (--table FILE | --retire-to ADDR) --approvals DIR [--dry-run]\n                                          post the rotation and rewrite manifest.json\n  migrate --approvals DIR [--dry-run]     move a v26 head into the v27 lock; rewrites manifest.json\n  status | status-json\n  env TICKER_PUBLISH_DIR=DIR            run also writes manifest.json + status.json there every 10 s\nFiles live in --home or $TICKER_HOME (default ~/.ticker-node)"
             );
             Ok(())
         }

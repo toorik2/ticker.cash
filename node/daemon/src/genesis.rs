@@ -3,7 +3,7 @@
 //! Reads `genesis.json` (network, electrum pool, the table rows), picks a coin of the operator key
 //! whose output index is 0 (a CashTokens category genesis must spend such an outpoint; if none
 //! exists a self-spend creates one first), builds the genesis transaction, broadcasts it, and
-//! writes `manifest.json`. The head starts at the previous minute with price 0 and k 0.
+//! writes `manifest.json`. The head starts at the previous minute with price 0, counter 0 and k 0.
 
 use std::path::PathBuf;
 
@@ -115,8 +115,8 @@ pub fn genesis(home: &PathBuf, reserve: u64, dry_run: bool, prepare_only: bool) 
         }
         let (op, value) = funding.ok_or_else(|| anyhow!("no funding outpoint (dry run)"))?;
         let input = P2pkhInput { outpoint: op, value, private_key: key.private_key, public_key: key.public_key, pkh: key.pkh };
-        let initial_seq = current_minute().saturating_sub(1);
-        let built = build_genesis(&input, &th, reserve, initial_seq)?;
+        let initial_ts = current_minute().saturating_sub(1) * 60;
+        let built = build_genesis(&input, &th, reserve, initial_ts)?;
         m.category = hex::encode(op.txid_be);
         m.genesis_txid = hex::encode(built.txid);
         println!("category     {}", m.category);

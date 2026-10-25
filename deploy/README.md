@@ -28,8 +28,25 @@ ticker-node genesis --reserve 40000000
 systemctl --user start 'ticker-notary@{0..12}' ticker-node
 ```
 
-The previous head stays on chain with its reserve; v25 had no exit path. v26 does: a majority of
-rows can retire a head to a P2PKH with `ticker-node rotate --retire-to ADDRESS`.
+The previous head stays on chain with its reserve; v25 had no exit path. v26 and later do: a
+majority of rows can retire a head to a P2PKH with `ticker-node rotate --retire-to ADDRESS`.
+
+## Upgrading the covenant in place (v26 → v27, 2026-10-25)
+
+A covenant upgrade is a rotation into the new lock, not a new deployment. With the v27 binaries
+built and the node still on the v26 manifest:
+
+```
+ticker-node approval-request --migrate                          # prints old table hash, next lock, tail
+for i in $(seq 0 12); do ticker-notary --home ~/.ticker-notary-$i sign-rotate --old-table-hash … --next-lock … --tail … > approvals/$i.json; done
+systemctl --user stop ticker-node
+ticker-node migrate --approvals approvals/                       # one transaction; rewrites manifest.json as v27
+systemctl --user stop 'ticker-notary@*'; install the v27 binaries; systemctl --user start 'ticker-notary@{0..12}'
+systemctl --user start ticker-node
+```
+
+The category, reserve, price and k carry over; the counter continues from the migrated bytes; v26
+Tickers still alive are recycled by the v27 head over the following hour.
 
 ## Web server
 
