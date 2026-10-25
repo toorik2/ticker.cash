@@ -20,8 +20,9 @@ read them.
 The web process is the only one that talks to the internet, so it is the one that holds the least:
 a system user `web` with no shell, no home directory and no keys; a read-only view of the
 filesystem (`ProtectSystem=strict`, `ProtectHome=read-only`, a private `/tmp`); an empty capability
-set; `Restart=always`. nginx terminates TLS and proxies usd.ticker.cash, stats.ticker.cash and
-quote.layer1.cash to it; the same process answers all three.
+set; `Restart=always`. Cloudflare terminates visitor TLS and hands usd.ticker.cash,
+stats.ticker.cash and quote.layer1.cash through a tunnel to nginx, which proxies them to it; the
+same process answers all three.
 
 Install on a fresh host (the unit's paths are the ticker.cash host's; a system unit cannot use `%h`):
 
@@ -36,9 +37,14 @@ sudo systemctl daemon-reload && sudo systemctl enable --now ticker-web
 
 ## Host
 
-Administration reaches the host only over Tailscale: ufw defaults to deny, allows 80 and 443 from
-anywhere and 22 only on the `tailscale0` interface (plus the hosting panel's console address).
-sshd accepts keys only, no passwords, no root login. fail2ban and unattended-upgrades are on.
-nginx redirects HTTP to HTTPS, sends HSTS and a shared security-header snippet, and proxies each of
-the three hostnames to 127.0.0.1:3000 with `Host` and `X-Forwarded-*` set; certificates come from
-certbot.
+The host exposes no public ports. Visitors reach the sites through a Cloudflare Tunnel: the
+`cloudflared` service connects out to Cloudflare, which forwards each hostname to nginx on loopback,
+and nginx proxies to ticker-web on 127.0.0.1:3000 with `Host` and `X-Forwarded-*` set; the real
+visitor address comes from `CF-Connecting-IP`. Visitors see Cloudflare's edge certificate, so the
+Let's Encrypt origin certificates are no longer renewed. Adding a hostname is an ingress entry in
+`/etc/cloudflared/config.yml`, a restart of `cloudflared` and a proxied CNAME to the tunnel.
+
+Administration reaches the host only over Tailscale: ufw defaults to deny and allows 22 only on
+the `tailscale0` interface (plus the hosting panel's console address). sshd accepts keys only, no
+passwords, no root login. fail2ban and unattended-upgrades are on. nginx sends HSTS and a shared
+security-header snippet, hides its version and allows TLS 1.2 and 1.3 only.

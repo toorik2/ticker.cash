@@ -1,7 +1,7 @@
 # ticker.cash web: the only internet-facing process, so it gets the least. Unlike the notary and
 # node units this is a *system* unit (/etc/systemd/system/) running as the dedicated `web` user,
-# which owns no keys and sees the checkout read-only. nginx terminates TLS and proxies
-# usd.ticker.cash, stats.ticker.cash and quote.layer1.cash to 127.0.0.1:3000.
+# which owns no keys and sees the checkout read-only. Visitors arrive through a Cloudflare Tunnel;
+# nginx on loopback proxies usd.ticker.cash, stats.ticker.cash and quote.layer1.cash to 127.0.0.1:3000.
 # Paths are those of the ticker.cash host; a system unit cannot use %h.
 [Unit]
 Description=ticker.cash web (stats, usd, quote; serves files written by ticker-node)
