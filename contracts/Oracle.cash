@@ -1,85 +1,137 @@
 pragma cashscript >= 0.14.0;
 
-// Oracle v25 draft — notarized, slotless, one transaction per update.
+// Oracle v26 — the head of a notarized BCH/USD price feed. One minting NFT; its commitment is
+// the whole state (33 bytes):
 //
-// Constructor (fixed for the life of the deployment; D1 = no rotation path):
-//   table       13 × (pubkey 33 ‖ source 1) = 442 B — the notary set, row order (D11).
-//   tickerLock  the 31-B P2S Ticker locking bytecode.
+//   seq(4, u32 LE)   the Unix minute the notaries observed in; strictly increasing
+//   price(8, u64 LE) lower median of the included statements, 1e-8 USD per BCH
+//   k(1)             how many table rows signed this minute: the reader's own trust bar
+//   tableHash(20)    hash160 of the notary table, n × (pubkey 33 ‖ source 1); every spend
+//                    supplies the table in full
 //
-// Head commit (12 B, identical to the Ticker commit): seq(4, u32 LE) ‖ price(8, u64 LE)
-//   seq = Unix minute (floor(unix_time / 60)) in which the notaries observed. Strictly increasing.
-//   u32 minutes run to the year 6053 before the sign bit; u64 price covers $184 billion per BCH.
+// The oracle's identity is its token category. The table is state, not code: a majority of the
+// current rows can replace it, move the head to a successor covenant, or retire it, through
+// rotate(). Nothing else about a deployment is fixed at genesis, and this script is the same
+// for every deployment.
 //
-// Statement signed by notary row r (Schnorr data signature; the message is never stored):
-//   0x4e ‖ category(32, VM byte order) ‖ r(1) ‖ source(1) ‖ seq(4) ‖ price(8)      (47 B)
-//   source is read from the table entry, so a notary signs the exchange its row is pinned to.
+// Statement signed by a notary (BCH Schnorr data signature; never stored on chain):
+//   0x4e ‖ category(32, VM byte order) ‖ source(1) ‖ seq(4) ‖ price(8)                (46 B)
+// Rotation approval signed by a row:
+//   0x52 ‖ category(32) ‖ oldTableHash(20) ‖ nextLockingBytecode ‖ nextCommitment[13..]
 //
-// The Oracle reads no foreign inputs: only its own input and its own outputs.
-contract Oracle(bytes table, bytes tickerLock) {
-    function update(
-        bytes seq,        // 4 B u32 LE Unix minute, strictly increasing
-        bytes rows,       // k × 1 B row indexes, strictly ascending
-        bytes prices,     // k × 8 B observation per row, same order
-        bytes sigs,       // k × 64 B Schnorr data signatures, same order
-        bytes median      // 8 B claimed lower median (a 1-B index costs +16 B of redeem for -8 B of unlocking: measured, rejected)
-    ) {
-        int idx = this.activeInputIndex;
-        bytes old = tx.inputs[idx].nftCommitment;
+// The Oracle reads its own input, the values of all inputs, and its own outputs. It never
+// introspects a foreign input's script or token.
+contract Oracle(bytes tickerLock) {
+    // Post a minute. Input 0 is the head; any further inputs are Tickers being recycled or coins
+    // topping the reserve up; their value flows into output 0 less a bounded fee.
+    //   rows    k × 1 B table row indexes, strictly ascending (distinct and inside the table)
+    //   prices  k × 8 B, one per row, same order; sigs k × 64 B, same order
+    //   median  the claimed lower median, 8 B
+    function update(bytes table, bytes seq, bytes rows, bytes prices, bytes sigs, bytes median) {
+        require(this.activeInputIndex == 0);
         require(seq.length == 4);
-        require(int(seq) > int(old.slice(0, 4)));
-
+        require(median.length == 8);
         int k = rows.length;
         require(k >= 7);
-        require(prices.length == k * 8);
-        require(sigs.length == k * 64);
-        require(median.length == 8);
 
-        bytes cat = tx.inputs[idx].tokenCategory.slice(0, 32);
-        bytes prefix = 0x4e + cat;
+        // Rank the claimed median: at most (k-1)/2 prices below it, at most k/2 above it, and it
+        // is one of them. That is the unique lower median for any k.
         int med = int(median);
-        int lower = 0;
-        int upper = 0;
-        bool found = false;
-        int prev = -1;
         int i = 0;
+        int upper = 0;
+        int lower = 0;
         do {
-            bytes row = rows.slice(i, i + 1);
-            int r = int(row);
-            require(r > prev);
-            prev = r;
-            bytes price = prices.slice(i * 8, i * 8 + 8);
-            int p = int(price);
-            if (p < med) { lower = lower + 1; }
-            else { if (p > med) { upper = upper + 1; } else { found = true; } }
-            bytes entry = table.slice(r * 34, r * 34 + 34);
-            pubkey npk = pubkey(entry.slice(0, 33));
-            datasig s = datasig(sigs.slice(i * 64, i * 64 + 64));
-            require(checkDataSig(s, prefix + row + entry.slice(33, 34) + seq + price, npk));
+            int p = int(prices.slice(i * 8, i * 8 + 8));
+            lower = lower + int(p < med);
+            upper = upper + int(p > med);
             i = i + 1;
         } while (i < k);
-        require(found);
         require(lower <= (k - 1) / 2);
         require(upper <= k / 2);
+        require(lower + upper < k);
 
-        // exactly: head′ + K = 2 tickers; 708 sats is the dust floor of an 88-byte P2S token output
-        bytes commit = seq + median;
-        require(tx.outputs.length == 3);
-        require(tx.outputs[0].lockingBytecode == tx.inputs[idx].lockingBytecode);
-        require(tx.outputs[0].tokenCategory == tx.inputs[idx].tokenCategory);
-        require(tx.outputs[0].nftCommitment == commit);
-        require(tx.outputs[0].tokenAmount == 0);
-        int j = 1;
+        bytes state, bytes tableHash = tx.inputs[0].nftCommitment.split(13);
+        require(hash160(table) == tableHash);
+        int s = int(seq);
+        require(s > int(state.split(4)[0]));
+        // The minute may lead chain time (median-time-past) by at most six hours, so no coalition
+        // can post a far-future seq and strand the head. A time-mode locktime: Faster Blocks
+        // leaves it untouched.
+        require(tx.time >= s * 60 - 21600);
+
+        // Every included statement verifies against its row's key, over the source byte that row
+        // is pinned to, this seq and its price.
+        bytes cat = tx.inputs[0].tokenCategory.split(32)[0];
+        bytes prefix = 0x4e + cat;
+        int prev = -1;
+        int j = 0;
         do {
-            require(tx.outputs[j].lockingBytecode == tickerLock);
-            require(tx.outputs[j].tokenCategory == cat);
-            require(tx.outputs[j].nftCommitment == commit);
-            require(tx.outputs[j].tokenAmount == 0);
-            require(tx.outputs[j].value == 708);
+            int r = int(rows.slice(j, j + 1));
             j = j + 1;
-        } while (j < 3);
+            require(r > prev);
+            prev = r;
+            bytes entry = table.split(r * 34)[1].split(34)[0];
+            require(checkDataSig(datasig(sigs.slice(j * 64 - 64, j * 64)), prefix + entry.split(33)[1] + seq + prices.slice(j * 8 - 8, j * 8), pubkey(entry.split(33)[0])));
+        } while (j < k);
 
-        // fee/dust reserve: the head pays for its own updates. Builders pay exactly size + 1 sats;
-        // 5000 is a ceiling that tolerates a fee rate of ~1.7 sat/B at k = 13 before a re-genesis is needed.
-        require(tx.outputs[0].value >= tx.inputs[idx].value - 5000);
+        bytes snapshot = seq + median + toPaddedBytes(k, 1);
+        require(tx.outputs.length == 3);
+        require(tx.outputs[0].lockingBytecode == tx.inputs[0].lockingBytecode);
+        require(tx.outputs[0].tokenCategory == tx.inputs[0].tokenCategory);
+        require(tx.outputs[0].nftCommitment == snapshot + tableHash);
+        int o = 1;
+        do {
+            require(tx.outputs[o].lockingBytecode == tickerLock);
+            require(tx.outputs[o].tokenCategory == cat);
+            require(tx.outputs[o].nftCommitment == snapshot);
+            require(tx.outputs[o].value == 786);
+            o = o + 1;
+        } while (o < 3);
+
+        // Everything that came in returns to the reserve except the two Tickers (2 × 786) and a
+        // fee of at most 1,000 sats plus two per byte of this input's unlocking data. Honest
+        // builders pay exactly size + 1.
+        int total = 0;
+        int n = 0;
+        do {
+            total = total + tx.inputs[n].value;
+            n = n + 1;
+        } while (n < tx.inputs.length);
+        require(tx.outputs[0].value >= total - 2572 - 2 * tx.inputs[0].unlockingBytecode.length);
+    }
+
+    // Governance by the rows: a majority of the current table signs the next locking bytecode and
+    // the next commitment tail. The same script with a new tableHash is a table change; another
+    // script is a migration; a plain P2PKH is retirement. seq, price and k carry over unchanged.
+    function rotate(bytes table, bytes rows, bytes sigs) {
+        require(this.activeInputIndex == 0);
+        bytes state, bytes tableHash = tx.inputs[0].nftCommitment.split(13);
+        require(hash160(table) == tableHash);
+        int k = rows.length;
+        require(k * 2 > table.length / 34);
+
+        require(tx.outputs.length == 1);
+        require(tx.outputs[0].tokenCategory == tx.inputs[0].tokenCategory);
+        bytes nextState, bytes tail = tx.outputs[0].nftCommitment.split(13);
+        require(nextState == state);
+        bytes approval = 0x52 + tx.inputs[0].tokenCategory.split(32)[0] + tableHash + tx.outputs[0].lockingBytecode + tail;
+
+        int prev = -1;
+        int j = 0;
+        do {
+            int r = int(rows.slice(j, j + 1));
+            j = j + 1;
+            require(r > prev);
+            prev = r;
+            require(checkDataSig(datasig(sigs.slice(j * 64 - 64, j * 64)), approval, pubkey(table.split(r * 34)[1].split(33)[0])));
+        } while (j < k);
+
+        int total = 0;
+        int n = 0;
+        do {
+            total = total + tx.inputs[n].value;
+            n = n + 1;
+        } while (n < tx.inputs.length);
+        require(tx.outputs[0].value >= total - 1000 - 2 * tx.inputs[0].unlockingBytecode.length);
     }
 }

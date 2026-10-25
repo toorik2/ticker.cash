@@ -1,69 +1,78 @@
-//! The builder and the sweeper.
-//!
-//! Builder: every few seconds, read the head from Fulcrum, ask every notary for its latest
-//! statement, and if some minute newer than the head has a quorum, post the update. Losing a
-//! first-seen race to another builder is normal; the next poll sees the new head.
-//!
-//! Sweeper: reclaim Tickers confirmed at least `min_age_blocks` ago (144 before Faster Blocks,
-//! 1,440 after: the covenant's relative lock is 144 legacy units of 600 ticks).
+//! The builder: every two seconds, read the head from Fulcrum; once the current minute has
+//! statements from every row, or from at least seven rows by second twenty, post the update.
+//! The same transaction recycles up to ten Tickers whose hour is up by median-time-past, so their
+//! dust and tolls return to the reserve. Losing a first-seen race to another builder is normal;
+//! the next poll sees the new head.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
+use ticker_core::commit::{now_unix, HeadCommit};
 use ticker_core::keyfile::load_key;
 use ticker_core::price::format_price_1e8;
 use ticker_core::statement::Statement;
-use ticker_core::tx::build::select_statements;
-use ticker_core::tx::{build_sweep, build_update, P2pkhInput};
-use ticker_core::{log_info, log_warn, QUORUM, RESERVE_CAP_SATS, TICKER_SATS};
+use ticker_core::tx::build::keys_to_forge;
+use ticker_core::tx::{build_update, P2pkhInput};
+use ticker_core::{log_info, log_warn, FEE_CAP_BASE_SATS, FEE_CAP_PER_UNLOCK_BYTE, MAX_RECYCLE_PER_UPDATE, QUORUM, TICKER_LIFE_SECS, TICKER_SATS, TOLL_SATS};
 
 use crate::{api, chain, Ctx};
 
-const POLL: Duration = Duration::from_secs(4);
-const SWEEP_EVERY: Duration = Duration::from_secs(600);
-const SWEEP_BATCH: usize = 100;
+const POLL: Duration = Duration::from_secs(2);
+/// Post with fewer than all rows only from this second of the minute on.
+const POST_AT_SEC: u64 = 20;
+const API_TIMEOUT: Duration = Duration::from_secs(3);
 
-/// Latest statement from each notary, grouped by minute.
-async fn collect(ctx: &Ctx) -> HashMap<u32, Vec<Statement>> {
+/// Statements for minute `seq`: one per row, each verified against its row's key and source.
+async fn collect(ctx: &Ctx, seq: u32) -> Vec<Statement> {
     let mut tasks = Vec::new();
     for r in ctx.manifest.table.iter().cloned() {
-        tasks.push(tokio::spawn(async move { (r.row, api::get_json_opt::<Statement>(&r.api, "/v1/latest", Duration::from_secs(4)).await) }));
+        tasks.push(tokio::spawn(async move {
+            let res = api::get_json_opt::<Statement>(&r.api, &format!("/v1/statement?seq={seq}"), API_TIMEOUT).await;
+            (r, res)
+        }));
     }
     let cat_vm = ctx.manifest.category_vm();
-    let mut by_seq: HashMap<u32, Vec<Statement>> = HashMap::new();
+    let mut out = Vec::new();
     for t in tasks {
         let Ok((row, res)) = t.await else { continue };
         match res {
-            Ok(None) => {} // notary up, nothing issued yet
+            Ok(None) => {} // notary up, nothing for this minute yet
             Ok(Some(st)) => {
-                let Some(r) = ctx.manifest.table.get(row as usize) else { continue };
-                let Some(pk) = r.pubkey_bytes() else { continue };
-                if st.row != row || !st.verify(&cat_vm, &pk) {
-                    log_warn!("statement rejected", "row" => row, "reason" => "signature/row mismatch");
+                let Some(pk) = row.pubkey_bytes() else { continue };
+                if st.seq != seq || st.source != row.source || !st.verify(&cat_vm, &pk) {
+                    log_warn!("statement rejected", "row" => row.row, "reason" => "signature, source or minute mismatch");
                     continue;
                 }
-                by_seq.entry(st.seq).or_default().push(st);
+                out.push(st);
             }
-            Err(e) => log_warn!("notary unreachable", "row" => row, "err" => format!("{e:#}")),
+            Err(e) => log_warn!("notary unreachable", "row" => row.row, "err" => format!("{e:#}")),
         }
     }
-    by_seq
+    out
 }
 
 pub async fn build_once(ctx: &Ctx, topup_sats: Option<u64>) -> Result<Option<String>> {
     let head = chain::find_head(&ctx.manifest).await?.ok_or_else(|| anyhow!("no head UTXO found for the manifest category"))?;
-    let by_seq = collect(ctx).await;
-    let mut candidates: Vec<u32> = by_seq.iter().filter(|(s, v)| **s > head.commit.seq && v.len() >= QUORUM).map(|(s, _)| *s).collect();
-    candidates.sort_unstable();
-    let Some(seq) = candidates.pop() else {
+    if head.commit.table_hash != ctx.manifest.table_hash_bytes() {
+        bail!("the head's table hash {} is not the manifest's; the table was rotated, rewrite manifest.json", hex::encode(head.commit.table_hash));
+    }
+    let now = now_unix();
+    let seq = (now / 60) as u32;
+    if head.commit.snapshot.seq >= seq {
+        return Ok(None); // this minute is already on chain
+    }
+    let statements = collect(ctx, seq).await;
+    let rows = ctx.manifest.table.len();
+    if statements.len() < QUORUM {
         return Ok(None);
-    };
-    let statements = &by_seq[&seq];
+    }
+    if statements.len() < rows && now % 60 < POST_AT_SEC {
+        return Ok(None); // give the slower rows until second twenty
+    }
     let table = ctx.manifest.table_bytes();
-    let oracle_lock: [u8; 35] = hex::decode(&ctx.manifest.oracle_lock)?.try_into().map_err(|_| anyhow!("oracle_lock length"))?;
-    let selected = select_statements(&head, &table, statements)?;
+    let mtp = chain::median_time_past(&ctx.manifest).await.context("median-time-past")?;
+    let recycled = chain::find_recyclable_tickers(&ctx.manifest, mtp, MAX_RECYCLE_PER_UPDATE).await?;
     let mut topups = Vec::new();
     if let Some(sats) = topup_sats {
         let key = load_key(ctx.home.join("operator.key"))?;
@@ -73,23 +82,22 @@ pub async fn build_once(ctx: &Ctx, topup_sats: Option<u64>) -> Result<Option<Str
         log_info!("top-up coin selected", "value" => value);
         topups.push(P2pkhInput { outpoint: op, value, private_key: key.private_key, public_key: key.public_key, pkh: key.pkh });
     }
-    let built = build_update(&head, &table, &oracle_lock, &selected, &topups)?;
+    let built = build_update(&head, &table, &statements, &recycled, &topups)?;
     let txid = chain::broadcast(&ctx.manifest, built.raw.clone()).await.context("broadcast update")?;
-    let median = ticker_core::commit::Commit::decode(&built.tx.outputs[0].token.as_ref().unwrap().commitment)?.price;
-    log_info!("update posted", "txid" => &txid, "seq" => seq, "k" => selected.len(), "median" => format_price_1e8(median), "size" => built.size, "fee" => built.fee, "reserve_after" => built.tx.outputs[0].value, "topups" => topups.len());
+    let c = HeadCommit::decode(&built.tx.outputs[0].token.as_ref().unwrap().commitment)?;
+    log_info!("update posted", "txid" => &txid, "seq" => seq, "k" => c.snapshot.k, "rows" => rows, "median" => format_price_1e8(c.snapshot.price), "size" => built.size, "fee" => built.fee,
+        "recycled" => recycled.len(), "recycled_sats" => recycled.iter().map(|t| t.value).sum::<u64>(), "topups" => topups.len(), "reserve_after" => built.tx.outputs[0].value, "locktime" => built.tx.locktime, "mtp" => mtp);
     Ok(Some(txid))
 }
 
 pub async fn build_loop(ctx: Arc<Ctx>, once: bool, topup_sats: Option<u64>) -> Result<()> {
-    log_info!("builder start", "oracle_lock" => &ctx.manifest.oracle_lock, "category" => &ctx.manifest.category);
+    log_info!("builder start", "category" => &ctx.manifest.category, "rows" => ctx.manifest.table.len(), "table_hash" => &ctx.manifest.table_hash);
     loop {
         match build_once(&ctx, topup_sats).await {
             Ok(Some(_)) if once => return Ok(()),
             Ok(Some(_)) => {}
             Ok(None) => {
-                if once && topup_sats.is_some() {
-                    // keep trying until a quorum for a new minute exists
-                } else if once {
+                if once && topup_sats.is_none() {
                     log_info!("nothing to post");
                     return Ok(());
                 }
@@ -100,41 +108,11 @@ pub async fn build_loop(ctx: Arc<Ctx>, once: bool, topup_sats: Option<u64>) -> R
     }
 }
 
-pub async fn sweep_once(ctx: &Ctx) -> Result<Option<String>> {
-    let key = load_key(ctx.home.join("operator.key"))?;
-    let tickers = chain::find_sweepable_tickers(&ctx.manifest, ctx.min_age_blocks, SWEEP_BATCH).await?;
-    if tickers.is_empty() {
-        return Ok(None);
-    }
-    let built = build_sweep(&tickers, &key.pkh)?;
-    let txid = chain::broadcast(&ctx.manifest, built.raw.clone()).await.context("broadcast sweep")?;
-    log_info!("sweep posted", "txid" => &txid, "tickers" => tickers.len(), "reclaimed" => built.tx.outputs[0].value, "fee" => built.fee);
-    Ok(Some(txid))
-}
-
-pub async fn sweep_loop(ctx: Arc<Ctx>, once: bool) -> Result<()> {
-    log_info!("sweeper start", "min_age_blocks" => ctx.min_age_blocks);
-    loop {
-        match sweep_once(&ctx).await {
-            Ok(Some(_)) => {}
-            Ok(None) => {
-                if once {
-                    log_info!("nothing to sweep");
-                }
-            }
-            Err(e) => log_warn!("sweep failed", "err" => format!("{e:#}")),
-        }
-        if once {
-            return Ok(());
-        }
-        tokio::time::sleep(SWEEP_EVERY).await;
-    }
-}
-
-/// Machine-readable status for the dashboard: head, tip, and every row's latest statement.
+/// Machine-readable status for the dashboard: head, tip, median-time-past, every row's latest statement.
 pub async fn status_json(ctx: &Ctx) -> serde_json::Value {
     let head = chain::find_head(&ctx.manifest).await.ok().flatten();
     let tip = chain::tip_height(&ctx.manifest).await.ok();
+    let mtp = chain::median_time_past(&ctx.manifest).await.ok();
     let mut rows = Vec::new();
     let mut tasks = Vec::new();
     for r in ctx.manifest.table.iter().cloned() {
@@ -151,7 +129,7 @@ pub async fn status_json(ctx: &Ctx) -> serde_json::Value {
                 "row": r.row, "source": r.source, "source_name": source.map(|s| s.name), "label": source.map(|s| s.label), "host": source.map(|s| s.host),
                 "quote": source.map(|s| format!("{:?}", s.quote).to_lowercase()),
                 "operator": r.operator, "pubkey": r.pubkey, "api": r.api,
-                "up": info.is_some(), "mode": info.as_ref().and_then(|i| i["mode"].as_str().map(str::to_string)),
+                "up": info.is_some(),
                 "uptime_s": info.as_ref().and_then(|i| i["uptime_s"].as_u64()),
                 "issued": info.as_ref().and_then(|i| i["issued"].as_u64()),
                 "latest": latest.map(|st| serde_json::json!({ "seq": st.seq, "price": st.price, "price_usd": format_price_1e8(st.price) })),
@@ -159,23 +137,27 @@ pub async fn status_json(ctx: &Ctx) -> serde_json::Value {
         }
     }
     rows.sort_by_key(|r| r["row"].as_u64().unwrap_or(99));
+    let manifest_hash = ctx.manifest.table_hash_bytes();
     serde_json::json!({
-        "version": 25,
-        "generated_at": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
+        "version": 26,
+        "generated_at": now_unix(),
         "network": ctx.manifest.network, "category": ctx.manifest.category,
-        "oracle_lock": ctx.manifest.oracle_lock, "ticker_lock": ctx.manifest.ticker_lock,
-        "quorum": QUORUM, "reserve_cap_sats": RESERVE_CAP_SATS, "ticker_sats": TICKER_SATS,
-        "tip": tip,
+        "oracle_lock": ctx.manifest.oracle_lock, "ticker_lock": ctx.manifest.ticker_lock, "table_hash": ctx.manifest.table_hash,
+        "quorum": QUORUM, "ticker_sats": TICKER_SATS, "toll_sats": TOLL_SATS, "ticker_life_secs": TICKER_LIFE_SECS,
+        "fee_cap": { "base_sats": FEE_CAP_BASE_SATS, "per_unlock_byte": FEE_CAP_PER_UNLOCK_BYTE },
+        "tip": tip, "mtp": mtp,
         "head": head.as_ref().map(|h| serde_json::json!({
-            "seq": h.commit.seq, "minute_start_unix": h.commit.minute_start_unix(), "price": h.commit.price,
-            "price_usd": format_price_1e8(h.commit.price), "reserve_sats": h.value,
-            "txid": hex::encode(h.outpoint.txid_be), "vout": h.outpoint.vout,
+            "seq": h.commit.snapshot.seq, "minute_start_unix": h.commit.snapshot.minute_start_unix(),
+            "price": h.commit.snapshot.price, "price_usd": format_price_1e8(h.commit.snapshot.price),
+            "k": h.commit.snapshot.k, "keys_to_forge": if h.commit.snapshot.k > 0 { keys_to_forge(h.commit.snapshot.k as usize) } else { 0 },
+            "table_hash": hex::encode(h.commit.table_hash), "table_matches_manifest": h.commit.table_hash == manifest_hash,
+            "reserve_sats": h.value, "txid": hex::encode(h.outpoint.txid_be), "vout": h.outpoint.vout,
         })),
         "rows": rows,
     })
 }
 
-/// Write manifest.json once and status.json every `every` to `dir` (the web root).
+/// Write manifest.json once per pass and status.json every `every` to `dir` (the web root).
 pub async fn publish_loop(ctx: Arc<Ctx>, dir: std::path::PathBuf, every: Duration) -> Result<()> {
     std::fs::create_dir_all(&dir)?;
     log_info!("publishing status", "dir" => dir.display().to_string());
@@ -208,29 +190,37 @@ fn make_public(path: &std::path::Path) {
 pub async fn status(ctx: Arc<Ctx>) -> Result<()> {
     let head = chain::find_head(&ctx.manifest).await?;
     let tip = chain::tip_height(&ctx.manifest).await.ok();
+    let mtp = chain::median_time_past(&ctx.manifest).await.ok();
     match &head {
-        Some(h) => println!(
-            "head  seq {} ({}Z) price {} reserve {} sats (~{} updates at k=13) outpoint {}:{}",
-            h.commit.seq,
-            fmt_minute(h.commit.seq),
-            format_price_1e8(h.commit.price),
-            h.value,
-            h.value / (2_141 + 2 * TICKER_SATS),
-            hex::encode(h.outpoint.txid_be),
-            h.outpoint.vout
-        ),
+        Some(h) => {
+            let s = h.commit.snapshot;
+            println!(
+                "head  seq {} ({}Z) price {} k {} ({} keys to forge) reserve {} sats (~{} updates at 2,400 B) outpoint {}:{}",
+                s.seq,
+                fmt_minute(s.seq),
+                format_price_1e8(s.price),
+                s.k,
+                if s.k > 0 { keys_to_forge(s.k as usize) } else { 0 },
+                h.value,
+                h.value / (2_401 + 2 * TICKER_SATS),
+                hex::encode(h.outpoint.txid_be),
+                h.outpoint.vout
+            );
+            println!("table {} ({})", hex::encode(h.commit.table_hash), if h.commit.table_hash == ctx.manifest.table_hash_bytes() { "matches manifest" } else { "DIFFERS from manifest: rotated?" });
+        }
         None => println!("head  not found"),
     }
-    println!("tip   {}", tip.map(|t| t.to_string()).unwrap_or_else(|| "?".into()));
-    println!("cap   {RESERVE_CAP_SATS} sats per update; quorum {QUORUM}");
+    println!("tip   {}  mtp {}", tip.map(|t| t.to_string()).unwrap_or_else(|| "?".into()), mtp.map(|t| t.to_string()).unwrap_or_else(|| "?".into()));
+    println!("floor {QUORUM} rows; ticker {TICKER_SATS} sats, toll {TOLL_SATS}, life {TICKER_LIFE_SECS} s");
     for r in &ctx.manifest.table {
         let info = api::get(&r.api, "/v1/info", Duration::from_secs(4)).await;
         let latest = api::get_json_opt::<Statement>(&r.api, "/v1/latest", Duration::from_secs(4)).await;
+        let name = ticker_core::sources::source_by_id(r.source).map(|s| s.label).unwrap_or("?");
         match (info, latest) {
-            (Ok(_), Ok(Some(st))) => println!("row {:>2} {:<20} seq {} price {}", r.row, r.operator, st.seq, format_price_1e8(st.price)),
-            (Ok(_), Ok(None)) => println!("row {:>2} {:<20} up, no statement yet", r.row, r.operator),
-            (Ok(_), Err(e)) => println!("row {:>2} {:<20} up, bad answer ({e})", r.row, r.operator),
-            (Err(e), _) => println!("row {:>2} {:<20} DOWN ({e})", r.row, r.operator),
+            (Ok(_), Ok(Some(st))) => println!("row {:>2} {:<12} {:<16} seq {} price {}", r.row, name, r.operator, st.seq, format_price_1e8(st.price)),
+            (Ok(_), Ok(None)) => println!("row {:>2} {:<12} {:<16} up, no statement yet", r.row, name, r.operator),
+            (Ok(_), Err(e)) => println!("row {:>2} {:<12} {:<16} up, bad answer ({e})", r.row, name, r.operator),
+            (Err(e), _) => println!("row {:>2} {:<12} {:<16} DOWN ({e})", r.row, name, r.operator),
         }
     }
     Ok(())

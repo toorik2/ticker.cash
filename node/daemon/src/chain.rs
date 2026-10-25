@@ -1,11 +1,11 @@
 //! Blocking Electrum calls wrapped for the async runtime, plus UTXO decoding against the
 //! manifest. Fulcrum is untrusted: everything it returns is checked against the manifest's
-//! locks, category and the commitment codec before use.
+//! locks, category and the commitment codecs before use.
 
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
-use ticker_core::commit::Commit;
+use ticker_core::commit::{HeadCommit, Snapshot};
 use ticker_core::electrum::{ElectrumClient, Endpoint, NftCapability, Utxo};
 use ticker_core::manifest::Manifest;
 use ticker_core::tx::covenant::electrum_scripthash;
@@ -27,8 +27,9 @@ fn outpoint(u: &Utxo) -> Result<TxOutpoint> {
     Ok(TxOutpoint { txid_be: u.txid_be().ok_or_else(|| anyhow!("bad txid {}", u.tx_hash))?, vout: u.tx_pos })
 }
 
-/// The current head: the minting NFT of the manifest's category at the Oracle lock. When an
-/// unconfirmed chain exists only the newest unspent head is returned by Fulcrum.
+/// The current head: the minting NFT of the manifest's category at the Oracle lock. Every v26
+/// deployment shares the lock, so the category filter is what selects ours. When an unconfirmed
+/// chain exists only the newest unspent head is returned by Fulcrum.
 pub async fn find_head(m: &Manifest) -> Result<Option<HeadUtxo>> {
     let m = m.clone();
     tokio::task::spawn_blocking(move || -> Result<Option<HeadUtxo>> {
@@ -45,9 +46,9 @@ pub async fn find_head(m: &Manifest) -> Result<Option<HeadUtxo>> {
             if nft.capability != NftCapability::Minting {
                 continue;
             }
-            let Ok(commit) = Commit::decode(&hex::decode(&nft.commitment)?) else { continue };
+            let Ok(commit) = HeadCommit::decode(&hex::decode(&nft.commitment)?) else { continue };
             let h = HeadUtxo { outpoint: outpoint(&u)?, value: u.value, commit, category: m.category_bytes() };
-            if best.as_ref().map(|b| h.commit.seq > b.commit.seq).unwrap_or(true) {
+            if best.as_ref().map(|b| h.commit.snapshot.seq > b.commit.snapshot.seq).unwrap_or(true) {
                 best = Some(h);
             }
         }
@@ -56,37 +57,39 @@ pub async fn find_head(m: &Manifest) -> Result<Option<HeadUtxo>> {
     .await?
 }
 
-/// Tickers of the manifest's category at the Ticker lock, confirmed at least `min_age` blocks
-/// ago (height known and `tip - height >= min_age`).
-pub async fn find_sweepable_tickers(m: &Manifest, min_age: i64, max: usize) -> Result<Vec<TickerUtxo>> {
+/// Tickers of the manifest's category whose hour is up by median-time-past `mtp`, oldest first,
+/// at most `max`. A transaction is final only while its locktime is below the tip's MTP, so a
+/// Ticker qualifies when its recycle time is strictly below it.
+pub async fn find_recyclable_tickers(m: &Manifest, mtp: u64, max: usize) -> Result<Vec<TickerUtxo>> {
     let m = m.clone();
     tokio::task::spawn_blocking(move || -> Result<Vec<TickerUtxo>> {
         let mut c = connect(&m)?;
-        let tip = c.tip_height()? as i64;
         let sh = electrum_scripthash(&hex::decode(&m.ticker_lock)?);
         let utxos = c.list_unspent_by_scripthash(&sh)?;
         let mut out = Vec::new();
         for u in utxos {
             let Some(td) = &u.token_data else { continue };
-            if td.category != m.category || u.height <= 0 || tip - u.height < min_age {
+            if td.category != m.category {
                 continue;
             }
             let Some(nft) = &td.nft else { continue };
             if nft.capability != NftCapability::None {
                 continue;
             }
-            let Ok(commit) = Commit::decode(&hex::decode(&nft.commitment)?) else { continue };
-            out.push(TickerUtxo { outpoint: outpoint(&u)?, value: u.value, commit });
-            if out.len() >= max {
-                break;
+            let Ok(snapshot) = Snapshot::decode(&hex::decode(&nft.commitment)?) else { continue };
+            if snapshot.recyclable_at() >= mtp {
+                continue;
             }
+            out.push(TickerUtxo { outpoint: outpoint(&u)?, value: u.value, snapshot });
         }
+        out.sort_by_key(|t| t.snapshot.seq);
+        out.truncate(max);
         Ok(out)
     })
     .await?
 }
 
-/// Plain P2PKH coins of the operator key (no tokens).
+/// Plain P2PKH coins of the operator key (no tokens), largest first.
 pub async fn find_coins(m: &Manifest, pkh: [u8; 20]) -> Result<Vec<(TxOutpoint, u64, i64)>> {
     let m = m.clone();
     tokio::task::spawn_blocking(move || -> Result<Vec<(TxOutpoint, u64, i64)>> {
@@ -120,6 +123,15 @@ pub async fn tip_height(m: &Manifest) -> Result<u64> {
     tokio::task::spawn_blocking(move || -> Result<u64> {
         let mut c = connect(&m)?;
         Ok(c.tip_height()?)
+    })
+    .await?
+}
+
+pub async fn median_time_past(m: &Manifest) -> Result<u64> {
+    let m = m.clone();
+    tokio::task::spawn_blocking(move || -> Result<u64> {
+        let mut c = connect(&m)?;
+        Ok(c.median_time_past()?)
     })
     .await?
 }

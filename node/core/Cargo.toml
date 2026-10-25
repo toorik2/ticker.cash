@@ -1,6 +1,6 @@
 [package]
 name        = "ticker-core"
-description = "ticker.cash v25 protocol: commits, notary statements, BCH Schnorr, transaction builders, Electrum client"
+description = "ticker.cash v26 protocol: commitments, notary statements, BCH Schnorr, transaction builders, Electrum client, HTTPS fetch"
 version.workspace      = true
 edition.workspace      = true
 rust-version.workspace = true

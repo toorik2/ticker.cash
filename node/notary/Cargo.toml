@@ -1,6 +1,6 @@
 [package]
 name        = "ticker-notary"
-description = "ticker.cash v25 notary: TLSNotary verifier for one exchange row, signs minute statements"
+description = "ticker.cash v26 notary: fetches one exchange over TLS each minute and signs what it said"
 version.workspace      = true
 edition.workspace      = true
 rust-version.workspace = true
@@ -12,10 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 ticker-core    = { workspace = true }
-tlsn           = { workspace = true }
 tokio          = { workspace = true }
-tokio-util     = { workspace = true }
-futures        = { workspace = true }
 hyper          = { workspace = true }
 hyper-util     = { workspace = true }
 http-body-util = { workspace = true }
@@ -24,4 +21,3 @@ serde          = { workspace = true }
 serde_json     = { workspace = true }
 hex            = { workspace = true }
 pico-args      = { workspace = true }
-libc           = { workspace = true }

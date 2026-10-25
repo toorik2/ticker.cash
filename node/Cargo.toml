@@ -3,7 +3,7 @@ members = ["core", "notary", "daemon"]
 resolver = "2"
 
 [workspace.package]
-version      = "25.0.0"
+version      = "26.0.0"
 edition      = "2021"
 rust-version = "1.85"
 license      = "MIT"
@@ -16,7 +16,7 @@ sha2             = { version = "0.10", default-features = false, features = ["st
 ripemd           = { version = "0.1",  default-features = false }
 hmac             = { version = "0.12", default-features = false }
 zeroize          = { version = "1", default-features = false }
-# TLS for Electrum
+# TLS: Electrum and the notary's exchange fetch
 rustls           = { version = "0.23", default-features = false, features = ["std", "tls12", "ring"] }
 rustls-pki-types = "1"
 webpki-roots     = "0.26"
@@ -28,16 +28,12 @@ hex              = { version = "0.4", default-features = false, features = ["std
 pico-args        = "0.5"
 thiserror        = "2"
 libc             = "0.2"
-# async runtime (notary + prover; tlsn is tokio-based)
+# async runtime (notary API server, daemon loops)
 tokio            = { version = "1.38", features = ["rt", "rt-multi-thread", "macros", "net", "io-util", "time", "sync", "signal"] }
-tokio-util       = { version = "0.7", features = ["compat"] }
-futures          = "0.3"
-hyper            = { version = "1.1", features = ["client", "server", "http1"] }
-hyper-util       = { version = "0.1", features = ["full"] }
+hyper            = { version = "1.1", features = ["server", "http1"] }
+hyper-util       = { version = "0.1", features = ["tokio"] }
 http-body-util   = "0.1"
 anyhow           = "1"
-# TLSNotary — pinned release tag; not on crates.io
-tlsn             = { git = "https://github.com/tlsnotary/tlsn", tag = "v0.1.0-alpha.15", features = ["mozilla-certs"] }
 
 ticker-core      = { path = "core" }
 

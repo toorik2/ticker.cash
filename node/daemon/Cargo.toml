@@ -1,6 +1,6 @@
 [package]
 name        = "ticker-node"
-description = "ticker.cash v25 operator: prover, builder, sweeper, genesis"
+description = "ticker.cash v26 operator: builder, recycler, status publisher, genesis, rotation"
 version.workspace      = true
 edition.workspace      = true
 rust-version.workspace = true
@@ -11,17 +11,10 @@ name = "ticker-node"
 path = "src/main.rs"
 
 [dependencies]
-ticker-core    = { workspace = true }
-tlsn           = { workspace = true }
-tokio          = { workspace = true }
-tokio-util     = { workspace = true }
-futures        = { workspace = true }
-hyper          = { workspace = true }
-hyper-util     = { workspace = true }
-http-body-util = { workspace = true }
-anyhow         = { workspace = true }
-serde          = { workspace = true }
-serde_json     = { workspace = true }
-hex            = { workspace = true }
-pico-args      = { workspace = true }
-libc           = { workspace = true }
+ticker-core = { workspace = true }
+tokio       = { workspace = true }
+anyhow      = { workspace = true }
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+hex         = { workspace = true }
+pico-args   = { workspace = true }

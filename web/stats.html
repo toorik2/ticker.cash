@@ -5,7 +5,7 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="theme-color" content="#f3efe4" />
-<meta name="description" content="ticker.cash observability: the head's minute and reserve, every notary's latest statement, update cadence and on-chain cost. Chain state read directly from Fulcrum in the browser." />
+<meta name="description" content="ticker.cash observability: the head's minute, how many rows signed it, the reserve, every notary's latest statement, update cadence and on-chain cost. Chain state read directly from Fulcrum in the browser." />
 <meta property="og:title" content="Ticker · Stats" />
 <meta property="og:type" content="website" />
 <meta property="og:url" content="https://usd.ticker.cash/stats" />
@@ -65,34 +65,35 @@
     <span class="label" id="s-label">CONNECTING</span>
     <span class="sep">·</span><span class="m"><span class="k">minute</span><span class="v" id="s-minute">—</span></span>
     <span class="sep">·</span><span class="m" id="s-age-m"><span class="v" id="s-age">—</span><span class="k">ago</span></span>
-    <span class="sep">·</span><span class="m" id="s-quorum-m"><span class="k">rows current</span><span class="v" id="s-quorum">—</span><span class="k" style="opacity:.6">(min 7)</span></span>
+    <span class="sep">·</span><span class="m" id="s-k-m"><span class="k">signed</span><span class="v" id="s-k">—</span><span class="k" style="opacity:.6" id="s-forge"></span></span>
+    <span class="sep">·</span><span class="m" id="s-quorum-m"><span class="k">rows current</span><span class="v" id="s-quorum">—</span><span class="k" style="opacity:.6">(floor 7)</span></span>
     <span class="sep">·</span><span class="m"><span class="k">reserve</span><span class="v" id="s-reserve">—</span></span>
     <span class="sep">·</span><span class="m"><span class="k">tip</span><span class="v" id="s-tip">—</span></span>
   </div>
-  <div class="note">head read direct from <span id="fulcrum">fulcrum…</span>; notary rows from the operator's status.json (<span id="status-age">—</span>)</div>
+  <div class="note">head read direct from <span id="fulcrum">fulcrum…</span>; notary rows from the operator's status.json (<span id="status-age">—</span>); table <span id="table-hash">—</span></div>
   <div class="wrap">
     <table>
       <thead><tr>
-        <th>#</th><th>Exchange</th><th>Operator</th><th>Mode</th><th class="r">Last statement</th><th class="r">Minute</th><th class="r">Issued</th><th class="r">Status</th>
+        <th>#</th><th>Exchange</th><th>Operator</th><th class="r">Last statement</th><th class="r">Minute</th><th class="r">Issued</th><th class="r">Status</th>
       </tr></thead>
-      <tbody id="rows"><tr><td colspan="8" style="text-align:center;padding:1.5rem;color:#6a6457">loading…</td></tr></tbody>
+      <tbody id="rows"><tr><td colspan="7" style="text-align:center;padding:1.5rem;color:#6a6457">loading…</td></tr></tbody>
     </table>
   </div>
   <div class="grid">
     <div class="card"><div class="h">Updates on chain</div><div class="v" id="c-count">—</div><div class="d">transactions at the head address since genesis</div></div>
     <div class="card"><div class="h">Update size</div><div class="v" id="c-size">—</div><div class="d">median of the last 12 updates; fee is exactly size + 1 sat</div></div>
-    <div class="card"><div class="h">Cost per day</div><div class="v" id="c-day">—</div><div class="d">at one update a minute, fees only; Ticker dust is swept back</div></div>
-    <div class="card"><div class="h">Reserve runway</div><div class="v" id="c-runway">—</div><div class="d">at fee + 2 × 708 sats per update</div></div>
+    <div class="card"><div class="h">Cost per day</div><div class="v" id="c-day">—</div><div class="d">at one update a minute, fees only; Ticker dust and tolls are recycled into the reserve</div></div>
+    <div class="card"><div class="h">Reserve runway</div><div class="v" id="c-runway">—</div><div class="d">at the fee per update; Ticker dust returns after an hour</div></div>
   </div>
 </div>
 <div class="foot" style="max-width:1180px;margin:3rem auto 0;padding:0.8rem 1.75rem 1.5rem">
   <div>usd.ticker.cash/stats · <span id="foot-net">chipnet</span> · client-side, no server-side API</div>
   <div><a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github</a></div>
 </div>
-<script src="/ticker-client.js?v=25"></script>
+<script src="/ticker-client.js?v=26"></script>
 <script>
 const { DEFAULTS, loadManifest, loadStatus, pickHead, ElectrumWS, measureRecentUpdates } = window.TickerClient;
-let head = null, status = null, costs = null;
+let head = null, status = null, costs = null, manifest = null;
 const fmtUsd = (n) => (n == null || !isFinite(n)) ? '—' : n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtAge = (s) => s == null ? '—' : s < 60 ? s + 's' : s < 3600 ? Math.floor(s/60) + 'm ' + String(s%60).padStart(2,'0') + 's' : s < 86400 ? Math.floor(s/3600) + 'h ' + String(Math.floor((s%3600)/60)).padStart(2,'0') + 'm' : Math.floor(s/86400) + 'd ' + Math.floor((s%86400)/3600) + 'h';
 const minuteStr = (seq) => new Date(seq * 60000).toISOString().slice(11, 16) + 'Z';
@@ -110,7 +111,11 @@ function render(){
   document.getElementById('s-minute').textContent = head ? minuteStr(head.commit.seq) + ' · ' + fmtUsd(head.commit.priceUsd) : '—';
   document.getElementById('s-age').textContent = age != null ? fmtAge(age) : '—';
   document.getElementById('s-age-m').classList.toggle('warn', age != null && age >= DEFAULTS.STALE_SEC);
+  document.getElementById('s-k').textContent = head ? head.commit.k + ' / ' + (manifest ? manifest.table.length : rows.length) : '—';
+  document.getElementById('s-forge').textContent = head ? '(' + head.commit.keysToForge + ' keys to forge)' : '';
+  document.getElementById('s-k-m').classList.toggle('warn', head != null && manifest != null && head.commit.k < manifest.table.length);
   document.getElementById('s-quorum').textContent = rows.length ? current + ' / ' + rows.length : '—';
+  if (head && manifest) { const same = head.commit.tableHash === manifest.table_hash; const th = document.getElementById('table-hash'); th.textContent = head.commit.tableHash.slice(0, 12) + '… ' + (same ? 'matches manifest' : 'ROTATED, manifest stale'); th.className = same ? 'ok' : 'down'; }
   document.getElementById('s-quorum-m').classList.toggle('warn', rows.length > 0 && current < DEFAULTS.QUORUM);
   document.getElementById('s-reserve').textContent = head ? Number(head.reserveSats).toLocaleString('en-US') + ' sats' : '—';
   document.getElementById('s-tip').textContent = status && status.tip ? status.tip.toLocaleString('en-US') : '—';
@@ -122,20 +127,19 @@ function render(){
     tr.innerHTML = `<td>${String(r.row).padStart(2,'0')}</td>
       <td>${r.label || r.source_name || '?'}${r.quote && r.quote !== 'usd' ? ' <span class="sub">' + r.quote.toUpperCase() + '-quoted</span>' : ''}<span class="sub">${r.host || ''}</span></td>
       <td>${r.operator || '—'}<span class="sub" title="${r.pubkey}">${r.pubkey ? r.pubkey.slice(0,10) + '…' : ''}</span></td>
-      <td>${r.mode || '—'}</td>
       <td class="r">${r.latest ? fmtUsd(r.latest.price / 1e8) : '—'}</td>
       <td class="r">${r.latest ? minuteStr(r.latest.seq) : '—'}</td>
       <td class="r">${r.issued != null ? r.issued.toLocaleString('en-US') : '—'}</td>
       <td class="r st ${st[0]}">${st[1]}</td>`;
     tb.appendChild(tr);
   }
-  if (!rows.length) tb.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:1.5rem;color:#6a6457">status.json not available yet</td></tr>';
+  if (!rows.length) tb.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:1.5rem;color:#6a6457">status.json not available yet</td></tr>';
   if (costs) {
     document.getElementById('c-count').textContent = costs.count.toLocaleString('en-US');
     document.getElementById('c-size').innerHTML = costs.medianSize.toLocaleString('en-US') + ' <small>B</small>';
     document.getElementById('c-day').innerHTML = (costs.perDaySats / 1e8).toFixed(4) + ' <small>BCH</small>';
     if (head) {
-      const perUpdate = costs.feeSats + 2 * DEFAULTS.TICKER_SATS;
+      const perUpdate = costs.feeSats;
       const updates = Number(head.reserveSats) / perUpdate;
       document.getElementById('c-runway').innerHTML = (updates / 1440).toFixed(1) + ' <small>days</small>';
     }
@@ -146,6 +150,7 @@ function render(){
 (async () => {
   let m;
   try { m = await loadManifest(); } catch (e) { document.getElementById('s-label').textContent = 'DEPLOYING'; return; }
+  manifest = m;
   document.getElementById('pair').textContent = 'stats · ' + m.network;
   document.getElementById('foot-net').textContent = m.network;
   const client = new ElectrumWS(DEFAULTS.FULCRUM_WSS_POOL, { onStatus: ({ state, endpoint }) => { document.getElementById('fulcrum').textContent = (endpoint ? endpoint.url.replace('wss://','') : 'fulcrum') + ' (' + state + ')'; } });
@@ -153,7 +158,7 @@ function render(){
     const h = pickHead(utxos, m.category);
     if (h) head = h;
     render();
-    try { costs = await measureRecentUpdates(client, m.headScripthash); render(); } catch (_) {}
+    try { costs = await measureRecentUpdates(client, m.headScripthash, m.category); render(); } catch (_) {}
   });
   const poll = async () => { try { status = await loadStatus(); } catch (_) {} render(); };
   poll(); setInterval(poll, DEFAULTS.STATUS_POLL_MS);

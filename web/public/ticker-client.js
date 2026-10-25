@@ -1,11 +1,12 @@
-/* ticker.cash v25 web client — manifest-driven, on-chain consumption only.
+/* ticker.cash v26 web client — manifest-driven, on-chain consumption only.
  *
- * The page loads /manifest.json (written by `ticker-node genesis`) and derives everything it
- * needs from it: the head's P2SH-32 address, the Electrum scripthashes of the head lock and the
- * Ticker lock, and the token category. Live head state is read straight from Fulcrum over WSS;
- * notary health comes from /status.json, which the operator daemon refreshes every 10 seconds.
+ * The page loads /manifest.json (written by `ticker-node`) and derives everything it needs from
+ * it: the head's P2SH-32 address, the Electrum scripthashes of the head lock and the Ticker lock,
+ * the token category, and the hash160 of the notary table (what the head commitment carries).
+ * Live head state is read straight from Fulcrum over WSS; notary health comes from /status.json,
+ * which the operator daemon refreshes every 10 seconds.
  *
- * Commit layout (head and every Ticker): seq u32 LE (Unix minute) ‖ price u64 LE (1e-8 USD).
+ * Commitments: head = seq u32 LE ‖ price u64 LE ‖ k u8 ‖ tableHash (33 B); Ticker = the first 13 B.
  */
 (function () {
   'use strict';
@@ -16,9 +17,9 @@
       { url: 'wss://chipnet.bch.ninja:50004', mode: 'poll', pollMs: 12000 },
     ],
     QUORUM: 7,
-    ROWS: 13,
-    TICKER_SATS: 708,
-    RESERVE_CAP_SATS: 5000,
+    TICKER_SATS: 786,
+    TOLL_SATS: 1000,
+    TICKER_LIFE_SECS: 3600,
     STALE_SEC: 180,
     STATUS_POLL_MS: 10000,
   };
@@ -41,6 +42,48 @@
     const h = await sha256(hexToBytes(lockHex));
     return bytesToHex(h.reverse());
   }
+
+  // ─── RIPEMD-160 (WebCrypto has none); hash160 = ripemd160(sha256(x)) ───
+  function ripemd160(bytes) {
+    const K1 = [0x00000000, 0x5a827999, 0x6ed9eba1, 0x8f1bbcdc, 0xa953fd4e];
+    const K2 = [0x50a28be6, 0x5c4dd124, 0x6d703ef3, 0x7a6d76e9, 0x00000000];
+    const R1 = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15, 7,4,13,1,10,6,15,3,12,0,9,5,2,14,11,8, 3,10,14,4,9,15,8,1,2,7,0,6,13,11,5,12, 1,9,11,10,0,8,12,4,13,3,7,15,14,5,6,2, 4,0,5,9,7,12,2,10,14,1,3,8,11,6,15,13];
+    const R2 = [5,14,7,0,9,2,11,4,13,6,15,8,1,10,3,12, 6,11,3,7,0,13,5,10,14,15,8,12,4,9,1,2, 15,5,1,3,7,14,6,9,11,8,12,2,10,0,4,13, 8,6,4,1,3,11,15,0,5,12,2,13,9,7,10,14, 12,15,10,4,1,5,8,7,6,2,13,14,0,3,9,11];
+    const S1 = [11,14,15,12,5,8,7,9,11,13,14,15,6,7,9,8, 7,6,8,13,11,9,7,15,7,12,15,9,11,7,13,12, 11,13,6,7,14,9,13,15,14,8,13,6,5,12,7,5, 11,12,14,15,14,15,9,8,9,14,5,6,8,6,5,12, 9,15,5,11,6,8,13,12,5,12,13,14,11,8,5,6];
+    const S2 = [8,9,9,11,13,15,15,5,7,7,8,11,14,14,12,6, 9,13,15,7,12,8,9,11,7,7,12,7,6,15,13,11, 9,7,15,11,8,6,6,14,12,13,5,14,13,13,7,5, 15,5,8,11,14,14,6,14,6,9,12,9,12,5,15,8, 8,5,12,9,12,5,14,6,8,13,6,5,15,13,11,11];
+    const rotl = (x, n) => ((x << n) | (x >>> (32 - n))) >>> 0;
+    const f = (j, x, y, z) => j < 16 ? (x ^ y ^ z) : j < 32 ? ((x & y) | (~x & z)) : j < 48 ? ((x | ~y) ^ z) : j < 64 ? ((x & z) | (y & ~z)) : (x ^ (y | ~z));
+    const len = bytes.length;
+    const msg = new Uint8Array((((len + 9) + 63) >> 6) << 6);
+    msg.set(bytes);
+    msg[len] = 0x80;
+    const dv = new DataView(msg.buffer);
+    const bitLen = len * 8;
+    dv.setUint32(msg.length - 8, bitLen >>> 0, true);
+    dv.setUint32(msg.length - 4, Math.floor(bitLen / 0x100000000), true);
+    let h0 = 0x67452301, h1 = 0xefcdab89, h2 = 0x98badcfe, h3 = 0x10325476, h4 = 0xc3d2e1f0;
+    for (let off = 0; off < msg.length; off += 64) {
+      const X = new Array(16);
+      for (let i = 0; i < 16; i++) X[i] = dv.getUint32(off + 4 * i, true);
+      let al = h0, bl = h1, cl = h2, dl = h3, el = h4, ar = h0, br = h1, cr = h2, dr = h3, er = h4;
+      for (let j = 0; j < 80; j++) {
+        const round = j >> 4;
+        let t = (al + f(j, bl, cl, dl) + X[R1[j]] + K1[round]) >>> 0;
+        t = (rotl(t, S1[j]) + el) >>> 0;
+        al = el; el = dl; dl = rotl(cl, 10); cl = bl; bl = t;
+        t = (ar + f(79 - j, br, cr, dr) + X[R2[j]] + K2[round]) >>> 0;
+        t = (rotl(t, S2[j]) + er) >>> 0;
+        ar = er; er = dr; dr = rotl(cr, 10); cr = br; br = t;
+      }
+      const t = (h1 + cl + dr) >>> 0;
+      h1 = (h2 + dl + er) >>> 0; h2 = (h3 + el + ar) >>> 0; h3 = (h4 + al + br) >>> 0; h4 = (h0 + bl + cr) >>> 0; h0 = t;
+    }
+    const out = new Uint8Array(20);
+    const o = new DataView(out.buffer);
+    [h0, h1, h2, h3, h4].forEach((h, i) => o.setUint32(4 * i, h, true));
+    return out;
+  }
+  async function hash160(bytes) { return ripemd160(await sha256(bytes)); }
 
   // ─── cashaddr (P2PKH + P2SH-32) ──────────────────────────────────────
   const ALPHABET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
@@ -71,27 +114,41 @@
   function p2pkhAddress(prefix, pkh20) { return cashaddr(prefix, 0x00, pkh20); }
   function p2sh32Address(prefix, lockHex) { return cashaddr(prefix, 0x0b, hexToBytes(lockHex).slice(2, 34)); }
 
-  // ─── commit codec ────────────────────────────────────────────────────
-  /** @returns {{seq:number, minuteStartUnix:number, price:bigint, priceUsd:number}|null} */
-  function decodeCommit(hex) {
-    if (!hex || hex.length !== 24) return null;
-    const b = hexToBytes(hex);
+  // ─── commit codecs ───────────────────────────────────────────────────
+  /** @returns {{seq:number, minuteStartUnix:number, price:bigint, priceUsd:number, k:number, keysToForge:number}|null} */
+  function decodeSnapshot(hex) {
+    if (!hex || hex.length < 26) return null;
+    const b = hexToBytes(hex.slice(0, 26));
     const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
     const seq = dv.getUint32(0, true);
     const price = dv.getBigUint64(4, true);
-    return { seq, minuteStartUnix: seq * 60, price, priceUsd: Number(price) / 1e8 };
+    const k = b[12];
+    return { seq, minuteStartUnix: seq * 60, price, priceUsd: Number(price) / 1e8, k, keysToForge: keysToForge(k) };
   }
+  /** Head commitment: snapshot plus the notary table's hash160 (hex). */
+  function decodeHeadCommit(hex) {
+    if (!hex || hex.length !== 66) return null;
+    const s = decodeSnapshot(hex);
+    return s ? { ...s, tableHash: hex.slice(26) } : null;
+  }
+  /** Keys that must collude to write a minute signed by k rows: the lower median's rank plus one. */
+  function keysToForge(k) { return k > 0 ? Math.floor((k - 1) / 2) + 1 : 0; }
 
   // ─── manifest ────────────────────────────────────────────────────────
   async function loadManifest(url = '/manifest.json') {
     const res = await fetch(url, { cache: 'no-store' });
     if (!res.ok) throw new Error('manifest.json: HTTP ' + res.status);
     const m = await res.json();
-    if (m.version !== 25 || !m.category || !m.oracle_lock || !m.ticker_lock || !Array.isArray(m.table)) throw new Error('manifest.json: not a v25 manifest');
+    if (m.version !== 26 || !m.category || !m.oracle_lock || !m.ticker_lock || !m.table_hash || !Array.isArray(m.table)) throw new Error('manifest.json: not a v26 manifest');
     const prefix = m.network === 'mainnet' ? 'bitcoincash' : 'bchtest';
+    const tableBytes = new Uint8Array(m.table.length * 34);
+    m.table.forEach((r, i) => { tableBytes.set(hexToBytes(r.pubkey), i * 34); tableBytes[i * 34 + 33] = r.source; });
+    const tableHash = bytesToHex(await hash160(tableBytes));
     return {
       ...m,
       prefix,
+      tableHashComputed: tableHash,
+      tableHashOk: tableHash === m.table_hash,
       headAddress: p2sh32Address(prefix, m.oracle_lock),
       headScripthash: await scripthashOf(m.oracle_lock),
       tickerScripthash: await scripthashOf(m.ticker_lock),
@@ -106,13 +163,14 @@
     return res.json();
   }
 
-  /** Pick the head UTXO out of a listunspent result for the head scripthash. */
+  /** Pick the head UTXO out of a listunspent result for the head scripthash (every v26 oracle
+   *  shares the lock, so the category is what selects this deployment). */
   function pickHead(utxos, category) {
     let best = null;
     for (const u of utxos) {
       const td = u.token_data;
       if (!td || td.category !== category || !td.nft || td.nft.capability !== 'minting') continue;
-      const d = decodeCommit(td.nft.commitment);
+      const d = decodeHeadCommit(td.nft.commitment);
       if (!d) continue;
       if (!best || d.seq > best.commit.seq) best = { utxo: u, commit: d, reserveSats: BigInt(u.value) };
     }
@@ -148,7 +206,7 @@
         this.ws = ws;
         this.backoffMs = 1000;
         this.setState('connected');
-        this.request('server.version', 'ticker-web/25', '1.4').catch(() => {});
+        this.request('server.version', 'ticker-web/26', '1.4').catch(() => {});
         for (const [key, w] of this.watches) this.arm(key, w);
         this.heartbeat();
       };
@@ -227,19 +285,25 @@
   }
 
   // ─── cost meter: recent update transactions on the head scripthash ───
-  async function measureRecentUpdates(client, headScripthash, sample = 12) {
+  // Every v26 oracle shares the head lock, so the history is filtered to transactions that carry
+  // this category's minting NFT: a decoded output with capability 'minting' and our category.
+  async function measureRecentUpdates(client, headScripthash, category, sample = 12) {
     const hist = await client.request('blockchain.scripthash.get_history', headScripthash);
-    const recent = hist.slice(-sample);
+    const recent = hist.slice(-sample * 2);
     const sizes = [];
+    const catLe = bytesToHex(hexToBytes(category).reverse());
     for (const h of recent) {
-      try { const hex = await client.request('blockchain.transaction.get', h.tx_hash); sizes.push(Math.floor(hex.length / 2)); } catch (_) {}
+      try {
+        const hex = await client.request('blockchain.transaction.get', h.tx_hash);
+        if (!hex.includes('ef' + catLe)) continue;
+        sizes.push(Math.floor(hex.length / 2));
+      } catch (_) {}
     }
-    sizes.sort((a, b) => a - b);
-    if (!sizes.length) return null;
-    const median = sizes[Math.floor(sizes.length / 2)];
-    // the history includes the genesis transaction, which is not an update
-    return { count: Math.max(0, hist.length - 1), medianSize: median, feeSats: median + 1, perDaySats: (median + 1) * 1440 };
+    const mine = sizes.slice(-sample).sort((a, b) => a - b);
+    if (!mine.length) return null;
+    const median = mine[Math.floor(mine.length / 2)];
+    return { count: hist.length, medianSize: median, feeSats: median + 1, perDaySats: (median + 1) * 1440 };
   }
 
-  window.TickerClient = { DEFAULTS, hexToBytes, bytesToHex, sha256, scripthashOf, p2pkhAddress, p2sh32Address, decodeCommit, loadManifest, loadStatus, pickHead, ElectrumWS, measureRecentUpdates };
+  window.TickerClient = { DEFAULTS, hexToBytes, bytesToHex, sha256, scripthashOf, ripemd160, hash160, p2pkhAddress, p2sh32Address, decodeSnapshot, decodeHeadCommit, keysToForge, loadManifest, loadStatus, pickHead, ElectrumWS, measureRecentUpdates };
 })();

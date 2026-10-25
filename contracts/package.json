@@ -1,12 +1,13 @@
 {
-  "name": "ticker-v25-contracts",
+  "name": "ticker-v26-contracts",
   "private": true,
   "type": "module",
-  "description": "ticker.cash v25 draft covenants + VM test suite (BCH_2026_05 target)",
+  "description": "ticker.cash v26 covenants + VM test suite (BCH_2026_05 target)",
   "scripts": {
     "build": "cashc Oracle.cash -o artifacts/Oracle.json && cashc Ticker.cash -o artifacts/Ticker.json && cashc PriceGated.cash -o artifacts/PriceGated.json",
     "size": "cashc Oracle.cash --size && cashc Ticker.cash --size && cashc PriceGated.cash --size",
-    "test": "node test/v25.suite.mjs"
+    "test": "node test/v26.suite.mjs",
+    "vectors": "node test/v26.suite.mjs --vectors"
   },
   "devDependencies": {
     "@bitauth/libauth": "^3.0.0",

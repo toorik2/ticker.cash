@@ -1,9 +1,9 @@
 //! Genesis: one transaction that mints the head NFT with the reserve and fixes the category.
 //!
-//! Reads `genesis.json` (network, electrum pool, the 13 table rows), picks a coin of the
-//! operator key whose output index is 0 (a CashTokens category genesis must spend such an
-//! outpoint; if none exists a self-spend creates one first), builds the genesis transaction,
-//! broadcasts it, and writes `manifest.json`.
+//! Reads `genesis.json` (network, electrum pool, the table rows), picks a coin of the operator key
+//! whose output index is 0 (a CashTokens category genesis must spend such an outpoint; if none
+//! exists a self-spend creates one first), builds the genesis transaction, broadcasts it, and
+//! writes `manifest.json`. The head starts at the previous minute with price 0 and k 0.
 
 use std::path::PathBuf;
 
@@ -12,9 +12,9 @@ use serde::Deserialize;
 use ticker_core::commit::current_minute;
 use ticker_core::crypto::schnorr_sign;
 use ticker_core::keyfile::load_key;
-use ticker_core::manifest::{ElectrumEndpoint, Manifest, TableRow};
+use ticker_core::manifest::{table_bytes, validate_rows, ElectrumEndpoint, Manifest, TableRow, MANIFEST_VERSION};
 use ticker_core::tx::cashaddr::{encode_p2pkh_cashaddr, encode_p2sh32_cashaddr, AddressPrefix};
-use ticker_core::tx::covenant::{oracle_lock_for_table, ticker_lock};
+use ticker_core::tx::covenant::{oracle_lock, table_hash, ticker_lock};
 use ticker_core::tx::encode::{encode_tx, Input, Output, Tx, TxOutpoint, SEQUENCE_FINAL};
 use ticker_core::tx::script::{p2pkh_locking_script, push_data};
 use ticker_core::tx::sighash::{sighash_digest, SpentOutput, SIGHASH_ALL_UTXOS_FORKID};
@@ -30,6 +30,36 @@ struct GenesisSpec {
     electrum: Vec<ElectrumEndpoint>,
 }
 
+fn provisional_manifest(spec: GenesisSpec) -> Result<Manifest> {
+    validate_rows(&spec.table).context("genesis table")?;
+    let th = table_hash(&table_bytes(&spec.table));
+    let m = Manifest {
+        version: MANIFEST_VERSION,
+        network: spec.network,
+        category: "00".repeat(32),
+        genesis_txid: String::new(),
+        oracle_lock: hex::encode(oracle_lock()),
+        ticker_lock: hex::encode(ticker_lock()),
+        table_hash: hex::encode(th),
+        table: spec.table,
+        electrum: spec.electrum,
+    };
+    m.validate().context("genesis spec")?;
+    Ok(m)
+}
+
+/// Print the locks, head address and table hash a genesis.json would produce (no network, no funds).
+pub fn derive(home: &PathBuf) -> Result<()> {
+    let spec: GenesisSpec = serde_json::from_str(&std::fs::read_to_string(home.join("genesis.json")).context("genesis.json")?)?;
+    let prefix = AddressPrefix::from_network(&spec.network).ok_or_else(|| anyhow!("network must be chipnet or mainnet"))?;
+    let m = provisional_manifest(spec)?;
+    println!("oracle_lock  {}", m.oracle_lock);
+    println!("ticker_lock  {}", m.ticker_lock);
+    println!("head address {}", encode_p2sh32_cashaddr(&oracle_lock(), prefix));
+    println!("table hash   {} ({} rows)", m.table_hash, m.table.len());
+    Ok(())
+}
+
 pub fn genesis(home: &PathBuf, reserve: u64, dry_run: bool, prepare_only: bool) -> Result<()> {
     let spec: GenesisSpec = serde_json::from_str(&std::fs::read_to_string(home.join("genesis.json")).context("genesis.json")?)?;
     let prefix = AddressPrefix::from_network(&spec.network).ok_or_else(|| anyhow!("network must be chipnet or mainnet"))?;
@@ -38,21 +68,9 @@ pub fn genesis(home: &PathBuf, reserve: u64, dry_run: bool, prepare_only: bool) 
     if manifest_path.exists() {
         bail!("{} exists; refusing to run genesis twice", manifest_path.display());
     }
-    // a provisional manifest just to validate the table and talk to Electrum
-    let mut m = Manifest {
-        version: 25,
-        network: spec.network.clone(),
-        category: "00".repeat(32),
-        genesis_txid: String::new(),
-        oracle_lock: String::new(),
-        ticker_lock: hex::encode(ticker_lock()),
-        table: spec.table,
-        electrum: spec.electrum,
-    };
-    let table = m.table_bytes();
-    let oracle_lock = oracle_lock_for_table(&table);
-    m.oracle_lock = hex::encode(oracle_lock);
-    m.validate().context("genesis table")?;
+    let mut m = provisional_manifest(spec)?;
+    let th = m.table_hash_bytes();
+    let lock = oracle_lock();
 
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
     rt.block_on(async {
@@ -90,7 +108,7 @@ pub fn genesis(home: &PathBuf, reserve: u64, dry_run: bool, prepare_only: bool) 
                 funding = Some((TxOutpoint { txid_be: split.0, vout: 0 }, split.2));
                 if prepare_only {
                     println!("category (future) {txid}");
-                    println!("init the 13 notaries with this category, then run genesis --reserve {reserve}");
+                    println!("init the notaries with this category, then run genesis --reserve {reserve}");
                     return Ok(());
                 }
             }
@@ -98,14 +116,13 @@ pub fn genesis(home: &PathBuf, reserve: u64, dry_run: bool, prepare_only: bool) 
         let (op, value) = funding.ok_or_else(|| anyhow!("no funding outpoint (dry run)"))?;
         let input = P2pkhInput { outpoint: op, value, private_key: key.private_key, public_key: key.public_key, pkh: key.pkh };
         let initial_seq = current_minute().saturating_sub(1);
-        let built = build_genesis(&input, &table, &oracle_lock, reserve, initial_seq)?;
+        let built = build_genesis(&input, &th, reserve, initial_seq)?;
         m.category = hex::encode(op.txid_be);
         m.genesis_txid = hex::encode(built.txid);
-        let head_addr = encode_p2sh32_cashaddr(&oracle_lock, prefix);
         println!("category     {}", m.category);
         println!("genesis txid {}", m.genesis_txid);
-        println!("head address {head_addr}");
-        println!("ticker lock  {}", m.ticker_lock);
+        println!("head address {}", encode_p2sh32_cashaddr(&lock, prefix));
+        println!("table hash   {}", m.table_hash);
         println!("reserve      {reserve} sats; tx {} B fee {} sats", built.size, built.fee);
         if dry_run {
             println!("dry-run: nothing broadcast, manifest not written");

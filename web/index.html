@@ -5,9 +5,9 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="theme-color" content="#f3efe4" />
-<meta name="description" content="A notarized BCH/USD price oracle on Bitcoin Cash. Thirteen TLSNotary verifiers sign what the exchanges said; one transaction a minute writes the median on chain. Read direct from Fulcrum in your browser." />
+<meta name="description" content="A notarized BCH/USD price oracle on Bitcoin Cash. Thirteen notaries each fetch one exchange over TLS and sign what it said; one transaction a minute writes the lower median on chain together with how many rows signed. Read direct from Fulcrum in your browser." />
 <meta property="og:title" content="Ticker · BCH/USD on chain" />
-<meta property="og:description" content="Thirteen verifiers sign what the exchanges said. One transaction a minute writes the median. Nobody is privileged." />
+<meta property="og:description" content="Thirteen notaries sign what the exchanges said. One transaction a minute writes the median and how many rows stood behind it. Nobody is privileged." />
 <meta property="og:type" content="website" />
 <meta property="og:url" content="https://usd.ticker.cash/" />
 <title>Ticker · BCH/USD on chain</title>
@@ -83,7 +83,7 @@
       <div class="vtag">Median</div>
       <div class="price-body">
         <div class="price-big"><span class="d">$</span><span id="price">———</span></div>
-        <div class="price-trust">Lower median of <b id="k-of">≥ 7 of 13</b> notarized exchange prices, written on chain once a minute. Read direct from Fulcrum.</div>
+        <div class="price-trust">Lower median of <b id="k-of">— of 13</b> notarized exchange prices, written on chain once a minute. Forging this minute would take <b id="forge">—</b> keys. Read direct from Fulcrum.</div>
         <div class="price-stats">
           <div class="row"><span class="k">Minute</span><span class="v" id="minute">—</span></div>
           <div class="row"><span class="k">Age</span><span class="v" id="age">—</span></div>
@@ -93,16 +93,16 @@
     </div>
 
     <div class="specs">
-      <div class="spec"><div class="h">Notaries</div><div class="v" id="spec-notaries">13</div></div>
-      <div class="spec"><div class="h">Quorum</div><div class="v">≥7</div></div>
+      <div class="spec"><div class="h">Rows</div><div class="v" id="spec-notaries">13</div></div>
+      <div class="spec"><div class="h">Signed this minute</div><div class="v" id="spec-k">—<small id="spec-k-of"> of 13</small></div></div>
       <div class="spec"><div class="h">Cadence</div><div class="v">1<small>min</small></div></div>
     </div>
 
     <div class="lead">
-      <p>A <b>notarized BCH/USD price feed</b> on Bitcoin Cash. Thirteen notaries, each pinned to one exchange, co-run a TLS session with it, verify its certificate, and sign the price they saw. A covenant takes the lower median of at least seven of those signatures and writes it on chain. Once a minute, in one transaction.</p>
-      <p>Nobody in the system chooses a number. Notaries sign only what they verified; anyone can open the sessions and anyone can post the update. The trust root is <b>7 of 13 verifiers</b>, and the covenant reads nothing but its own input and outputs. No admin keys, no timestamps, no clock.</p>
-      <p>Today ticker.cash operates all thirteen rows, so the honest description is one operator who cryptographically verified each exchange. A row is one small binary and one exchange endpoint, built to be handed to independent operators; the <a href="/stats">stats</a> page names the operator of every row.</p>
-      <p><b>Read the price on chain.</b> Spend a Ticker NFT in your transaction and decode its 12-byte commitment: the Unix minute and the price. Integration guide, covenant walkthrough, and how to run a notary in the <a href="/docs">docs</a>.</p>
+      <p>A <b>notarized BCH/USD price feed</b> on Bitcoin Cash. Thirteen notaries, each pinned to one exchange, fetch it over TLS every minute, verify its certificate, and sign the price they saw. A covenant checks those signatures, takes the lower median, and writes it on chain together with <b>how many rows signed</b>. Once a minute, in one transaction.</p>
+      <p>Nobody in the system chooses a number, and nobody chooses a trust level for you. The chain accepts a minute once seven rows signed it; the commitment says whether seven signed or thirteen. A minute signed by all thirteen takes seven colluding keys to forge; a minute signed by seven takes four, and it says so. A consumer contract reads that byte and sets its own bar. Anyone can post the update. No admin keys, no clock in the covenant.</p>
+      <p>Today ticker.cash operates all thirteen rows, so the honest description is one operator who cryptographically verified each exchange. A row is one small binary and one exchange endpoint, built to be handed to independent operators; a majority of rows can add or replace rows without a new deployment. The <a href="/stats">stats</a> page names the operator of every row.</p>
+      <p><b>Read the price on chain.</b> Spend a Ticker NFT in your transaction and decode its 13-byte commitment: the Unix minute, the price, and the number of rows behind it. Integration guide, covenant walkthrough, and how to run a notary in the <a href="/docs">docs</a>.</p>
     </div>
   </div>
 
@@ -112,6 +112,7 @@
       <div class="kv" id="contracts">
         <div class="row"><span class="k">Head</span><span class="v" id="head-addr">—</span></div>
         <div class="row"><span class="k">Category</span><span class="v" id="category">—</span></div>
+        <div class="row"><span class="k">Table</span><span class="v" id="table-hash">—</span></div>
         <div class="row"><span class="k">Reserve</span><span class="v" id="reserve">—</span></div>
       </div>
     </div>
@@ -125,7 +126,7 @@
   <div>usd.ticker.cash · <span id="foot-net">chipnet</span> · live price read direct from fulcrum</div>
   <div><a href="/docs">docs</a> · <a href="https://github.com/toorik2/ticker.cash" target="_blank" rel="noopener">github</a></div>
 </div>
-<script src="/ticker-client.js?v=25"></script>
+<script src="/ticker-client.js?v=26"></script>
 <script>
 const { DEFAULTS, loadManifest, loadStatus, pickHead, ElectrumWS } = window.TickerClient;
 let head = null;
@@ -139,9 +140,19 @@ function tick(){
   const sv = document.getElementById('status');
   if (age > DEFAULTS.STALE_SEC) { sv.textContent = 'stale'; sv.className = 'v warn'; } else { sv.textContent = 'live'; sv.className = 'v ok'; }
 }
+let manifest = null;
 function renderHead(h){
   head = h;
   document.getElementById('price').textContent = fmtUsd(h.commit.priceUsd);
+  const rows = manifest ? manifest.table.length : 13;
+  document.getElementById('k-of').textContent = h.commit.k + ' of ' + rows;
+  document.getElementById('forge').textContent = String(h.commit.keysToForge);
+  document.getElementById('spec-k').innerHTML = h.commit.k + '<small id="spec-k-of"> of ' + rows + '</small>';
+  const th = document.getElementById('table-hash');
+  if (manifest) {
+    const same = h.commit.tableHash === manifest.table_hash;
+    th.innerHTML = `<code title="${h.commit.tableHash}">${h.commit.tableHash.slice(0, 10)}…</code> ${same ? '<span style="color:#1a7b3b">matches manifest</span>' : '<span style="color:#a02010">rotated; manifest stale</span>'}`;
+  }
   const d = new Date(h.commit.minuteStartUnix * 1000);
   document.getElementById('minute').textContent = d.toISOString().slice(0, 16).replace('T', ' ') + 'Z';
   document.getElementById('reserve').textContent = Number(h.reserveSats).toLocaleString('en-US') + ' sats';
@@ -168,6 +179,7 @@ function renderStatus(st){
     document.getElementById('status').className = 'v warn';
     return;
   }
+  manifest = m;
   document.getElementById('pair').textContent = 'BCH / USD · ' + m.network;
   document.getElementById('foot-net').textContent = m.network;
   document.getElementById('spec-notaries').textContent = String(m.table.length);

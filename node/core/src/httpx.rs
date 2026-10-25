@@ -1,8 +1,76 @@
-//! Minimal HTTP/1.1 parsing for revealed TLS transcripts.
+//! HTTPS GET for the notary's exchange fetch, and minimal HTTP/1.1 parsing.
 //!
-//! The notary sees the raw bytes the prover sent and the raw bytes the server returned. It needs
-//! four facts from them: the request line and `Host` header (to pin the endpoint), the response
-//! status, and the response body (de-chunked, identity-encoded) for price extraction.
+//! The notary opens its own TLS session to the pinned host, validates the certificate chain
+//! against the Mozilla roots (rustls, TLS 1.2 or 1.3), sends one `GET`, reads to the end and
+//! parses status and body (de-chunked, identity-encoded). No compression is requested, so none is
+//! sent. The response is capped at one megabyte.
+
+use std::io::{Read, Write};
+use std::net::{TcpStream, ToSocketAddrs};
+use std::time::Duration;
+
+use rustls::pki_types::ServerName;
+use rustls::{ClientConnection, StreamOwned};
+
+pub const MAX_RESPONSE_BYTES: usize = 1 << 20;
+
+#[derive(Debug, thiserror::Error)]
+pub enum FetchError {
+    #[error("DNS resolution failed for {0}")]
+    Dns(String),
+    #[error("TCP connect to {host}:443 failed: {err}")]
+    Connect { host: String, err: String },
+    #[error("TLS: {0}")]
+    Tls(String),
+    #[error("I/O: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("response exceeds {MAX_RESPONSE_BYTES} bytes")]
+    TooLarge,
+    #[error("HTTP: {0}")]
+    Http(#[from] HttpError),
+}
+
+/// `GET https://{host}{path}` with certificate validation; returns status and body.
+pub fn fetch_https(host: &str, path: &str, timeout: Duration) -> Result<Response, FetchError> {
+    let addrs: Vec<_> = (host, 443u16).to_socket_addrs().map_err(|e| FetchError::Dns(format!("{host}: {e}")))?.collect();
+    let mut tcp = None;
+    let mut last: Option<std::io::Error> = None;
+    for a in &addrs {
+        match TcpStream::connect_timeout(a, timeout) {
+            Ok(s) => {
+                tcp = Some(s);
+                break;
+            }
+            Err(e) => last = Some(e),
+        }
+    }
+    let tcp = tcp.ok_or_else(|| FetchError::Connect { host: host.to_string(), err: last.map(|e| e.to_string()).unwrap_or_else(|| "no address".into()) })?;
+    tcp.set_read_timeout(Some(timeout))?;
+    tcp.set_write_timeout(Some(timeout))?;
+    tcp.set_nodelay(true)?;
+    let name = ServerName::try_from(host.to_string()).map_err(|_| FetchError::Tls(format!("invalid server name {host}")))?;
+    let conn = ClientConnection::new(crate::electrum::tls::tls_client_config(), name).map_err(|e| FetchError::Tls(e.to_string()))?;
+    let mut tls = StreamOwned::new(conn, tcp);
+    let req = format!("GET {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: ticker-notary/26\r\nAccept: application/json\r\nConnection: close\r\n\r\n");
+    tls.write_all(req.as_bytes()).map_err(|e| FetchError::Tls(e.to_string()))?;
+    let mut buf = Vec::with_capacity(16 * 1024);
+    let mut chunk = [0u8; 8192];
+    loop {
+        match tls.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => {
+                buf.extend_from_slice(&chunk[..n]);
+                if buf.len() > MAX_RESPONSE_BYTES {
+                    return Err(FetchError::TooLarge);
+                }
+            }
+            // a peer that closes without close_notify still delivered a complete response
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
+            Err(e) => return Err(FetchError::Io(e)),
+        }
+    }
+    Ok(parse_response(&buf)?)
+}
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum HttpError {

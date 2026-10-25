@@ -231,6 +231,27 @@ impl ElectrumClient {
         result.get("height").and_then(|h| h.as_u64()).ok_or(ElectrumError::BadShape)
     }
 
+    /// Raw 80-byte headers of `count` blocks from `start` (`blockchain.block.headers`).
+    pub fn block_headers(&mut self, start: u64, count: u64) -> Result<Vec<u8>, ElectrumError> {
+        let result = self.call("blockchain.block.headers", [start, count])?;
+        let h = result.get("hex").and_then(|h| h.as_str()).ok_or(ElectrumError::BadShape)?;
+        hex::decode(h).map_err(|_| ElectrumError::BadShape)
+    }
+
+    /// Median-time-past of the tip: the median timestamp of the last eleven blocks. A transaction
+    /// whose locktime is below this value is final for the next block.
+    pub fn median_time_past(&mut self) -> Result<u64, ElectrumError> {
+        let tip = self.tip_height()?;
+        let start = tip.saturating_sub(10);
+        let raw = self.block_headers(start, tip - start + 1)?;
+        if raw.is_empty() || raw.len() % 80 != 0 {
+            return Err(ElectrumError::BadShape);
+        }
+        let mut ts: Vec<u64> = raw.chunks(80).map(|h| u32::from_le_bytes(h[68..72].try_into().unwrap()) as u64).collect();
+        ts.sort_unstable();
+        Ok(ts[ts.len() / 2])
+    }
+
     pub fn transaction_hex(&mut self, txid_hex: &str) -> Result<String, ElectrumError> {
         let result = self.call("blockchain.transaction.get", [txid_hex])?;
         result.as_str().map(str::to_string).ok_or(ElectrumError::BadShape)

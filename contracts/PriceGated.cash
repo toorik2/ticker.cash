@@ -1,28 +1,36 @@
 pragma cashscript >= 0.14.0;
 
-// PriceGated v25 — reference consumer. Releases to `recipient` once a co-spent
-// Ticker (input 1, re-emitted at output 1 by Ticker.consume) shows
-// price >= strike and a seq inside [minSeq, maxSeq].
-//   minSeq: freshness floor (Unix minute).  maxSeq: ceiling against surfacing a
-//   hoarded Ticker chain long after the market moved (v23 F02 lesson).
-// Ticker commit: seq(4, u32 LE) ‖ price(8, u64 LE, 1e-8 USD per BCH).
+// PriceGated v26 — reference consumer. Releases to `recipient` once a co-spent Ticker (input 1,
+// recreated at output 1 with its toll by Ticker.consume) shows price >= strike, a minute inside
+// [minSeq, maxSeq], and at least minK rows behind it.
+//
+// Only the category is pinned: the head is the category's only minting NFT and the Oracle mints
+// every other token of it, so any immutable NFT of the category with a 13-byte commitment is a
+// Ticker. The head itself has a 33-byte commitment and a 33-byte tokenCategory (capability byte),
+// so it cannot pass as one.
+//
+//   minSeq  freshness floor (Unix minute)
+//   maxSeq  ceiling against a hoarded Ticker surfacing after the market moved
+//   minK    rows that must have signed: 7 is the oracle's floor (4 keys to forge), 11 is six
+//           keys, 13 is seven. Choose from what the money at stake deserves.
 contract PriceGated(
     pubkey  recipient,
     bytes8  strike,
-    bytes32 oracleCategoryVm,   // 32 B category in VM byte order (immutable NFT: no capability byte)
-    bytes   tickerLock,         // the 31-B P2S Ticker locking bytecode
+    bytes32 oracleCategoryVm,   // 32 B category in VM byte order
     int     minSeq,
-    int     maxSeq
+    int     maxSeq,
+    int     minK
 ) {
     function release(sig s) {
         require(this.activeInputIndex == 0);
-        require(tx.inputs[1].lockingBytecode == tickerLock);
         require(tx.inputs[1].tokenCategory == oracleCategoryVm);
         bytes c = tx.inputs[1].nftCommitment;
+        require(c.length == 13);
         int seq = int(c.slice(0, 4));
         require(seq >= minSeq);
         require(seq <= maxSeq);
         require(int(c.slice(4, 12)) >= int(strike));
+        require(int(c.slice(12, 13)) >= minK);
         require(checkSig(s, recipient));
     }
 }
