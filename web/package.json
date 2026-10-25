@@ -1,6 +1,6 @@
 {
   "name": "@ticker/web",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "description": "Static HTML dashboard for the ticker.cash BCH/USD oracle. On-chain consumption only \u2014 no JSON API.",

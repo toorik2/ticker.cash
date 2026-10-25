@@ -1,6 +1,6 @@
 # ticker.cash v25 — Proof-of-Fetch: every minute, one transaction
 
-Status: **deployed on chipnet** (2026-10-24; deployment record in §12). Supersedes v24. Covenants and
+Status: **superseded by v26** (`v26-plan.md`, 2026-10-25) after the red team of the same day. Was deployed on chipnet 2026-10-24 (record in §12). Supersedes v24. Covenants and
 the test suite live in `contracts/`; the exchange registry in `node/core/src/sources.rs`.
 Background and the evaluation of SolidCash / TLSNotary are in `proof-of-fetch-oracle.md`.
 

@@ -1,5 +1,5 @@
 [Unit]
-Description=ticker.cash v25 operator (prover + builder + sweeper)
+Description=ticker.cash v26 operator (builder + recycler + status publisher)
 After=network-online.target
 Wants=network-online.target
 

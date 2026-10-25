@@ -6,14 +6,30 @@ is a *system* unit (`/etc/systemd/system/`) that runs as its own unprivileged us
 
 | Unit | Scope | Runs | Paths |
 |---|---|---|---|
-| `ticker-notary@N.service` | user | `ticker-notary run` for table row N | `~/.ticker-notary-N/` (notary.json, notary.key, statements.jsonl) |
-| `ticker-node.service` | user | `ticker-node run`: prover, builder, sweeper; publishes `manifest.json` + `status.json` into the web root | `~/.ticker-node/` (operator.key, genesis.json, manifest.json); writes `web/dist/` |
+| `ticker-notary@N.service` | user | `ticker-notary run` for table row N: fetches its exchange once a minute, signs, serves `/v1/statement` on loopback | `~/.ticker-notary-N/` (notary.json, notary.key, statements.jsonl) |
+| `ticker-node.service` | user | `ticker-node run`: builder and recycler; publishes `manifest.json` + `status.json` into the web root | `~/.ticker-node/` (operator.key, genesis.json, manifest.json); writes `web/dist/` |
 | `ticker.slice` | user | CPU cap shared by the notaries and the node | |
 | `ticker-web.service` | system, `User=web` | `server/server.ts` under tsx on 127.0.0.1:3000 behind nginx; serves `web/dist/` | `~/projects/ticker.cash/web`, read-only |
 
 Binaries live in `~/.local/bin/`. The user units run with `UMask=0077`, `ProtectHome=read-only` and an
 explicit `ReadWritePaths`; the daemon re-opens its two published files as 0644 so the web user can
-read them.
+read them. A notary needs outbound 443 to its exchange and one loopback port for its statement
+API; nothing connects to it from outside. The node needs outbound access to the Electrum pool.
+
+## Cutting a deployment over (v25 → v26, 2026-10-25)
+
+```
+systemctl --user stop ticker-node 'ticker-notary@*'
+mkdir -p ~/archive/v25 && mv ~/.ticker-notary-{0..12} ~/archive/v25/ && mv ~/.ticker-node/{manifest,genesis}.json ~/archive/v25/
+for i in $(seq 0 12); do ticker-notary --home ~/.ticker-notary-$i init --source <id> --category <future category> --api 127.0.0.1:71$(printf %02d $i) --operator ticker.cash; done
+# genesis.json: rows {row, source, pubkey (from init), operator, api}; electrum pool
+ticker-node genesis --reserve 40000000 --prepare     # prints the future category first; init the notaries with it
+ticker-node genesis --reserve 40000000
+systemctl --user start 'ticker-notary@{0..12}' ticker-node
+```
+
+The previous head stays on chain with its reserve; v25 had no exit path. v26 does: a majority of
+rows can retire a head to a P2PKH with `ticker-node rotate --retire-to ADDRESS`.
 
 ## Web server
 
