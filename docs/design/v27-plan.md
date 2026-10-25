@@ -168,3 +168,4 @@ after a day. A recycled Ticker adds 43 B and returns at least 792 sats plus its 
 | table hash | `f6118ff8061f8900a22b384f8275ea30888957de` (unchanged) |
 | migration | `55bd87c63040a64fb65bcfb2efec4f3b9aa5dda14bd7c6142f782cbf72608c6b` at 15:57 UTC: 2,031 B, all 13 rows approving, from v26 head `c9a1b76d…` (minute 29882397, k 13, $275.60); the v26 builder was stopped for the minute it took |
 | first v27 update | `c80b7b2f01c22804e64e93caf9c4428c7d2e72c0d42da3392d5d7a86f1cd8b65`: timestamp 1792943880 (15:58 UTC), dataSequence 7 (the v26 price 27,560,000,000 has high dword 6), k = 13, $275.60, 2,336 B, fee 2,337 sats, reserve 18,786,242 sats |
+| first legacy recycle | `266661e7c89c77794567d719e3900f7235f0f82f1f7ff4bef1efb4defdf95461` at 16:09 UTC (dataSequence 18): the v27 head recycled ten v26 Tickers of 786 sats each (7,860 sats back into the reserve) in a 2,756-B update; the next update did the same. v26 Tickers were an hour old by then, v27 ones need a day |

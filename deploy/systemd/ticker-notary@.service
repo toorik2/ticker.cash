@@ -1,5 +1,5 @@
 [Unit]
-Description=ticker.cash v26 notary, table row %i
+Description=ticker.cash notary, table row %i
 After=network-online.target
 Wants=network-online.target
 

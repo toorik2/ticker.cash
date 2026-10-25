@@ -59,7 +59,8 @@ node/               Rust workspace
   daemon/           ticker-node: builder + recycler, genesis, rotation, status publisher
 deploy/systemd/     units for an operator host (user units; the web server as a hardened system unit)
 web/                static dashboard (manifest-driven, reads chain state from Fulcrum)
-docs/design/        v26 record, the v25 record it supersedes, the first-principles notes
+xo/                 XO wallet templates: read a Ticker, pay at the oracle price, instantiate an oracle
+docs/design/        v27 record, the v26 and v25 records it supersedes, the first-principles notes
 docs/security/      red team of v25 (2026-10-25)
 ```
 

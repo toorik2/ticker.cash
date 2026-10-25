@@ -1,0 +1,16 @@
+{
+  "name": "ticker-xo-templates",
+  "private": true,
+  "type": "module",
+  "description": "ticker.cash XO templates: pay at the oracle price, read a Ticker, instantiate an oracle",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node test.mjs",
+    "check": "tsc --noEmit --allowJs --checkJs --module nodenext --moduleResolution nodenext --target es2022 --skipLibCheck templates/*.mjs"
+  },
+  "devDependencies": {
+    "@xo-cash/types": "^0.0.8",
+    "@xo-cash/utils": "^0.0.10",
+    "typescript": "^5.6.0"
+  }
+}

@@ -1,0 +1,123 @@
+{
+  "$schema": "https://libauth.org/schemas/wallet-template-v0.schema.json",
+  "name": "BCH/USD on chain (ticker.cash)",
+  "description": "Decodes a ticker.cash Ticker commitment: a General Protocols price message (timestamp, sequence, price in US cents) followed by the number of notary rows that signed it.",
+  "icon": "chart",
+  "version": "1",
+  "supported": [
+    "BCH_2026_05"
+  ],
+  "resources": [
+    {
+      "name": "ticker.cash",
+      "description": "The oracle and its live state.",
+      "url": "https://usd.ticker.cash"
+    }
+  ],
+  "roles": {
+    "reader": {
+      "name": "Reader",
+      "description": "Anyone reading the oracle.",
+      "icon": "owner"
+    }
+  },
+  "start": [
+    {
+      "action": "read",
+      "role": "reader"
+    }
+  ],
+  "actions": {
+    "read": {
+      "name": "Read a Ticker",
+      "description": "BCH/USD $(tickerDollars).$(tickerCentsTens)$(tickerCentsOnes), minute $(tickerTimestamp), update $(tickerSequence), signed by $(tickerRows) rows.",
+      "icon": "chart",
+      "roles": {
+        "reader": {
+          "name": "Read",
+          "description": "Decode the commitment of a Ticker.",
+          "icon": "chart",
+          "requirements": {
+            "variables": [
+              "tickerCommitment"
+            ]
+          }
+        }
+      },
+      "requirements": {
+        "participants": [
+          {
+            "role": "reader",
+            "slots": {
+              "min": 1,
+              "max": 1
+            }
+          }
+        ]
+      },
+      "data": "priceCents"
+    }
+  },
+  "data": {
+    "timestamp": {
+      "value": "$(tickerTimestamp)",
+      "type": "integer"
+    },
+    "sequence": {
+      "value": "$(tickerSequence)",
+      "type": "integer"
+    },
+    "priceCents": {
+      "value": "$(tickerPriceCents)",
+      "type": "integer"
+    },
+    "rowsSigned": {
+      "value": "$(tickerRows)",
+      "type": "integer"
+    }
+  },
+  "inputs": {},
+  "outputs": {},
+  "lockingScripts": {
+    "tickerLockingScript": {
+      "name": "Ticker",
+      "description": "Where every ticker.cash Ticker sits: the v27 Ticker covenant (P2S). Outputs here with the oracle's category are price snapshots.",
+      "icon": "contract",
+      "lockingType": "p2s",
+      "lockingBytecode": "tickerLockingBytecode",
+      "actions": [],
+      "selectable": false
+    }
+  },
+  "scripts": {
+    "tickerLockingBytecode": "$(<tickerLockingBytecodeConstant>)",
+    "tickerTimestamp": "<tickerCommitment> OP_4 OP_SPLIT OP_DROP OP_BIN2NUM",
+    "tickerSequence": "<tickerCommitment> OP_8 OP_SPLIT OP_NIP OP_4 OP_SPLIT OP_DROP OP_BIN2NUM",
+    "tickerPriceCents": "<tickerCommitment> OP_12 OP_SPLIT OP_NIP OP_4 OP_SPLIT OP_DROP OP_BIN2NUM",
+    "tickerRows": "<tickerCommitment> OP_16 OP_SPLIT OP_NIP OP_BIN2NUM",
+    "tickerDollars": "tickerPriceCents <100> OP_DIV",
+    "tickerCentsTens": "tickerPriceCents <100> OP_MOD <10> OP_DIV",
+    "tickerCentsOnes": "tickerPriceCents <10> OP_MOD"
+  },
+  "constants": {
+    "oracleCategory": {
+      "name": "Oracle category",
+      "description": "The ticker.cash BCH/USD oracle on chipnet.",
+      "type": "bytes",
+      "value": "8f4cf72bf4108a280a2fff0183d92c1162a93f00face71c37f23387bb3d4a46b"
+    },
+    "tickerLockingBytecodeConstant": {
+      "name": "Ticker locking bytecode",
+      "description": "The v27 Ticker covenant, 55 bytes.",
+      "type": "bytes",
+      "value": "76009c63c076cd78c78876d178ce8876d278cf8876cc7cc602e80393a27767519dc000ce78ce527e88cf547f75810380510193b1755168"
+    }
+  },
+  "variables": {
+    "tickerCommitment": {
+      "name": "Ticker commitment",
+      "description": "The 17-byte NFT commitment of the Ticker: timestamp ‖ messageSequence ‖ dataSequence ‖ price in US cents ‖ rows that signed. The first 16 bytes are a General Protocols price message.",
+      "type": "bytes"
+    }
+  }
+}
