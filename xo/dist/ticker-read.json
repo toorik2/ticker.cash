@@ -90,7 +90,7 @@
     }
   },
   "scripts": {
-    "tickerLockingBytecode": "$(<tickerLockingBytecodeConstant>)",
+    "tickerLockingBytecode": "0x76009c63c076cd78c78876d178ce8876d278cf8876cc7cc602e80393a27767519dc000ce78ce527e88cf547f75810380510193b1755168",
     "tickerTimestamp": "<tickerCommitment> OP_4 OP_SPLIT OP_DROP OP_BIN2NUM",
     "tickerSequence": "<tickerCommitment> OP_8 OP_SPLIT OP_NIP OP_4 OP_SPLIT OP_DROP OP_BIN2NUM",
     "tickerPriceCents": "<tickerCommitment> OP_12 OP_SPLIT OP_NIP OP_4 OP_SPLIT OP_DROP OP_BIN2NUM",
@@ -105,12 +105,6 @@
       "description": "The ticker.cash BCH/USD oracle on chipnet.",
       "type": "bytes",
       "value": "8f4cf72bf4108a280a2fff0183d92c1162a93f00face71c37f23387bb3d4a46b"
-    },
-    "tickerLockingBytecodeConstant": {
-      "name": "Ticker locking bytecode",
-      "description": "The v27 Ticker covenant, 55 bytes.",
-      "type": "bytes",
-      "value": "76009c63c076cd78c78876d178ce8876d278cf8876cc7cc602e80393a27767519dc000ce78ce527e88cf547f75810380510193b1755168"
     }
   },
   "variables": {

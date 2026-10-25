@@ -107,6 +107,7 @@ export const tickerStampTemplate = {
             lockingScript: 'recipientLockingScript',
             valueSatoshis: '$(<paymentSatoshis>)',
             token: null,
+            roles: { payer: { relevant: false } },
         },
         changeOutput: {
             name: 'Change',
@@ -135,6 +136,7 @@ export const tickerStampTemplate = {
             lockingBytecode: 'lockToRecipient',
             actions: [],
             selectable: false,
+            roles: { payer: { relevant: false } },
         },
         payerLockingScript: {
             name: 'Payer wallet',
@@ -152,7 +154,7 @@ export const tickerStampTemplate = {
 
     scripts: {
         consumeTicker: 'OP_0',
-        tickerLockingBytecode: '$(<tickerLockingBytecodeConstant>)',
+        tickerLockingBytecode: '0x' + TICKER_LOCKING_BYTECODE,
         lockToRecipient: '$(<recipientLockingScript>)',
         lockP2PKH: 'OP_DUP OP_HASH160 <$(<payerKey.public_key> OP_HASH160)> OP_EQUALVERIFY OP_CHECKSIG',
         unlockP2PKH: '<payerKey.schnorr_signature.all_outputs> <payerKey.public_key>',
@@ -161,7 +163,6 @@ export const tickerStampTemplate = {
 
     constants: {
         oracleCategory: { name: 'Oracle category', description: 'The ticker.cash BCH/USD oracle on chipnet.', type: 'bytes', value: ORACLE_CATEGORY },
-        tickerLockingBytecodeConstant: { name: 'Ticker locking bytecode', description: 'The v27 Ticker covenant, 55 bytes.', type: 'bytes', value: TICKER_LOCKING_BYTECODE },
         toll: { name: 'Toll', description: 'Satoshis a consumer adds to the Ticker it re-emits.', type: 'integer', value: TOLL_SATS },
     },
 

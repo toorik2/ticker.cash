@@ -144,6 +144,7 @@ export const tickerGenesisTemplate = {
             lockingBytecode: 'oracleLockingBytecode',
             actions: [],
             selectable: false,
+            roles: { founder: { relevant: false } },
         },
         founderLockingScript: {
             name: 'Founder wallet',
@@ -160,16 +161,13 @@ export const tickerGenesisTemplate = {
     },
 
     scripts: {
-        oracleLockingBytecode: '$(<oracleLockingBytecodeConstant>)',
+        oracleLockingBytecode: '0x' + ORACLE_LOCKING_BYTECODE,
         lockP2PKH: 'OP_DUP OP_HASH160 <$(<founderKey.public_key> OP_HASH160)> OP_EQUALVERIFY OP_CHECKSIG',
         unlockP2PKH: '<founderKey.schnorr_signature.all_outputs> <founderKey.public_key>',
         // timestamp(4) ‖ messageSequence 0 (4) ‖ dataSequence 0 (4) ‖ price 0 (4) ‖ k 0 (1) ‖ hash160(table)
         genesisCommitment: '<startTimestamp> OP_4 OP_NUM2BIN <0> OP_4 OP_NUM2BIN OP_CAT <0> OP_4 OP_NUM2BIN OP_CAT <0> OP_4 OP_NUM2BIN OP_CAT <0> OP_1 OP_NUM2BIN OP_CAT <tableBytes> OP_HASH160 OP_CAT',
     },
 
-    constants: {
-        oracleLockingBytecodeConstant: { name: 'Oracle locking bytecode', description: 'The v27 head lock, 35 bytes: OP_HASH256 <hash> OP_EQUAL.', type: 'bytes', value: ORACLE_LOCKING_BYTECODE },
-    },
 
     variables: {
         founderKey: { name: 'Founder key', description: 'The key that holds the funding coin and receives change.', type: 'private_key' },

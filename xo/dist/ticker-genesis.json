@@ -219,7 +219,12 @@
       "lockingType": "p2s",
       "lockingBytecode": "oracleLockingBytecode",
       "actions": [],
-      "selectable": false
+      "selectable": false,
+      "roles": {
+        "founder": {
+          "relevant": false
+        }
+      }
     },
     "founderLockingScript": {
       "name": "Founder wallet",
@@ -248,18 +253,10 @@
     }
   },
   "scripts": {
-    "oracleLockingBytecode": "$(<oracleLockingBytecodeConstant>)",
+    "oracleLockingBytecode": "0xaa20a9f9c3bcf15f1fe97aa1ccbe13ea77cbf77fb5cdd0f20dde98798b9aaac0e87487",
     "lockP2PKH": "OP_DUP OP_HASH160 <$(<founderKey.public_key> OP_HASH160)> OP_EQUALVERIFY OP_CHECKSIG",
     "unlockP2PKH": "<founderKey.schnorr_signature.all_outputs> <founderKey.public_key>",
     "genesisCommitment": "<startTimestamp> OP_4 OP_NUM2BIN <0> OP_4 OP_NUM2BIN OP_CAT <0> OP_4 OP_NUM2BIN OP_CAT <0> OP_4 OP_NUM2BIN OP_CAT <0> OP_1 OP_NUM2BIN OP_CAT <tableBytes> OP_HASH160 OP_CAT"
-  },
-  "constants": {
-    "oracleLockingBytecodeConstant": {
-      "name": "Oracle locking bytecode",
-      "description": "The v27 head lock, 35 bytes: OP_HASH256 <hash> OP_EQUAL.",
-      "type": "bytes",
-      "value": "aa20a9f9c3bcf15f1fe97aa1ccbe13ea77cbf77fb5cdd0f20dde98798b9aaac0e87487"
-    }
   },
   "variables": {
     "founderKey": {

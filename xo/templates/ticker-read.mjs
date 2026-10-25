@@ -59,13 +59,12 @@ export const tickerReadTemplate = {
     },
 
     scripts: {
-        tickerLockingBytecode: '$(<tickerLockingBytecodeConstant>)',
+        tickerLockingBytecode: '0x' + TICKER_LOCKING_BYTECODE,
         ...COMMITMENT_SCRIPTS,
     },
 
     constants: {
         oracleCategory: { name: 'Oracle category', description: 'The ticker.cash BCH/USD oracle on chipnet.', type: 'bytes', value: ORACLE_CATEGORY },
-        tickerLockingBytecodeConstant: { name: 'Ticker locking bytecode', description: 'The v27 Ticker covenant, 55 bytes.', type: 'bytes', value: TICKER_LOCKING_BYTECODE },
     },
 
     variables: COMMITMENT_VARIABLE,

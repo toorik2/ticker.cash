@@ -177,7 +177,12 @@
       "icon": "send",
       "lockingScript": "recipientLockingScript",
       "valueSatoshis": "$(<paymentSatoshis>)",
-      "token": null
+      "token": null,
+      "roles": {
+        "payer": {
+          "relevant": false
+        }
+      }
     },
     "changeOutput": {
       "name": "Change",
@@ -208,7 +213,12 @@
       "lockingType": "p2s",
       "lockingBytecode": "lockToRecipient",
       "actions": [],
-      "selectable": false
+      "selectable": false,
+      "roles": {
+        "payer": {
+          "relevant": false
+        }
+      }
     },
     "payerLockingScript": {
       "name": "Payer wallet",
@@ -238,7 +248,7 @@
   },
   "scripts": {
     "consumeTicker": "OP_0",
-    "tickerLockingBytecode": "$(<tickerLockingBytecodeConstant>)",
+    "tickerLockingBytecode": "0x76009c63c076cd78c78876d178ce8876d278cf8876cc7cc602e80393a27767519dc000ce78ce527e88cf547f75810380510193b1755168",
     "lockToRecipient": "$(<recipientLockingScript>)",
     "lockP2PKH": "OP_DUP OP_HASH160 <$(<payerKey.public_key> OP_HASH160)> OP_EQUALVERIFY OP_CHECKSIG",
     "unlockP2PKH": "<payerKey.schnorr_signature.all_outputs> <payerKey.public_key>",
@@ -256,12 +266,6 @@
       "description": "The ticker.cash BCH/USD oracle on chipnet.",
       "type": "bytes",
       "value": "8f4cf72bf4108a280a2fff0183d92c1162a93f00face71c37f23387bb3d4a46b"
-    },
-    "tickerLockingBytecodeConstant": {
-      "name": "Ticker locking bytecode",
-      "description": "The v27 Ticker covenant, 55 bytes.",
-      "type": "bytes",
-      "value": "76009c63c076cd78c78876d178ce8876d278cf8876cc7cc602e80393a27767519dc000ce78ce527e88cf547f75810380510193b1755168"
     },
     "toll": {
       "name": "Toll",

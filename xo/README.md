@@ -7,7 +7,7 @@ a contract it has never seen before. These templates put the ticker.cash BCH/USD
 | template | what it does | status |
 |---|---|---|
 | `ticker-read` | decodes a Ticker commitment: timestamp, update counter, price in cents, rows that signed | parses, compiles, imports; **`data` actions are still work in progress in the XO engine**, so the wallet shows the decoded fields in the action text but cannot "run" the read |
-| `ticker-stamp` | **pay at the oracle price**: a payment that co-spends the newest Ticker and re-emits it with the 1,000-sat toll, so the transaction carries the consensus-verified rate it was priced at | parses, compiles, imports; needs an app that supplies the Ticker input (see below) |
+| `ticker-stamp` | **pay at the oracle price**: a payment that co-spends the newest Ticker and re-emits it with the 1,000-sat toll, so the transaction carries the consensus-verified rate it was priced at | **paid on chipnet** from a headless XO engine (`cb2195f4…`, see below); needs an app that supplies the Ticker input |
 | `ticker-genesis` | **instantiate an oracle**: mint a v27 head over a notary table of your choice with your own reserve, in two actions (`fund`, `create`) | parses, compiles, imports; needs an app that pins the funding coin (see below) |
 
 All three share `templates/common.mjs`: the two protocol constants (the 55-byte Ticker lock and the 35-byte
@@ -25,7 +25,34 @@ npm run check      # type-checks the templates against @xo-cash/types
 
 `dist/*.json` is what the [XO Web Dev Wallet](https://gitlab.com/GeneralProtocols/xo/xo-web-devtool) import
 modal accepts (Templates → Import, paste the JSON). The identifiers printed by the build are the template
-identifiers XO derives from the content.
+identifiers XO derives from the content. All three also import into a headless `@xo-cash/engine` on chipnet,
+and the engine creates invitations for every action and reports exactly the requirements the templates declare.
+
+## Live test: an XO engine paid at the oracle price (chipnet, 2026-10-25)
+
+```
+npm run stamp -- address                               # prints the tool's throwaway wallet address; fund it
+npm run stamp -- pay bchtest:… 5000                    # dry run: finds the newest Ticker, builds, shows the transaction
+npm run stamp -- pay bchtest:… 5000 -- --broadcast     # sends it
+```
+
+`tools/stamp-live.mjs` drives `@xo-cash/engine` the way the Dev Wallet does: it finds the newest Ticker
+through the engine's Electrum helper, creates the `pay` invitation with the Ticker as input 0 and the
+variables, appends the two template outputs (the engine derives value, lock and token from the variables),
+appends a wallet coin as the funding input, adds change, signs its own input and executes.
+
+| | |
+|---|---|
+| transaction | `cb2195f4ab719844c603124fd481466f2b3294d5b575071579e673f7aeba3c46` (377 B, fee 560 sats) |
+| Ticker consumed | counter 37, minute 1792945680 (16:28 UTC), 275.31 USD/BCH, 13 rows; re-emitted at output 0 with 1,792 sats |
+| payment | 5,000 sats at output 1; change at output 2 to the template's payer key |
+
+Things the engine taught us, all now reflected in the templates: covenant bytecode goes into a script as a
+raw `0x…` literal, because output locks compile through libauth, which knows template variables but not
+constants; locks and outputs that belong to someone else (the recipient, the oracle head) carry
+`roles.<role>.relevant: false`, or the wallet starts tracking the recipient's coins as its own; and the
+Ticker's unlocking script is a single `OP_0`, supplied with the input since the engine only compiles
+unlocking scripts for coins it owns.
 
 ## How each template works
 
