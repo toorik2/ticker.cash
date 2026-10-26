@@ -122,6 +122,17 @@ against package versions. Keep under ~300 lines; move long catalogues to `refere
 
 ## 5. Dev Wallet (xo-web-devtool) facts
 
+- Hosted build (GitLab Pages, 2026-10-26): https://xo-ui-20655e.gitlab.io/ (title "XO Cash"); the canonical
+  `generalprotocols.gitlab.io/xo/xo-web-devtool/` 308-redirects there. Local: `npm install && npm start` ->
+  localhost:3000. Same engine pin as ours (0.1.0-next.17446870453). Setup screen picks mainnet | chipnet |
+  testnet4 per account and offers built-in test mnemonics; README: early development, never a real-fund mnemonic.
+- Multi-wallet in the GUI: invitations are pasted as JSON, or synced through a sync server
+  (`VITE_SYNC_SERVER_URL`, default http://localhost:3001; `@xo-cash/sync-client`, `coordinator-server`
+  package). GP's relay `https://v2.sync.xo.harvmaster.com` (dev: `dev.v2…`) answers 404 at `/`, status unknown.
+- GP's own GUI dapp: wrapped.cash, hosted at https://wrapped-cash-42f1ea.gitlab.io/ (Vue, mainnet WBCH
+  covenant, browser-only, creates invitations an external XO wallet signs, relay above). Local build needs the
+  engine checked out at `../engine` (file: dependency). xo.cash lists an "XO Wallet" (consumer) as screenshots
+  and future tense only; stack.xo.cash is a live docs/landing page marked in development (2026-10-26).
 - Import a template = paste the built JSON (`xo/dist/*.json`). Invitations travel as pasted JSON too.
 - On a coin held under a `lockingScripts` entry with `actions`, the wallet offers those actions; it pins the
   coin as the input and prefills variables from the coin's token fields and the script's `state.variables`.
