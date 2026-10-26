@@ -182,7 +182,9 @@ What remains:
   fix is on the engine side and small: pass libauth a compilation context while output token fields are
   evaluated, and `<signing_serialization.outpoint_transaction_hash>`, a built-in libauth already has, yields
   input 0's txid. We prototyped it in nine lines and built a genesis whose category the template derived
-  itself; see `notes/engine-compilation-context.md`. This is the single request worth making.
+  itself; see `notes/engine-compilation-context.md`. This is the single request worth making, and it was
+  made on 2026-10-25: General Protocols call it a known gap on their todo list, probably landing after
+  BLAZE, so the typed category stays for now. A mistyped one is rejected by consensus.
 * **Follow-up from the coin.** The Dev Wallet offers a template's actions on coins it holds when the locking
   script lists them, and prefills variables the script declares as `state`. `ticker-genesis` now offers
   `create` on the funding coin with `fundingSatoshis` carried along, so the user types the reserve, the

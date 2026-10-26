@@ -284,7 +284,7 @@
     },
     "category": {
       "name": "Category",
-      "description": "The new oracle's category: the txid of the funding coin, which must be output 0 of its transaction.",
+      "description": "The new oracle's category: the txid of the funding coin, the part of its outpoint before \":0\". The coin must be output 0 of its transaction. Any other value makes the transaction invalid, so a typo cannot cost anything.",
       "type": "token_category"
     },
     "tableBytes": {

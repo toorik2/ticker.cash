@@ -4,10 +4,11 @@
 // listing public notaries' keys can consume their statements from its first minute.
 //
 // CashTokens genesis rule: the category is the txid of the outpoint spent at input 0, and that
-// outpoint must be output 0 of its transaction. The engine has no primitive for this yet, so the
-// flow is two actions: `fund` receives a coin at this template's own key (the app checks it is
-// output 0), then `create` spends exactly that coin at input 0 while the app supplies its txid as
-// `category`. A mismatch is simply an invalid transaction; nothing can be lost to it.
+// outpoint must be output 0 of its transaction. The engine has no primitive for this yet (raised with
+// General Protocols on 2026-10-25: a known gap on their list, likely after BLAZE), so the flow is two
+// actions: `fund` receives a coin at this template's own key (the app checks it is output 0), then
+// `create` spends exactly that coin at input 0 while the app supplies its txid as `category`. A
+// mismatch is simply an invalid transaction; nothing can be lost to it.
 import { HEX_DECODE, HEX_ENCODE, ORACLE_LOCKING_BYTECODE, SUPPORTED } from './common.mjs';
 
 /** @type {import('@xo-cash/types').XOTemplate} */
@@ -182,7 +183,7 @@ export const tickerGenesisTemplate = {
     variables: {
         founderKey: { name: 'Founder key', description: 'The key that holds the funding coin and receives change.', type: 'private_key' },
         fundingSatoshis: { name: 'Funding coin value', description: 'Satoshis in the funding coin.', type: 'satoshis' },
-        category: { name: 'Category', description: 'The new oracle\'s category: the txid of the funding coin, which must be output 0 of its transaction.', type: 'token_category' },
+        category: { name: 'Category', description: 'The new oracle\'s category: the txid of the funding coin, the part of its outpoint before ":0". The coin must be output 0 of its transaction. Any other value makes the transaction invalid, so a typo cannot cost anything.', type: 'token_category' },
         tableBytes: { name: 'Notary table', description: 'n × (compressed pubkey 33 ‖ exchange id 1). Row order is permanent for this instance until its rows rotate it.', type: 'bytes' },
         reserveSatoshis: { name: 'Reserve', description: 'Satoshis locked in the head to pay the oracle\'s fees.', type: 'satoshis' },
         startTimestamp: { name: 'Start timestamp', description: 'A minute start before the first update (Unix seconds, multiple of 60).', type: 'integer' },
