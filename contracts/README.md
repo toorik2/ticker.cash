@@ -6,7 +6,7 @@ target plus libauth token-consensus validation.
 
 | File | Role | Compiled size |
 |---|---|---|
-| `Oracle.cash` | head covenant: `update()` verifies k notary statements against the table whose hash160 the head carries, ranks the lower median in cents, writes a General Protocols price message (`timestamp ‖ counter ‖ counter ‖ price`) `‖ k ‖ tableHash`, pins two Tickers, returns every input to the reserve less a bounded fee; `rotate()` lets a majority of rows set the next lock and commitment tail | 518 B body, 574 B redeem (the 55-B Ticker lock pushed); the same redeem for every deployment |
+| `Oracle.cash` | head covenant: `update()` verifies k notary statements against the table whose hash160 the head carries, ranks the lower median in cents, writes a standard oracle price message (`timestamp ‖ counter ‖ counter ‖ price`) `‖ k ‖ tableHash`, pins two Tickers, returns every input to the reserve less a bounded fee; `rotate()` lets a majority of rows set the next lock and commitment tail | 518 B body, 574 B redeem (the 55-B Ticker lock pushed); the same redeem for every deployment |
 | `Ticker.cash` | immutable 17-byte snapshot (792 sats, the dust floor); `consume()` re-emit with a 1,000-sat toll, `recycle()` only inside a head spend once the Ticker's timestamp is a day old | 55 B (P2S) |
 | `PriceGated.cash` | reference consumer: strike in cents, freshness window in seconds and a minimum `k` | 53 B |
 

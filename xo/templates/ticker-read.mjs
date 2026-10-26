@@ -7,7 +7,7 @@ import { COMMITMENT_DATA, COMMITMENT_SCRIPTS, COMMITMENT_VARIABLE, ORACLE_CATEGO
 export const tickerReadTemplate = {
     $schema: 'https://libauth.org/schemas/wallet-template-v0.schema.json',
     name: 'BCH/USD on chain (ticker.cash)',
-    description: 'Decodes a ticker.cash Ticker commitment: a General Protocols price message (timestamp, sequence, price in US cents) followed by the number of notary rows that signed it.',
+    description: 'Decodes a ticker.cash Ticker commitment: a standard oracle price message (timestamp, sequence, price in US cents) followed by the number of notary rows that signed it.',
     icon: 'chart',
     version: '1',
     supported: SUPPORTED,

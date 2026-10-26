@@ -8,11 +8,11 @@ reserve, a new covenant. Covenants and the VM suite live in `contracts/`.
 
 ## 0. What changed, in one screen
 
-* **The 17-byte snapshot is a General Protocols price-oracle message plus one byte.**
+* **The 17-byte snapshot is an Oracles.cash price message plus one byte.**
   `timestamp(4) ‖ messageSequence(4) ‖ dataSequence(4) ‖ price(4) ‖ k(1)`, little-endian ints: the
   timestamp is the start of the observed minute, both sequences are the oracle's update counter
   (the covenant advances it by exactly one per update), the price is US cents per BCH, `k` is how
-  many rows signed. Any reader of GP's format reads a Ticker as a price message; the signature is
+  many rows signed. Any reader of that format reads a Ticker as a price message; the signature is
   consensus rather than a key. Head commitment: snapshot ‖ tableHash, 37 bytes.
 * **Notary statements name no deployment.** `0x4e ‖ source ‖ timestamp ‖ price`, 10 bytes. A
   statement is a public fact about one exchange at one minute, signed by a key. Any head whose
@@ -30,8 +30,8 @@ reserve, a new covenant. Covenants and the VM suite live in `contracts/`.
 
 | Measured (cashscript 0.14, `BCH_2026_05`, libauth token validation) | v26 | v27 |
 |---|---|---|
-| Snapshot / head commitment | 13 / 33 B, own layout | 17 / 37 B, GP message ‖ k ‖ tableHash |
-| Price unit | 1e-8 USD, u64 | US cents, i32 (GP scaling 100) |
+| Snapshot / head commitment | 13 / 33 B, own layout | 17 / 37 B, Oracles.cash message ‖ k ‖ tableHash |
+| Price unit | 1e-8 USD, u64 | US cents, i32 (Oracles.cash scaling 100) |
 | Statement | 46 B, binds the category | 10 B, binds nothing but the fact |
 | Who can instantiate an oracle | the operator who runs the notaries | anyone, over any public notaries |
 | Ticker lifetime | 1 h | 24 h |
@@ -42,12 +42,12 @@ reserve, a new covenant. Covenants and the VM suite live in `contracts/`.
 
 ## 1. Why
 
-**GP compatibility without a relay.** General Protocols' Oracles.cash is the price source of
+**Oracles.cash compatibility without a relay.** Oracles.cash is the price source of
 AnyHedge and BCH Bull: one key signs a 16-byte message a minute, price in cents. Verified live on
 2026-10-25: attestation period 60,000 ms, scaling 100, one message per minute. Nothing on chain can
 produce a key signature, so an unmodified AnyHedge cannot read a Ticker; but a Ticker-aware contract
 replaces `checkDataSig` with "input i is a Ticker of category X" and parses the identical bytes.
-Every wallet, template and dashboard that already parses GP messages parses ours. The user's rule
+Every wallet, template and dashboard that already parses Oracles.cash messages parses ours. The user's rule
 for this work was no extra layers; byte-level compatibility is how far that rule allows us to go.
 
 **Contiguous counter.** AnyHedge v0.12 settles with two consecutive messages
@@ -101,7 +101,7 @@ requires input 0 to be the category's minting head and `tx.time ≥ commit[0..4)
 state, so the tail is four filler bytes and the table hash: the hash lands at bytes 17..37 where the
 v27 covenant reads it, and bytes 8..12, where v27 reads the counter, hold the high dword of the v26
 price. The first v27 update continues the counter from there. For a 72 price that dword is 6, so
-the live oracle's dataSequence runs from 7. GP consumers require only contiguity and positivity.
+the live oracle's dataSequence runs from 7. Oracles.cash consumers require only contiguity and positivity.
 
 VM suite (`npm test`): 64 scenarios green, including the migration path, a v26 Ticker recycled by a
 v27 head, and a second instance with another category consuming the same 13 statements.
@@ -138,13 +138,13 @@ after a day. A recycled Ticker adds 43 B and returns at least 792 sats plus its 
 
 | # | Decision | Outcome |
 |---|---|---|
-| D26 | Snapshot layout | **GP price message ‖ k.** Byte-level compatibility; no relay. |
-| D27 | Price unit | **US cents** (GP scaling 100; what exchanges quote). |
+| D26 | Snapshot layout | **Oracles.cash price message ‖ k.** Byte-level compatibility; no relay. |
+| D27 | Price unit | **US cents** (Oracles.cash scaling 100; what exchanges quote). |
 | D28 | Sequences | **messageSequence = dataSequence = covenant counter, +1 per update.** Minute numbers skip; AnyHedge-style consumers need contiguity. |
 | D29 | Statement binding | **Source, timestamp, price only.** Public facts; permissionless instances. |
 | D30 | Ticker lifetime | **One day.** Multi-party flows need the Ticker to outlive human signing. |
 | D31 | Path to v27 | **Migration by `rotate()`**, not genesis. First live use of governance. |
-| D32 | Timestamp width | **32-bit, like GP.** Both formats need revision before 2038; ours migrates by rotation. |
+| D32 | Timestamp width | **32-bit, like Oracles.cash.** Both formats need revision before 2038; ours migrates by rotation. |
 | D33 | A Ticker-aware AnyHedge | **Not built** (user's call). |
 
 ---

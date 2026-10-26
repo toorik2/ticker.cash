@@ -72,7 +72,7 @@ signature attests**. There are exactly four families:
 
 | Family | What the covenant verifies | Who must lie to forge | Examples |
 |---|---|---|---|
-| A. Reporter quorum | k-of-n reporter signatures | k reporters | ticker.cash v24 (7-of-13), Chainlink DON, GP's AnyHedge oracle (1-of-1) |
+| A. Reporter quorum | k-of-n reporter signatures | k reporters | ticker.cash v24 (7-of-13), Chainlink DON, the AnyHedge oracle (1-of-1) |
 | B. Source-bound receipt | a signature from a party that *co-operated the TLS session* with the source | reporter **and** that co-operator (per slot) | TLSNotary/DECO lineage; this note |
 | C. Hardware attestation | an enclave key whose quote chains to a vendor root (P-256) | vendor root, enclave code, or a TEE break | Town Crier, Chainlink DECO/TEE work |
 | D. Native market | state of an on-chain market (reserves, auction clearing) | whoever can move the market for the sampling window | Uniswap TWAPs |

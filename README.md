@@ -2,7 +2,7 @@
 
 A notarized BCH/USD price oracle on Bitcoin Cash. Thirteen notaries each fetch one exchange over
 TLS every minute and sign the price they saw; a 518-byte covenant checks seven or more of those
-signatures, takes the lower median, and writes it on chain as a General Protocols price message
+signatures, takes the lower median, and writes it on chain as a standard oracle price message
 followed by **how many rows signed**, once a minute, in one transaction. Nobody in the system
 chooses a number, and nobody chooses your trust level: your contract reads the count and sets its
 own bar. Notaries sign public facts that name no deployment, so anyone can run an oracle over them.
@@ -34,7 +34,7 @@ exchange ──TLS (Mozilla roots)──► notary (one per row): GET <pinned pa
                                                        out 1,2: Tickers (792 sats, P2S)  commit = ts ‖ n+1 ‖ n+1 ‖ median ‖ k
 ```
 
-* **The snapshot is a General Protocols price message** (`timestamp ‖ messageSequence ‖
+* **The snapshot is a standard oracle price message** (`timestamp ‖ messageSequence ‖
   dataSequence ‖ price` in cents, 16 bytes) followed by **k**. Anything that parses Oracles.cash
   messages parses a Ticker; the signature is consensus. The counter advances by exactly one per
   update; the timestamp increases and stays within six hours of chain time (a time-mode locktime,

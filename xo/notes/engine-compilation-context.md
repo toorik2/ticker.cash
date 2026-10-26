@@ -1,14 +1,14 @@
 # Proposal to XO: resolve libauth built-ins in output token fields
 
 **Status (2026-10-26).** Raised in the XO chat on 2026-10-25 as a feature ask (let a template name input 0's
-txid as a token category). Jonathan (General Protocols) answered on 2026-10-26: token genesis handling is on
+txid as a token category). Jonathan (XO team) answered on 2026-10-26: token genesis handling is on
 the todo list, "a gap / not well handled today"; with BLAZE this close it may not land before it, so work
 around it for now; Kiok has been notified. The workaround is in place: `ticker-genesis` takes `category` as a
 typed `token_category` variable, `create` is offered on the funding coin so the input is pinned and its value
 prefilled, and a mistyped category is an invalid transaction by consensus, so nothing can be lost. When the
 engine gains the context, the template change is the one line under "Result" and the variable goes away.
 
-Kiok (General Protocols) confirmed the same day: partial introspection evaluations are not yet supported,
+Kiok (XO team) confirmed the same day: partial introspection evaluations are not yet supported,
 since a transaction context has to be passed even for the smallest evaluation; it is in the pipeline, highly
 likely after BLAZE. His workaround is the one this template already uses: pass the chosen genesis input's
 `outpointTransactionHash` as a variable in the action's requirements and fill the token category of any

@@ -5,7 +5,7 @@
 //
 // CashTokens genesis rule: the category is the txid of the outpoint spent at input 0, and that
 // outpoint must be output 0 of its transaction. The engine has no primitive for this yet (raised with
-// General Protocols on 2026-10-25: a known gap on their list, likely after BLAZE), so the flow is two
+// the XO team on 2026-10-25: a known gap on their list, likely after BLAZE), so the flow is two
 // actions: `fund` receives a coin at this template's own key (the app checks it is output 0), then
 // `create` spends exactly that coin at input 0 while the app supplies its txid as `category`. A
 // mismatch is simply an invalid transaction; nothing can be lost to it.

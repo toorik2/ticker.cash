@@ -7,7 +7,7 @@
  * which the operator daemon refreshes every 10 seconds.
  *
  * Commitments: head = timestamp u32 LE ‖ messageSequence u32 LE ‖ dataSequence u32 LE ‖ price u32 LE (cents) ‖ k u8
- * ‖ tableHash (37 B); Ticker = the first 17 B. The first 16 bytes are a General Protocols price message.
+ * ‖ tableHash (37 B); Ticker = the first 17 B. The first 16 bytes are a standard oracle price message (Oracles.cash layout).
  */
 (function () {
   'use strict';
@@ -116,7 +116,7 @@
   function p2sh32Address(prefix, lockHex) { return cashaddr(prefix, 0x0b, hexToBytes(lockHex).slice(2, 34)); }
 
   // ─── commit codecs ───────────────────────────────────────────────────
-  /** The 17-byte snapshot: a GP price message (timestamp, messageSequence, dataSequence, price in cents) plus k.
+  /** The 17-byte snapshot: a standard oracle price message (timestamp, messageSequence, dataSequence, price in cents) plus k.
    *  @returns {{ts:number, minuteStartUnix:number, seq:number, msgSeq:number, price:number, priceUsd:number, k:number, keysToForge:number}|null} */
   function decodeSnapshot(hex) {
     if (!hex || hex.length < 34) return null;

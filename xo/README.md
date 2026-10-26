@@ -1,6 +1,6 @@
 # ticker.cash × XO
 
-[XO](https://xo.cash) (General Protocols) is a wallet engine driven by **templates**: JSON documents that
+[XO](https://xo.cash) is a wallet engine driven by **templates**: JSON documents that
 describe roles, actions, inputs, outputs and CashAssembly scripts, so that any XO wallet can take part in
 a contract it has never seen before. These templates put the ticker.cash BCH/USD oracle into that world.
 
@@ -24,7 +24,7 @@ npm test           # compiles every CashAssembly fragment with XO's compiler aga
 npm run check      # type-checks the templates against @xo-cash/types
 ```
 
-`dist/*.json` is what the [XO Web Dev Wallet](https://gitlab.com/GeneralProtocols/xo/xo-web-devtool) import
+`dist/*.json` is what the [XO Web Dev Wallet](https://xo-ui-20655e.gitlab.io/) import
 modal accepts (Templates → Import, paste the JSON). The identifiers printed by the build are the template
 identifiers XO derives from the content. All three also import into a headless `@xo-cash/engine` on chipnet,
 and the engine creates invitations for every action and reports exactly the requirements the templates declare.
@@ -184,7 +184,7 @@ What remains:
   evaluated, and `<signing_serialization.outpoint_transaction_hash>`, a built-in libauth already has, yields
   input 0's txid. We prototyped it in nine lines and built a genesis whose category the template derived
   itself; see `notes/engine-compilation-context.md`. This is the single request worth making, and it was
-  made on 2026-10-25: General Protocols call it a known gap on their todo list, probably landing after
+  made on 2026-10-25: the XO team call it a known gap on their todo list, probably landing after
   BLAZE. Kiok's interim advice is exactly this template's shape: the input's txid passed as a variable of the
   action and the token category filled from it by evaluation, as their wrapped-cash and experimental multisig
   templates do; when the engine learns to read input 0, the variable goes away. Until then a mistyped
@@ -200,7 +200,7 @@ What remains:
 * **Foreign outputs.** The engine tracks outputs of the wallet's own roles only. Apps supply the Ticker (as
   they already supply pool coins in XO's own wrapped-cash template); the rotation template has the operator
   track the Oracle lock, which is how the engine comes to know the head it spends.
-* **Quality of life**, worth mentioning to General Protocols: a `bytes` primitive with `toBytes` would remove
+* **Quality of life**, worth mentioning to the XO team: a `bytes` primitive with `toBytes` would remove
   the decode loops; a dust-aware change policy for token outputs; the post-broadcast bookkeeping that can
   lose a race with the spend notice; one Electrum pool per process, which rules out several wallets in one
   process.

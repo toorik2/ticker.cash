@@ -45,7 +45,7 @@ export const COMMITMENT_DATA = {
 export const COMMITMENT_VARIABLE = {
     tickerCommitment: {
         name: 'Ticker commitment',
-        description: 'The 17-byte NFT commitment of the Ticker: timestamp ‖ messageSequence ‖ dataSequence ‖ price in US cents ‖ rows that signed. The first 16 bytes are a General Protocols price message.',
+        description: 'The 17-byte NFT commitment of the Ticker: timestamp ‖ messageSequence ‖ dataSequence ‖ price in US cents ‖ rows that signed. The first 16 bytes are a standard oracle price message (Oracles.cash layout).',
         type: 'nft_commitment',
     },
 };

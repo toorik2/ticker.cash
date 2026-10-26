@@ -47,7 +47,7 @@ const loadTable = async (manifest) => {
 
 // `variables`: the object a Dev Wallet user pastes into "Paste variables JSON" on `create`, started from the funding
 // coin in that wallet. The category is the coin's txid, handed over as a variable until the engine can read input 0
-// itself (General Protocols' interim advice, 2026-10-26). Needs no wallet here.
+// itself (the XO team's interim advice, 2026-10-26). Needs no wallet here.
 if (cmd === 'variables') {
   const pick = opt('--funding');
   if (!amountArg || !/^[0-9a-f]{64}:0$/.test(pick ?? '')) { console.error('usage: genesis-live.mjs variables <reserve> --funding <txid>:0 [--funding-sats N] [--manifest …]'); process.exit(2); }
