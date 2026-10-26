@@ -8,6 +8,15 @@ typed `token_category` variable, `create` is offered on the funding coin so the 
 prefilled, and a mistyped category is an invalid transaction by consensus, so nothing can be lost. When the
 engine gains the context, the template change is the one line under "Result" and the variable goes away.
 
+Kiok (General Protocols) confirmed the same day: partial introspection evaluations are not yet supported,
+since a transaction context has to be passed even for the smallest evaluation; it is in the pipeline, highly
+likely after BLAZE. His workaround is the one this template already uses: pass the chosen genesis input's
+`outpointTransactionHash` as a variable in the action's requirements and fill the token category of any
+output from it by CashAssembly evaluation, as `wrapped_cash.ts` does from a constant (line 142) and
+`experimental/multisig.ts` does with generated public keys that each signer also passes as a variable, kept
+as locking-script `state` so the script can be rebuilt from stored variables alone. Once the support lands,
+the engine will work the value out on its own and the variable goes away.
+
 **Problem.** CashTokens fixes a new category as the txid of the coin spent at input 0. A template cannot
 express that today: output token fields (`token.category`, `token.nft.commitment`) are evaluated by
 `compileCashAssemblyString` without a transaction context, so libauth's `signing_serialization.*` built-ins

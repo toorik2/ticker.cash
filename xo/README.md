@@ -54,6 +54,7 @@ appends a wallet coin as the funding input, adds change, signs its own input and
 npm run genesis -- fund 18000 --broadcast     # a coin at the founder key, pinned to output 0 of its transaction
 npm run genesis -- create 17680 --broadcast   # spend it at input 0 into a new head over ticker.cash's table
 npm run genesis -- release                    # archive open invitations so the coins they reserved are spendable again
+npm run genesis -- variables 17680 --funding <txid>:0   # the JSON a Dev Wallet user pastes on `create` (no wallet needed)
 ```
 
 | | |
@@ -184,11 +185,16 @@ What remains:
   input 0's txid. We prototyped it in nine lines and built a genesis whose category the template derived
   itself; see `notes/engine-compilation-context.md`. This is the single request worth making, and it was
   made on 2026-10-25: General Protocols call it a known gap on their todo list, probably landing after
-  BLAZE, so the typed category stays for now. A mistyped one is rejected by consensus.
+  BLAZE. Kiok's interim advice is exactly this template's shape: the input's txid passed as a variable of the
+  action and the token category filled from it by evaluation, as their wrapped-cash and experimental multisig
+  templates do; when the engine learns to read input 0, the variable goes away. Until then a mistyped
+  category is rejected by consensus.
 * **Follow-up from the coin.** The Dev Wallet offers a template's actions on coins it holds when the locking
   script lists them, and prefills variables the script declares as `state`. `ticker-genesis` now offers
   `create` on the funding coin with `fundingSatoshis` carried along, so the user types the reserve, the
-  timestamp and the category, and nothing else.
+  timestamp and the category, and nothing else. Its "Paste variables JSON" button takes those in one go:
+  `npm run genesis -- variables <reserve> --funding <txid>:0` prints the category, the table, the reserve and
+  the timestamp as that JSON, without touching a wallet.
 * **Data actions.** Schema accepts them, the engine ignores them; hence `ticker-read` is a decoder, not a
   live view.
 * **Foreign outputs.** The engine tracks outputs of the wallet's own roles only. Apps supply the Ticker (as
