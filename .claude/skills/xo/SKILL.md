@@ -199,6 +199,11 @@ against package versions. Keep under ~300 lines; move long catalogues to `refere
 
 ## 9. Maintaining this file
 
+**User rule (2026-10-26): never name General Protocols, or "GP", in anything user-facing**: site, docs page,
+READMEs, design records, notes, template names/descriptions shown in wallets. Say "the XO team", "a standard
+oracle price message", "the Oracles.cash layout" (product names are allowed so far). This file is agent-only
+and may name them.
+
 Append dated bullets to the section they belong to; rewrite a bullet when a newer observation contradicts
 it; delete what a package release makes false (note the version). Prefer a measured fact (tx id, byte
 count, error string) over a belief. Keep user-facing explanation in `xo/README.md`; this file is for us.
